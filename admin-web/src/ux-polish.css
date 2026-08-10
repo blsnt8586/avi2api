@@ -1,0 +1,167 @@
+/* Focused UX layer. New shared states and responsive table behavior live here
+   while legacy page styles are migrated incrementally. */
+
+.page-header h1:focus {
+  outline: none;
+}
+
+.query-status {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.query-status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.query-status-error {
+  color: var(--red);
+}
+
+.table-skeleton {
+  width: 100%;
+  display: grid;
+  overflow: hidden;
+}
+
+.table-skeleton-row {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+}
+
+.table-skeleton-row:last-child {
+  border-bottom: 0;
+}
+
+.table-skeleton-row i {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface-hover), var(--border-strong), var(--surface-hover));
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+
+.table-skeleton-row i:nth-child(3n + 2) {
+  width: 74%;
+}
+
+.table-skeleton-row i:nth-child(3n) {
+  width: 58%;
+}
+
+table tr[tabindex]:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+  background: var(--surface-hover);
+}
+
+.admin-command-divider {
+  margin: 4px -8px 0;
+  border-top: 1px solid var(--border);
+  padding: 10px 16px 2px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.admin-command-item {
+  display: contents;
+}
+
+.admin-command-empty {
+  margin: 0;
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (max-width: 640px) {
+  .public-docs-title h1 {
+    font-size: 30px;
+  }
+
+  .task-table,
+  .request-log-table {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .task-head,
+  .request-log-table .row.head {
+    display: none;
+  }
+
+  .task-line:not(.task-head),
+  .request-log-table .row.task {
+    position: relative;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+    margin: 10px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    background: var(--surface);
+  }
+
+  .task-line:not(.task-head) > span:nth-child(1),
+  .task-line:not(.task-head) > span:nth-child(5),
+  .request-log-table .row.task > span:nth-child(1),
+  .request-log-table .row.task > span:nth-child(5) {
+    grid-column: 1 / -1;
+  }
+
+  .task-line:not(.task-head) > span:nth-child(4),
+  .task-line:not(.task-head) > span:nth-child(6) {
+    justify-self: end;
+  }
+
+  .task-line:not(.task-head) > span:nth-child(3)::before {
+    content: "积分 ";
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+
+  .request-log-table .row.task {
+    grid-template-columns: 1fr;
+  }
+
+  .request-log-table .row.task > span {
+    grid-column: 1;
+  }
+
+  .request-log-table .row.task > span + span {
+    border-top: 1px solid var(--border);
+    padding-top: 9px;
+  }
+
+  .table-skeleton-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table-skeleton-row i {
+    animation: none;
+  }
+}

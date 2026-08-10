@@ -1,0 +1,733 @@
+package httpapi
+
+import (
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/leonardo2api/leonardo2api/internal/accounts"
+	"github.com/leonardo2api/leonardo2api/internal/providers"
+	"github.com/leonardo2api/leonardo2api/internal/store"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+)
+
+func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request) {
+	overview, err := s.Store.GetAccountOverview(r.Context())
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	topAccounts, err := s.Store.ListAccountsPage(r.Context(), 1, 4, "")
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	taskOverview, err := s.Store.GetTaskOverview(r.Context())
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"accounts": overview.TotalAccounts, "active_accounts": overview.ActiveAccounts,
+		"task_counts": taskOverview.Counts, "task_total": taskOverview.Total,
+		"failed_last_hour": taskOverview.FailedLastHour, "total_tokens": overview.TotalTokens,
+		"reserved_tokens": overview.ReservedTokens, "available_tokens": overview.AvailableTokens,
+		"video_protected_tokens": overview.VideoProtectedTokens,
+		"video_ready_720p_15s":   overview.VideoReady720P15,
+		"video_ready_1080p_8s":   overview.VideoReady1080P8,
+		"video_ready_1080p_10s":  overview.VideoReady1080P10,
+		"top_accounts":           topAccounts.Data,
+	})
+}
+
+func (s *Server) adminAccounts(w http.ResponseWriter, r *http.Request) {
+	pageText := r.URL.Query().Get("page")
+	pageSizeText := r.URL.Query().Get("page_size")
+	search := r.URL.Query().Get("search")
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	role := strings.TrimSpace(r.URL.Query().Get("role"))
+	providerID := strings.TrimSpace(r.URL.Query().Get("provider"))
+	if status != "" && status != "attention" && status != "active" && status != "rate_limited" && status != "cooldown" && status != "invalid" && status != "disabled" {
+		writeError(w, 400, "invalid_filter", "status filter is invalid")
+		return
+	}
+	if role != "" && role != "general" && role != "video_reserved" {
+		writeError(w, 400, "invalid_filter", "role filter is invalid")
+		return
+	}
+	if pageText != "" || pageSizeText != "" || search != "" || status != "" || role != "" || providerID != "" {
+		page, pageSize, err := parsePage(pageText, pageSizeText, 20, 100)
+		if err != nil {
+			writeError(w, 400, "invalid_pagination", err.Error())
+			return
+		}
+		result, err := s.Store.ListAccountsPageFiltered(r.Context(), page, pageSize, store.AccountPageFilter{
+			Search: search, Status: status, Role: role, ProviderID: providerID,
+		})
+		if err != nil {
+			writeError(w, 500, "database_error", err.Error())
+			return
+		}
+		writeJSON(w, 200, result)
+		return
+	}
+	a, err := s.Store.ListAccounts(r.Context())
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, a)
+}
+
+func parsePage(pageText, pageSizeText string, defaultPageSize, maximumPageSize int) (int, int, error) {
+	page := 1
+	if pageText != "" {
+		value, err := strconv.Atoi(pageText)
+		if err != nil || value < 1 {
+			return 0, 0, errors.New("page must be a positive integer")
+		}
+		page = value
+	}
+	pageSize := defaultPageSize
+	if pageSizeText != "" {
+		value, err := strconv.Atoi(pageSizeText)
+		if err != nil || value < 1 || value > maximumPageSize {
+			return 0, 0, fmt.Errorf("page_size must be between 1 and %d", maximumPageSize)
+		}
+		pageSize = value
+	}
+	return page, pageSize, nil
+}
+
+func normalizeAccountConcurrency(value int) (int, error) {
+	if value == 0 {
+		return 5, nil
+	}
+	if value < 1 || value > 5 {
+		return 0, errors.New("image_concurrency must be between 1 and 5")
+	}
+	return value, nil
+}
+
+func normalizeAccountQueueCapacity(value int) (int, error) {
+	if value == 0 {
+		value = 40
+	}
+	if value < 1 || value > 1000 {
+		return 0, errors.New("queue_capacity must be between 1 and 1000")
+	}
+	return value, nil
+}
+
+func normalizeAccountRouting(role string, protectedTokens int64, videoReservedSlots, concurrency int) (string, int64, int, error) {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		role = "general"
+	}
+	if role != "general" && role != "video_reserved" {
+		return "", 0, 0, errors.New("routing_role must be general or video_reserved")
+	}
+	if protectedTokens < 0 {
+		return "", 0, 0, errors.New("protected_tokens must be non-negative")
+	}
+	if videoReservedSlots < 0 || videoReservedSlots > concurrency {
+		return "", 0, 0, errors.New("video_reserved_slots must be between 0 and image_concurrency")
+	}
+	return role, protectedTokens, videoReservedSlots, nil
+}
+
+func (s *Server) adminCreateAccount(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProviderID         string                   `json:"provider_id"`
+		Name               string                   `json:"name"`
+		Email              string                   `json:"email"`
+		Password           string                   `json:"password"`
+		Cookie             string                   `json:"cookie"`
+		ProxyURL           string                   `json:"proxy_url"`
+		ImageConcurrency   int                      `json:"image_concurrency"`
+		QueueCapacity      int                      `json:"queue_capacity"`
+		RoutingRole        string                   `json:"routing_role"`
+		ProtectedTokens    int64                    `json:"protected_tokens"`
+		VideoReservedSlots int                      `json:"video_reserved_slots"`
+		BrowserWorkerGroup string                   `json:"browser_worker_group"`
+		Session            *accounts.BrowserSession `json:"session"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.TrimSpace(req.Email)
+	req.Cookie = strings.TrimSpace(req.Cookie)
+	req.ProxyURL = strings.TrimSpace(req.ProxyURL)
+	req.BrowserWorkerGroup = strings.TrimSpace(req.BrowserWorkerGroup)
+	if req.BrowserWorkerGroup == "" {
+		req.BrowserWorkerGroup = "default"
+	}
+	if !validBrowserWorkerGroup(req.BrowserWorkerGroup) {
+		writeError(w, 400, "invalid_request", "browser_worker_group must use 1 to 100 letters, digits, dots, underscores or hyphens")
+		return
+	}
+	if req.Name == "" || req.Cookie == "" {
+		writeError(w, 400, "invalid_request", "name and cookie are required")
+		return
+	}
+	if req.Password != "" && req.Email == "" {
+		writeError(w, 400, "invalid_request", "email is required when password is configured")
+		return
+	}
+	if !strings.Contains(req.Cookie, "=") {
+		writeError(w, 400, "invalid_request", "cookie must use the name=value header format")
+		return
+	}
+	concurrency, err := normalizeAccountConcurrency(req.ImageConcurrency)
+	if err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	req.ImageConcurrency = concurrency
+	queueCapacity, err := normalizeAccountQueueCapacity(req.QueueCapacity)
+	if err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	req.QueueCapacity = queueCapacity
+	req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots, err = normalizeAccountRouting(req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots, req.ImageConcurrency)
+	if err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	if req.ProviderID == "" {
+		req.ProviderID = providers.Leonardo
+	}
+	if req.ProviderID != providers.Leonardo {
+		writeError(w, 422, "provider_unavailable", "provider authentication adapter is not registered")
+		return
+	}
+	a, err := s.Accounts.Create(r.Context(), req.Name, req.Email, req.Password, req.Cookie, req.ProxyURL, req.BrowserWorkerGroup, req.ImageConcurrency, req.QueueCapacity, req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots, req.Session)
+	if err != nil {
+		writeError(w, 400, "account_invalid", err.Error())
+		return
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.create", a.ID.String(), map[string]any{"name": a.Name, "provider_id": a.ProviderID, "image_concurrency": a.ImageConcurrency, "queue_capacity": a.QueueCapacity, "routing_role": a.RoutingRole, "protected_tokens": a.ProtectedTokens, "video_reserved_slots": a.VideoReservedSlots, "browser_worker_group": a.BrowserWorkerGroup, "automatic_login_configured": a.HasLoginCredentials})
+	writeJSON(w, 201, a)
+}
+
+func (s *Server) adminUpdateAccount(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, 400, "invalid_id", "invalid account id")
+		return
+	}
+	var req struct {
+		Name               *string `json:"name"`
+		Email              *string `json:"email"`
+		Password           *string `json:"password"`
+		ProxyURL           *string `json:"proxy_url"`
+		ImageConcurrency   *int    `json:"image_concurrency"`
+		QueueCapacity      *int    `json:"queue_capacity"`
+		RoutingRole        *string `json:"routing_role"`
+		ProtectedTokens    *int64  `json:"protected_tokens"`
+		VideoReservedSlots *int    `json:"video_reserved_slots"`
+		BrowserWorkerGroup *string `json:"browser_worker_group"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	if req.Name == nil && req.Email == nil && req.Password == nil && req.ProxyURL == nil && req.ImageConcurrency == nil && req.QueueCapacity == nil && req.RoutingRole == nil && req.ProtectedTokens == nil && req.VideoReservedSlots == nil && req.BrowserWorkerGroup == nil {
+		writeError(w, 400, "invalid_request", "at least one account field is required")
+		return
+	}
+	if req.Name != nil {
+		value := strings.TrimSpace(*req.Name)
+		if value == "" || utf8.RuneCountInString(value) > 200 {
+			writeError(w, 400, "invalid_request", "name must contain 1 to 200 characters")
+			return
+		}
+		req.Name = &value
+	}
+	if req.Email != nil {
+		value := strings.TrimSpace(*req.Email)
+		req.Email = &value
+	}
+	if req.Password != nil && *req.Password != "" {
+		credentialEmail := ""
+		if req.Email != nil {
+			credentialEmail = *req.Email
+		} else if current, getErr := s.Store.GetAccount(r.Context(), id); getErr == nil {
+			credentialEmail = current.Email
+		}
+		if strings.TrimSpace(credentialEmail) == "" {
+			writeError(w, 400, "invalid_request", "email is required when password is configured")
+			return
+		}
+	}
+	if req.ProxyURL != nil {
+		value := strings.TrimSpace(*req.ProxyURL)
+		req.ProxyURL = &value
+	}
+	if req.ImageConcurrency != nil && (*req.ImageConcurrency < 1 || *req.ImageConcurrency > 5) {
+		writeError(w, 400, "invalid_request", "image_concurrency must be between 1 and 5")
+		return
+	}
+	if req.QueueCapacity != nil && (*req.QueueCapacity < 1 || *req.QueueCapacity > 1000) {
+		writeError(w, 400, "invalid_request", "queue_capacity must be between 1 and 1000")
+		return
+	}
+	current, currentErr := s.Store.GetAccount(r.Context(), id)
+	if currentErr != nil {
+		if errors.Is(currentErr, store.ErrNotFound) {
+			writeError(w, 404, "not_found", "account not found")
+			return
+		}
+		writeError(w, 500, "database_error", currentErr.Error())
+		return
+	}
+	role := current.RoutingRole
+	protectedTokens := current.ProtectedTokens
+	videoReservedSlots := current.VideoReservedSlots
+	concurrencyForRouting := current.ImageConcurrency
+	if req.RoutingRole != nil {
+		role = strings.TrimSpace(*req.RoutingRole)
+		req.RoutingRole = &role
+	}
+	if req.ProtectedTokens != nil {
+		protectedTokens = *req.ProtectedTokens
+	}
+	if req.VideoReservedSlots != nil {
+		videoReservedSlots = *req.VideoReservedSlots
+	}
+	if req.ImageConcurrency != nil {
+		concurrencyForRouting = *req.ImageConcurrency
+	}
+	if _, _, _, routingErr := normalizeAccountRouting(role, protectedTokens, videoReservedSlots, concurrencyForRouting); routingErr != nil {
+		writeError(w, 400, "invalid_request", routingErr.Error())
+		return
+	}
+	if req.BrowserWorkerGroup != nil {
+		value := strings.TrimSpace(*req.BrowserWorkerGroup)
+		if !validBrowserWorkerGroup(value) {
+			writeError(w, 400, "invalid_request", "browser_worker_group must use 1 to 100 letters, digits, dots, underscores or hyphens")
+			return
+		}
+		req.BrowserWorkerGroup = &value
+	}
+
+	updated, err := s.Store.UpdateAccountConfig(r.Context(), id, store.AccountConfigPatch{
+		Name: req.Name, Email: req.Email, ProxyURL: req.ProxyURL,
+		ImageConcurrency: req.ImageConcurrency, QueueCapacity: req.QueueCapacity,
+		RoutingRole: req.RoutingRole, ProtectedTokens: req.ProtectedTokens, VideoReservedSlots: req.VideoReservedSlots,
+		BrowserWorkerGroup: req.BrowserWorkerGroup,
+	})
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, 404, "not_found", "account not found")
+		return
+	}
+	var capacityErr *store.AccountCapacityInUseError
+	if errors.As(err, &capacityErr) {
+		message := fmt.Sprintf("当前有 %d 个执行任务、%d 个排队任务；新并发不能低于执行数，新队列容量不能低于排队数", capacityErr.ExecutingTasks, capacityErr.QueuedTasks)
+		writeErrorDetails(w, http.StatusConflict, "account_capacity_in_use", message, map[string]any{
+			"executing_tasks":          capacityErr.ExecutingTasks,
+			"queued_tasks":             capacityErr.QueuedTasks,
+			"requested_concurrency":    capacityErr.RequestedConcurrency,
+			"requested_queue_capacity": capacityErr.RequestedQueue,
+		})
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	if req.Password != nil {
+		credentialEmail := updated.Email
+		if err := s.Accounts.SetLoginCredential(r.Context(), id, credentialEmail, *req.Password); err != nil {
+			writeError(w, 500, "credential_update_failed", err.Error())
+			return
+		}
+	} else if req.Email != nil && updated.HasLoginCredentials {
+		credential, credentialErr := s.Accounts.LoginCredential(r.Context(), id)
+		if credentialErr != nil {
+			writeError(w, 500, "credential_update_failed", credentialErr.Error())
+			return
+		}
+		if err := s.Accounts.SetLoginCredential(r.Context(), id, updated.Email, credential.Password); err != nil {
+			writeError(w, 500, "credential_update_failed", err.Error())
+			return
+		}
+	}
+	if req.Password != nil || (req.Email != nil && updated.HasLoginCredentials) {
+		updated, err = s.Store.GetAccount(r.Context(), id)
+		if err != nil {
+			writeError(w, 500, "database_error", err.Error())
+			return
+		}
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.update", id.String(), map[string]any{
+		"name":                       updated.Name,
+		"email":                      updated.Email,
+		"proxy_configured":           updated.ProxyURL != "",
+		"image_concurrency":          updated.ImageConcurrency,
+		"queue_capacity":             updated.QueueCapacity,
+		"routing_role":               updated.RoutingRole,
+		"protected_tokens":           updated.ProtectedTokens,
+		"video_reserved_slots":       updated.VideoReservedSlots,
+		"browser_worker_group":       updated.BrowserWorkerGroup,
+		"automatic_login_configured": updated.HasLoginCredentials,
+	})
+	writeJSON(w, 200, updated)
+}
+
+func (s *Server) adminRefreshAccount(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, 400, "invalid_id", "invalid account id")
+		return
+	}
+	a, err := s.Store.GetAccount(r.Context(), id)
+	if err == nil && a.CooldownUntil != nil && a.CooldownUntil.After(time.Now()) {
+		seconds := int(time.Until(*a.CooldownUntil).Round(time.Second) / time.Second)
+		if seconds < 1 {
+			seconds = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		writeError(w, http.StatusTooManyRequests, "account_cooldown", "account is cooling down after an upstream rate limit; retry after the indicated interval")
+		return
+	}
+	if err == nil {
+		var token string
+		a, token, err = s.Accounts.Token(r.Context(), a)
+		if err == nil {
+			a, err = s.Accounts.RefreshTokens(r.Context(), a, token)
+		}
+	}
+	if err != nil {
+		writeError(w, 400, "refresh_failed", err.Error())
+		return
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.refresh", id.String(), nil)
+	writeJSON(w, 200, a)
+}
+
+func (s *Server) adminImportAccountSession(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, 400, "invalid_id", "invalid account id")
+		return
+	}
+	var session accounts.BrowserSession
+	if err := decodeJSON(r, &session); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	a, err := s.Accounts.ImportBrowserSession(r.Context(), id, session)
+	if err != nil {
+		writeError(w, 400, "session_import_failed", err.Error())
+		return
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.session_import", id.String(), nil)
+	writeJSON(w, 200, a)
+}
+
+func (s *Server) internalImportAccountSession(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeSessionWorker(w, r) {
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, 400, "invalid_id", "invalid account id")
+		return
+	}
+	var session accounts.BrowserSession
+	if err := decodeJSON(r, &session); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	a, err := s.Accounts.ImportBrowserSession(r.Context(), id, session)
+	if err != nil {
+		writeError(w, 400, "session_import_failed", err.Error())
+		return
+	}
+	s.writeAudit(r.Context(), "session-sync", "account.session_import", id.String(), nil)
+	writeJSON(w, 200, a)
+}
+
+func (s *Server) authorizeSessionWorker(w http.ResponseWriter, r *http.Request) bool {
+	if !s.Config.SessionWorkerAllowRemote {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil || !net.ParseIP(host).IsLoopback() {
+			writeError(w, 403, "forbidden", "session worker is restricted to loopback")
+			return false
+		}
+	}
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	expected := s.Config.SessionSyncToken
+	providedHash := sha256.Sum256([]byte(token))
+	expectedHash := sha256.Sum256([]byte(expected))
+	if expected == "" || token == "" || !constantEqual(providedHash[:], expectedHash[:]) {
+		writeError(w, 401, "unauthorized", "invalid session worker token")
+		return false
+	}
+	return true
+}
+
+func (s *Server) internalClaimSessionRefresh(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeSessionWorker(w, r) {
+		return
+	}
+	var req struct {
+		WorkerID        string `json:"worker_id"`
+		WorkerGroup     string `json:"worker_group"`
+		HeadlessRefresh bool   `json:"headless_refresh"`
+		HeadedLogin     bool   `json:"headed_login"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	req.WorkerID = strings.TrimSpace(req.WorkerID)
+	req.WorkerGroup = strings.TrimSpace(req.WorkerGroup)
+	if req.WorkerGroup == "" {
+		req.WorkerGroup = "default"
+	}
+	if req.WorkerID == "" || len(req.WorkerID) > 200 {
+		writeError(w, 400, "invalid_request", "worker_id must contain 1 to 200 characters")
+		return
+	}
+	if !validBrowserWorkerGroup(req.WorkerGroup) {
+		writeError(w, 400, "invalid_request", "worker_group is invalid")
+		return
+	}
+	job, ok, err := s.Store.ClaimSessionRefreshJob(r.Context(), "browser", req.WorkerID, req.WorkerGroup, s.Config.SessionRefreshBrowserLease)
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	if !ok {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	account, err := s.Store.GetAccount(r.Context(), job.AccountID)
+	if err != nil {
+		_ = s.Store.FailSessionRefreshJob(r.Context(), job.ID, *job.LeaseToken, 5*time.Minute, "account disappeared after refresh claim")
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	if retryAfter := s.Accounts.ProxyControlRemaining(r.Context(), account.ProxyURL); retryAfter > 0 {
+		_ = s.Store.DeferSessionRefreshJob(r.Context(), job.ID, *job.LeaseToken, retryAfter, "shared upstream proxy control window is unavailable")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	profileKey := account.BrowserProfileKey
+	if profileKey == "" {
+		profileKey = account.ID.String()
+	}
+	response := map[string]any{
+		"job":                 job,
+		"browser_profile_key": profileKey,
+		"proxy_url":           account.ProxyURL,
+	}
+	if req.HeadlessRefresh {
+		cookieHeader, err := s.Accounts.SessionCookie(r.Context(), account.ID)
+		if err == nil && strings.TrimSpace(cookieHeader) != "" {
+			response["cookie_header"] = cookieHeader
+		}
+	}
+	if req.HeadedLogin && account.HasLoginCredentials {
+		credential, err := s.Accounts.LoginCredential(r.Context(), account.ID)
+		if err == nil {
+			response["login_email"] = credential.Email
+			response["login_password"] = credential.Password
+		}
+	}
+	writeJSON(w, 200, response)
+}
+
+func (s *Server) internalHeartbeatSessionRefresh(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeSessionWorker(w, r) {
+		return
+	}
+	id, leaseToken, ok := decodeSessionRefreshLease(w, r)
+	if !ok {
+		return
+	}
+	extended, err := s.Store.ExtendSessionRefreshLease(r.Context(), id, leaseToken, s.Config.SessionRefreshBrowserLease)
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	if !extended {
+		writeError(w, 409, "lease_lost", "session refresh lease is no longer owned by this worker")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *Server) internalCompleteSessionRefresh(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeSessionWorker(w, r) {
+		return
+	}
+	var req struct {
+		LeaseToken string `json:"lease_token"`
+		DurationMS int64  `json:"duration_ms"`
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil || decodeJSON(r, &req) != nil {
+		writeError(w, 400, "invalid_request", "invalid job id or completion payload")
+		return
+	}
+	leaseToken, err := uuid.Parse(req.LeaseToken)
+	if err != nil || req.DurationMS < 0 {
+		writeError(w, 400, "invalid_request", "invalid lease_token or duration_ms")
+		return
+	}
+	if err := s.Store.CompleteSessionRefreshJob(r.Context(), id, leaseToken, "browser", time.Duration(req.DurationMS)*time.Millisecond, s.Config.SessionRefreshMinFresh); err != nil {
+		writeError(w, 409, "session_not_fresh", "browser session was not imported with sufficient remaining JWT lifetime during this lease")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *Server) internalFailSessionRefresh(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeSessionWorker(w, r) {
+		return
+	}
+	var req struct {
+		LeaseToken string `json:"lease_token"`
+		Error      string `json:"error"`
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil || decodeJSON(r, &req) != nil {
+		writeError(w, 400, "invalid_request", "invalid job id or failure payload")
+		return
+	}
+	leaseToken, err := uuid.Parse(req.LeaseToken)
+	if err != nil {
+		writeError(w, 400, "invalid_request", "invalid lease_token")
+		return
+	}
+	job, err := s.Store.GetSessionRefreshJob(r.Context(), id)
+	if err != nil {
+		writeError(w, 404, "not_found", "session refresh job not found")
+		return
+	}
+	retrySteps := []time.Duration{2 * time.Minute, 5 * time.Minute, 10 * time.Minute, 20 * time.Minute, 30 * time.Minute}
+	retryIndex := min(max(job.AttemptCount-1, 0), len(retrySteps)-1)
+	if err := s.Store.FailSessionRefreshJob(r.Context(), id, leaseToken, retrySteps[retryIndex], req.Error); err != nil {
+		writeError(w, 409, "lease_lost", "session refresh lease is no longer owned by this worker")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "retry_after_seconds": int(retrySteps[retryIndex].Seconds())})
+}
+
+func decodeSessionRefreshLease(w http.ResponseWriter, r *http.Request) (uuid.UUID, uuid.UUID, bool) {
+	var req struct {
+		LeaseToken string `json:"lease_token"`
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil || decodeJSON(r, &req) != nil {
+		writeError(w, 400, "invalid_request", "invalid job id or lease payload")
+		return uuid.Nil, uuid.Nil, false
+	}
+	leaseToken, err := uuid.Parse(req.LeaseToken)
+	if err != nil {
+		writeError(w, 400, "invalid_request", "invalid lease_token")
+		return uuid.Nil, uuid.Nil, false
+	}
+	return id, leaseToken, true
+}
+
+func (s *Server) adminEnqueueSessionRefresh(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, 400, "invalid_id", "invalid account id")
+		return
+	}
+	job, err := s.Store.EnqueueSessionRefreshJob(r.Context(), id, 100)
+	if err != nil {
+		writeError(w, 404, "not_found", "account not found")
+		return
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.session_refresh_enqueue", id.String(), map[string]any{"job_id": job.ID})
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (s *Server) adminSessionRefreshJobs(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	jobs, err := s.Store.ListSessionRefreshJobs(r.Context(), limit)
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, jobs)
+}
+
+func (s *Server) adminSetAccountStatus(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, 400, "invalid_id", "invalid account id")
+		return
+	}
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	if req.Status != "active" && req.Status != "disabled" {
+		writeError(w, 400, "invalid_status", "status must be active or disabled")
+		return
+	}
+	if err := s.Store.SetAccountStatus(r.Context(), id, req.Status); err != nil {
+		writeError(w, 404, "not_found", "account not found")
+		return
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.status", id.String(), map[string]any{"status": req.Status})
+	writeJSON(w, 200, map[string]any{"id": id, "status": req.Status})
+}
+
+func (s *Server) adminSetAccountSessionWorkerGroup(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, 400, "invalid_id", "invalid account id")
+		return
+	}
+	var req struct {
+		WorkerGroup string `json:"browser_worker_group"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	req.WorkerGroup = strings.TrimSpace(req.WorkerGroup)
+	if !validBrowserWorkerGroup(req.WorkerGroup) {
+		writeError(w, 400, "invalid_request", "browser_worker_group must use 1 to 100 letters, digits, dots, underscores or hyphens")
+		return
+	}
+	if err := s.Store.SetAccountBrowserWorkerGroup(r.Context(), id, req.WorkerGroup); err != nil {
+		writeError(w, 404, "not_found", "account not found")
+		return
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.session_worker_group", id.String(), map[string]any{"browser_worker_group": req.WorkerGroup})
+	writeJSON(w, 200, map[string]any{"id": id, "browser_worker_group": req.WorkerGroup})
+}
+
+func validBrowserWorkerGroup(value string) bool {
+	if len(value) < 1 || len(value) > 100 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}

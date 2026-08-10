@@ -1,0 +1,12 @@
+{
+  "name": "Leonardo2API",
+  "dockerComposeFile": ["../docker-compose.yml", "docker-compose.yml"],
+  "service": "dev",
+  "runServices": ["postgres", "redis", "dev"],
+  "workspaceFolder": "/workspace",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {"version": "24"}
+  },
+  "postCreateCommand": "go mod download && cd admin-web && npm install --no-audit --no-fund",
+  "customizations": {"vscode":{"extensions":["golang.go","dbaeumer.vscode-eslint"]}}
+}

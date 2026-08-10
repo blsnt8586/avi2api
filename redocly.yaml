@@ -1,0 +1,9 @@
+apis:
+  aiv2api:
+    root: internal/httpapi/openapi.json
+
+rules:
+  operation-4xx-response: off
+  no-invalid-schema-examples: error
+  no-invalid-media-type-examples: error
+  no-invalid-parameter-examples: error

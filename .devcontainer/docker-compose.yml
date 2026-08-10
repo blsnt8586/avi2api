@@ -1,0 +1,14 @@
+services:
+  dev:
+    image: mcr.microsoft.com/devcontainers/go:1-1.25-bookworm
+    command: sleep infinity
+    volumes:
+      - ..:/workspace:cached
+    environment:
+      LEO_DATABASE_URL: postgres://leonardo:leonardo@postgres:5432/leonardo?sslmode=disable
+      LEO_REDIS_ADDR: redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

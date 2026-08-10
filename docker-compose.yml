@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: leonardo
+      POSTGRES_USER: leonardo
+      POSTGRES_PASSWORD: leonardo
+    volumes: ["postgres-data:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leonardo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  app:
+    build: .
+    ports: ["127.0.0.1:8080:8080"]
+    environment:
+      LEO_MODE: all
+      LEO_DATABASE_URL: postgres://leonardo:leonardo@postgres:5432/leonardo?sslmode=disable
+      LEO_REDIS_ADDR: redis:6379
+      LEO_MASTER_KEY: ${LEO_MASTER_KEY}
+      LEO_ADMIN_USERNAME: ${LEO_ADMIN_USERNAME:-admin}
+      LEO_ADMIN_PASSWORD: ${LEO_ADMIN_PASSWORD}
+      LEO_COOKIE_SECURE: "false"
+      LEO_PUBLIC_BASE_URL: http://127.0.0.1:8080
+      LEO_TASK_ASSET_DIR: /data/task-assets
+      LEO_MAX_VIDEO_BYTES: ${LEO_MAX_VIDEO_BYTES:-209715200}
+      LEO_MAX_AUDIO_BYTES: ${LEO_MAX_AUDIO_BYTES:-52428800}
+    volumes: ["task-assets:/data/task-assets"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+volumes:
+  postgres-data:
+  redis-data:
+  task-assets:

@@ -1,0 +1,8 @@
+[Unit]
+Description=AIV2API bounded storage maintenance
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/leonardo2api/scripts/storage_maintenance.sh

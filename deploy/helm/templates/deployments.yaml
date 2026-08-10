@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: {{ include "leo.name" . }}-api}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector: {matchLabels: {app: {{ include "leo.name" . }}, component: api}}
+  template:
+    metadata: {labels: {app: {{ include "leo.name" . }}, component: api}}
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom: [{configMapRef: {name: {{ include "leo.name" . }}}}, {secretRef: {name: {{ include "leo.name" . }}}}]
+          env: [{name: LEO_MODE, value: api}]
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /readyz, port: http}, initialDelaySeconds: 5, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 5, periodSeconds: 10}
+          resources: {{ toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: {{ include "leo.name" . }}-worker}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector: {matchLabels: {app: {{ include "leo.name" . }}, component: worker}}
+  template:
+    metadata: {labels: {app: {{ include "leo.name" . }}, component: worker}}
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom: [{configMapRef: {name: {{ include "leo.name" . }}}}, {secretRef: {name: {{ include "leo.name" . }}}}]
+          env: [{name: LEO_MODE, value: worker}]
+          resources: {{ toYaml .Values.resources | nindent 12 }}

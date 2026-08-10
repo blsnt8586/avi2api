@@ -1,0 +1,6 @@
+apiVersion: v2
+name: leonardo2api
+description: Horizontally scalable Leonardo web-session API proxy
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

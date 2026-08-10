@@ -1,0 +1,18 @@
+[Unit]
+Description=AIV2API leased Leonardo browser session worker
+After=network-online.target docker.service mihomo.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/leonardo2api
+ExecStart=/usr/bin/xvfb-run -a /opt/leonardo2api/.venv-login/bin/python /opt/leonardo2api/scripts/leonardo_session_worker.py --python /opt/leonardo2api/.venv-login/bin/python --sync-script /opt/leonardo2api/scripts/leonardo_sync_session.py --login-script /opt/leonardo2api/scripts/leonardo_login.py --profile-root /data/leonardo-session-profiles --output-root /data/leonardo-session-output --headless-refresh --headless-channel chrome --channel chrome --solve-captcha --concurrency 1 --worker-group default --proxy http://127.0.0.1:7890 --base-url http://127.0.0.1:18080 --env-file /opt/leonardo2api/.env.server
+TimeoutStopSec=45
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
