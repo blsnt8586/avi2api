@@ -53,7 +53,7 @@ func TestMigratedRulesCoverEveryPublishedCostCombination(t *testing.T) {
 	}
 
 	videoModels := []string{
-		"seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "flux-3-video",
+		"seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5", "flux-3-video",
 		"veo-3.1", "veo-3.1-fast", "kling-o3-omni", "minimax-h3", "grok-imagine-1.5",
 	}
 	for _, model := range videoModels {

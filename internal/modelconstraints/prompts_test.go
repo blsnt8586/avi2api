@@ -5,7 +5,7 @@ import "testing"
 func TestPublicPromptLimits(t *testing.T) {
 	want := map[string]int{
 		"gpt-image-2": 9999, "nano-banana-2": 9999, "nano-banana-pro": 9999, "seedream-5.0-pro": 9999,
-		"flux-3-video": 5000, "seedance-2.0": 5000, "seedance-2.0-fast": 5000, "seedance-2.0-mini": 5000,
+		"flux-3-video": 5000, "seedance-2.0": 5000, "seedance-2.0-fast": 5000, "seedance-2.0-mini": 5000, "seedance-2.5": 5000,
 		"veo-3.1": 9999, "veo-3.1-fast": 9999, "kling-o3-omni": 2500, "minimax-h3": 2000, "grok-imagine-1.5": 5000,
 		"dialogue-v3": 5000, "music-v1": 9999, "sound-effects-v2": 9999,
 	}

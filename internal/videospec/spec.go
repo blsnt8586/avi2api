@@ -50,6 +50,21 @@ var specs = map[string]Spec{
 		MaxReferenceImages: 4, SupportsStartEndFrame: true, SupportsEndFrame: true, MaxReferenceVideos: 3, MaxReferenceAudios: 1, MaxVideoDuration: 15, MaxAudioDuration: 15,
 		SupportsGenerateAudio: true,
 	},
+	"seedance-2.5": {
+		DefaultDuration: 8, Durations: integerRange(4, 30), DefaultSize: "1280x720",
+		Sizes: []string{
+			"992x432", "864x496", "752x560", "640x640", "560x752", "496x864",
+			"1470x630", "1280x720", "1112x834", "960x960", "834x1112", "720x1280",
+		},
+		DefaultResolution: "720p", Resolutions: []string{"480p", "720p"},
+		MaxReferenceImages: 30, SupportsStartEndFrame: true, SupportsEndFrame: true,
+		MaxReferenceVideos: 10, MaxReferenceAudios: 10, MaxVideoDuration: 30.2, MaxAudioDuration: 30.2,
+		SupportsGenerateAudio: true, UsesExactDimensions: true,
+		ResolutionBySize: map[string]string{
+			"992x432": "480p", "864x496": "480p", "752x560": "480p", "640x640": "480p", "560x752": "480p", "496x864": "480p",
+			"1470x630": "720p", "1280x720": "720p", "1112x834": "720p", "960x960": "720p", "834x1112": "720p", "720x1280": "720p",
+		},
+	},
 	"flux-3-video": {
 		DefaultDuration: 8, Durations: integerRange(5, 20), DefaultSize: "1280x720",
 		Sizes: []string{

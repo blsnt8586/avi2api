@@ -22,6 +22,28 @@ func TestNormalizeMiniMaxH3Options(t *testing.T) {
 	}
 }
 
+func TestNormalizeSeedance25Options(t *testing.T) {
+	spec, ok := videospec.Get("seedance-2.5")
+	if !ok {
+		t.Fatal("missing Seedance 2.5 spec")
+	}
+	request := domain.VideoRequest{Model: "seedance-2.5"}
+	if err := normalizeVideoOptions(&request, spec); err != nil {
+		t.Fatal(err)
+	}
+	if request.Size != "1280x720" || request.Resolution != "720p" || request.Duration != 8 || request.GenerateAudio == nil || !*request.GenerateAudio {
+		t.Fatalf("unexpected defaults: %+v", request)
+	}
+	standard := domain.VideoRequest{Model: "seedance-2.5", Size: "640x640", Duration: 30}
+	if err := normalizeVideoOptions(&standard, spec); err != nil || standard.Resolution != "480p" {
+		t.Fatalf("valid Standard request was rejected: request=%+v err=%v", standard, err)
+	}
+	mismatch := domain.VideoRequest{Model: "seedance-2.5", Size: "640x640", Resolution: "720p"}
+	if err := normalizeVideoOptions(&mismatch, spec); err == nil || !strings.Contains(err.Error(), "requires resolution 480p") {
+		t.Fatalf("size-tier mismatch was accepted: %v", err)
+	}
+}
+
 func TestNormalizeMiniMaxH3RejectsUnsupportedParameters(t *testing.T) {
 	spec, _ := videospec.Get("minimax-h3")
 	disabled := false

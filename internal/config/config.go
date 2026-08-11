@@ -93,7 +93,7 @@ func Load() (Config, error) {
 		AdminPassword:    os.Getenv("LEO_ADMIN_PASSWORD"),
 		SessionSyncToken: os.Getenv("LEO_SESSION_SYNC_TOKEN"),
 		PublicBaseURL:    strings.TrimRight(env("LEO_PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
-		SchemaVersion:    env("LEO_SCHEMA_VERSION", "1.255.2"),
+		SchemaVersion:    env("LEO_SCHEMA_VERSION", "1.258.0"),
 		TaskAssetDir:     env("LEO_TASK_ASSET_DIR", "./data/task-assets"),
 		LogLevel:         env("LEO_LOG_LEVEL", "info"),
 	}

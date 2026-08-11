@@ -158,7 +158,13 @@ func Video(ctx context.Context, rules RuleStore, request domain.VideoRequest) (E
 	}
 	tokens := rule.UnitTokens
 	if len(request.ReferenceVideos) > 0 {
-		if request.Model == "kling-o3-omni" {
+		if request.Model == "seedance-2.5" {
+			perSecond := int64(258)
+			if resolution == "720p" {
+				perSecond = 466
+			}
+			tokens = perSecond * int64(duration)
+		} else if request.Model == "kling-o3-omni" {
 			// Kling O3 Omni bills a video reference at 1.5 * 168 credits
 			// per input second. Admission requires duration to match the
 			// uploaded reference before the upstream request is submitted.

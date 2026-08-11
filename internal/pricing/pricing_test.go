@@ -54,6 +54,21 @@ func TestVideoEstimateReferenceModifier(t *testing.T) {
 	}
 }
 
+func TestSeedance25VideoReferenceUsesSchemaRates(t *testing.T) {
+	rules := fakeRules{
+		"video|seedance-2.5|||480p|\x08": {ID: 40, UnitTokens: 1440},
+		"video|seedance-2.5|||720p|\x08": {ID: 41, UnitTokens: 2336},
+	}
+	standard, err := Video(context.Background(), rules, domain.VideoRequest{Model: "seedance-2.5", Duration: 8, Size: "640x640", Resolution: "480p", ReferenceVideos: []domain.SourceMedia{{Path: "reference.mp4"}}})
+	if err != nil || standard.Tokens != 2064 || standard.RuleID != 40 {
+		t.Fatalf("480p estimate=%+v err=%v", standard, err)
+	}
+	hd, err := Video(context.Background(), rules, domain.VideoRequest{Model: "seedance-2.5", Duration: 8, Size: "1280x720", Resolution: "720p", ReferenceVideos: []domain.SourceMedia{{Path: "reference.mp4"}}})
+	if err != nil || hd.Tokens != 3728 || hd.RuleID != 41 {
+		t.Fatalf("720p estimate=%+v err=%v", hd, err)
+	}
+}
+
 func TestFlux3VideoEstimateUsesResolutionAndReferenceRates(t *testing.T) {
 	rules := fakeRules{
 		"video|flux-3-video|||720p|\b":  {ID: 30, UnitTokens: 1720, PriceVersion: "schema-1.255.2-flux3"},

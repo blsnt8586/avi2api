@@ -297,7 +297,7 @@ func (s *Server) adminCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", "concurrency_limit must be 1..1000 and expires_in_days must be 0..3650")
 		return
 	}
-	allowed := map[string]bool{"gpt-image-2": true, "nano-banana-2": true, "nano-banana-pro": true, "seedream-5.0-pro": true, "seedance-2.0": true, "seedance-2.0-fast": true, "seedance-2.0-mini": true, "flux-3-video": true, "veo-3.1": true, "veo-3.1-fast": true, "kling-o3-omni": true, "minimax-h3": true, "grok-imagine-1.5": true, "dialogue-v3": true, "music-v1": true, "sound-effects-v2": true}
+	allowed := map[string]bool{"gpt-image-2": true, "nano-banana-2": true, "nano-banana-pro": true, "seedream-5.0-pro": true, "seedance-2.0": true, "seedance-2.0-fast": true, "seedance-2.0-mini": true, "seedance-2.5": true, "flux-3-video": true, "veo-3.1": true, "veo-3.1-fast": true, "kling-o3-omni": true, "minimax-h3": true, "grok-imagine-1.5": true, "dialogue-v3": true, "music-v1": true, "sound-effects-v2": true}
 	if len(req.AllowedModels) == 0 {
 		for model := range allowed {
 			req.AllowedModels = append(req.AllowedModels, model)

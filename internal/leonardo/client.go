@@ -231,6 +231,22 @@ type PlatformImageModel struct {
 	ResolutionModes []string        `json:"resolution_modes,omitempty"`
 }
 
+type platformSchemaReference struct {
+	SchemaID   string          `json:"schemaId"`
+	SchemaData json.RawMessage `json:"schemaData"`
+}
+
+type platformRelease struct {
+	SchemaReferences []platformSchemaReference `json:"schemaReferences"`
+}
+
+type platformReleaseResponse struct {
+	PublicJSONSchemaRegistry struct {
+		Release platformRelease `json:"release"`
+	} `json:"publicJsonSchemaRegistry"`
+	Release platformRelease `json:"release"`
+}
+
 func (c *Client) ListPlatformImageModels(ctx context.Context, token, teamID string) ([]PlatformImageModel, error) {
 	return c.listPlatformModels(ctx, token, teamID, "image")
 }
@@ -244,25 +260,33 @@ func (c *Client) ListPlatformAudioModels(ctx context.Context, token, teamID stri
 }
 
 func (c *Client) listPlatformModels(ctx context.Context, token, teamID, mediaType string) ([]PlatformImageModel, error) {
-	const q = `query GetRelease($version: String!, $schemaIds: [String!]!) @cached(ttl: 300) { release(id:$version){id schemaReferences(schemaIds:$schemaIds,recursive:true){schemaId schemaData}} }`
-	var data struct {
-		Release struct {
-			SchemaReferences []struct {
-				SchemaID   string          `json:"schemaId"`
-				SchemaData json.RawMessage `json:"schemaData"`
-			} `json:"schemaReferences"`
-		} `json:"release"`
-	}
+	const publicRegistryQuery = `query GetRelease($version: String!, $schemaIds: [String!]!) @cached(ttl: 300) { publicJsonSchemaRegistry { release(id:$version) { id schemaReferences(schemaIds:$schemaIds,recursive:true) { schemaId schemaData } } } }`
+	const legacyQuery = `query GetRelease($version: String!, $schemaIds: [String!]!) @cached(ttl: 300) { release(id:$version){id schemaReferences(schemaIds:$schemaIds,recursive:true){schemaId schemaData}} }`
+	var data platformReleaseResponse
 	vars := map[string]any{"version": c.SchemaVersion, "schemaIds": []string{"https://leonardo.ai/platform/requests/generate/meta"}}
-	if err := c.graphql(ctx, token, teamID, "GetRelease", q, vars, &data); err != nil {
-		return nil, err
+	if err := c.graphql(ctx, token, teamID, "GetRelease", publicRegistryQuery, vars, &data); err != nil || len(data.PublicJSONSchemaRegistry.Release.SchemaReferences) == 0 {
+		data = platformReleaseResponse{}
+		if err := c.graphql(ctx, token, teamID, "GetRelease", legacyQuery, vars, &data); err != nil {
+			return nil, err
+		}
+	}
+	refs := data.PublicJSONSchemaRegistry.Release.SchemaReferences
+	if len(refs) == 0 {
+		refs = data.Release.SchemaReferences
 	}
 	var models []PlatformImageModel
-	for _, ref := range data.Release.SchemaReferences {
+	for _, ref := range refs {
 		if !strings.Contains(ref.SchemaID, "/requests/generate/models/") {
 			continue
 		}
 		var schema struct {
+			UIProperties struct {
+				Dimensions struct {
+					Options map[string]struct {
+						Sizes map[string]struct{} `json:"sizes"`
+					} `json:"ui:options"`
+				} `json:"dimensions"`
+			} `json:"ui:properties"`
 			Properties struct {
 				Model struct {
 					Const      string `json:"const"`
@@ -322,6 +346,18 @@ func (c *Client) listPlatformModels(ctx context.Context, token, teamID, mediaTyp
 		resolutionModes := schema.Properties.Parameters.Properties.Mode.Enum
 		if len(resolutionModes) == 0 {
 			resolutionModes = schema.Properties.Parameters.Properties.Resolution.Enum
+		}
+		if len(resolutionModes) == 0 {
+			modes := make(map[string]struct{})
+			for _, dimension := range schema.UIProperties.Dimensions.Options {
+				for mode := range dimension.Sizes {
+					modes[mode] = struct{}{}
+				}
+			}
+			for mode := range modes {
+				resolutionModes = append(resolutionModes, mode)
+			}
+			sort.Strings(resolutionModes)
 		}
 		models = append(models, PlatformImageModel{
 			ID: m.Const, Type: m.ModelConfig.Type, ModelID: m.ModelConfig.ID, Name: m.ModelConfig.Name, Provider: provider,

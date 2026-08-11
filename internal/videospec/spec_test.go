@@ -14,6 +14,7 @@ func TestPublicVideoSpecs(t *testing.T) {
 		{"seedance-2.0", 15, "2160p", 4, true, true},
 		{"seedance-2.0-fast", 15, "720p", 4, true, true},
 		{"seedance-2.0-mini", 15, "720p", 4, true, false},
+		{"seedance-2.5", 30, "720p", 30, true, false},
 		{"flux-3-video", 20, "1080p", 0, true, false},
 		{"veo-3.1", 8, "2160p", 3, true, true},
 		{"veo-3.1-fast", 6, "1080p", 0, true, true},
@@ -87,5 +88,12 @@ func TestSpecsRejectUnsupportedCombinations(t *testing.T) {
 		if spec.MaxReferenceAudios != 1 || spec.MaxVideoDuration != 15 || spec.MaxAudioDuration != 15 {
 			t.Fatalf("unexpected %s audio-reference contract: %+v", model, spec)
 		}
+	}
+	sd25, _ := Get("seedance-2.5")
+	if !sd25.SupportsSize("640x640") || !sd25.SupportsSize("1470x630") || sd25.SupportsSize("1280x1280") || sd25.MaxReferenceVideos != 10 || sd25.MaxReferenceAudios != 10 || sd25.MaxVideoDuration != 30.2 || sd25.MaxAudioDuration != 30.2 {
+		t.Fatalf("unexpected Seedance 2.5 contract: %+v", sd25)
+	}
+	if resolution, ok := sd25.ResolutionForSize("640x640"); !ok || resolution != "480p" {
+		t.Fatalf("unexpected Seedance 2.5 size tier: resolution=%q ok=%v", resolution, ok)
 	}
 }

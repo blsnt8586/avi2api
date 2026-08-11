@@ -11,6 +11,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+RUN rm -rf ./internal/web/dist
 COPY --from=web /src/internal/web/dist ./internal/web/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/aiv2api ./cmd/leonardo2api
 

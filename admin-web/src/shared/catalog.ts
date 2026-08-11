@@ -215,6 +215,7 @@ export const keyModelGroups = [
       "seedance-2.0",
       "seedance-2.0-fast",
       "seedance-2.0-mini",
+      "seedance-2.5",
       "veo-3.1",
       "veo-3.1-fast",
       "kling-o3-omni",

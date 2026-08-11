@@ -40,7 +40,7 @@ func TestPromptLimitsRunBeforeTaskAdmission(t *testing.T) {
 		kind  string
 	}{
 		{"gpt-image-2", "image"}, {"nano-banana-2", "image"}, {"nano-banana-pro", "image"}, {"seedream-5.0-pro", "image"},
-		{"flux-3-video", "video"}, {"seedance-2.0", "video"}, {"seedance-2.0-fast", "video"}, {"seedance-2.0-mini", "video"}, {"veo-3.1", "video"}, {"veo-3.1-fast", "video"}, {"kling-o3-omni", "video"}, {"minimax-h3", "video"}, {"grok-imagine-1.5", "video"},
+		{"flux-3-video", "video"}, {"seedance-2.0", "video"}, {"seedance-2.0-fast", "video"}, {"seedance-2.0-mini", "video"}, {"seedance-2.5", "video"}, {"veo-3.1", "video"}, {"veo-3.1-fast", "video"}, {"kling-o3-omni", "video"}, {"minimax-h3", "video"}, {"grok-imagine-1.5", "video"},
 		{"dialogue-v3", "audio"}, {"music-v1", "audio"}, {"sound-effects-v2", "audio"},
 	} {
 		t.Run(test.model, func(t *testing.T) {

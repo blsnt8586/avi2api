@@ -581,6 +581,33 @@ func TestListPlatformImageModels(t *testing.T) {
 	}
 }
 
+func TestListPlatformVideoModelsUsesPublicSchemaRegistry(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body struct {
+			Query string `json:"query"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(body.Query, "publicJsonSchemaRegistry") {
+			t.Fatalf("missing public schema registry query: %s", body.Query)
+		}
+		_, _ = io.WriteString(w, `{"data":{"publicJsonSchemaRegistry":{"release":{"schemaReferences":[{"schemaId":"https://leonardo.ai/platform/requests/generate/models/bytedance/seedance-2.5","schemaData":{"ui:properties":{"dimensions":{"ui:options":{"16:9":{"sizes":{"RESOLUTION_480":{},"RESOLUTION_720":{}}}}}},"properties":{"model":{"const":"bytedance/seedance-2.5","ui:metadata":{"order":839,"description":"video model","badge":{"alt":"Seedance logo"}},"leo:model_config":{"id":"m25","name":"Seedance 2.5","type":"video","capabilities":{"generate":true,"production_api_availability":true}},"leo:cost_config":{"tokens":{"type":"fixed","amount":180}}},"parameters":{"properties":{"duration":{"enum":[4,30],"default":8},"quantity":{"default":1,"maximum":1}}}}}}]}}}}`)
+	}))
+	defer srv.Close()
+	c, _ := New("", "ua", "1.258.0")
+	c.GraphQLURL = srv.URL
+	models, err := c.ListPlatformVideoModels(context.Background(), "at", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || len(models) != 1 || models[0].ID != "bytedance/seedance-2.5" || !reflect.DeepEqual(models[0].ResolutionModes, []string{"RESOLUTION_480", "RESOLUTION_720"}) {
+		t.Fatalf("requests=%d models=%+v", requests, models)
+	}
+}
+
 func TestUploadInitImage(t *testing.T) {
 	var api *httptest.Server
 	polls := 0

@@ -28,7 +28,7 @@ func TestOpenAPISpec(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.OpenAPI != "3.1.0" || document.Info.Version != "1.5.1" || document.Paths["/v1/images/generations"] == nil || document.Paths["/v1/images/estimate"] == nil || document.Paths["/v1/videos/estimate"] == nil || document.Paths["/v1/audio/generations"] == nil || document.Paths["/v1/chat/completions"] == nil || document.Paths["/v1/tasks/images"] == nil {
+	if document.OpenAPI != "3.1.0" || document.Info.Version != "1.6.0" || document.Paths["/v1/images/generations"] == nil || document.Paths["/v1/images/estimate"] == nil || document.Paths["/v1/videos/estimate"] == nil || document.Paths["/v1/audio/generations"] == nil || document.Paths["/v1/chat/completions"] == nil || document.Paths["/v1/tasks/images"] == nil {
 		t.Fatalf("incomplete OpenAPI document: openapi=%q contract=%q paths=%d", document.OpenAPI, document.Info.Version, len(document.Paths))
 	}
 }
@@ -98,7 +98,7 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 		t.Fatalf("Grok Imagine 1.5 frame exception is missing: %+v", modes["frame"])
 	}
 	videoModels := modes["video"]["models"].([]any)
-	if len(videoModels) != 5 || !containsOpenAPIValue(videoModels, "flux-3-video") || !containsOpenAPIValue(videoModels, "kling-o3-omni") || containsOpenAPIValue(videoModels, "minimax-h3") {
+	if len(videoModels) != 6 || !containsOpenAPIValue(videoModels, "flux-3-video") || !containsOpenAPIValue(videoModels, "seedance-2.5") || !containsOpenAPIValue(videoModels, "kling-o3-omni") || containsOpenAPIValue(videoModels, "minimax-h3") {
 		t.Fatalf("video-reference mode models are incomplete: %+v", modes["video"])
 	}
 	if !strings.Contains(modes["audio"]["rule"].(string), "MiniMax H3 requires an ordinary image") {
@@ -113,7 +113,7 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 		t.Fatalf("frame reference exclusions are incomplete: %+v", combinations)
 	}
 	rawCombinationRules, ok := combinations["rules"].([]any)
-	if !ok || len(rawCombinationRules) != 5 {
+	if !ok || len(rawCombinationRules) != 6 {
 		t.Fatalf("video reference combinations are incomplete: %+v", combinations["rules"])
 	}
 	combinationRules := make(map[string]map[string]any)
@@ -127,6 +127,10 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	seedanceAudioDependencies := combinationRules["seedance-2.0"]["audio_requires_any"].([]any)
 	if !containsOpenAPIValue(seedanceCombinations, "image") || !containsOpenAPIValue(seedanceCombinations, "video") || !containsOpenAPIValue(seedanceCombinations, "audio") || !containsOpenAPIValue(seedanceAudioDependencies, "image") || !containsOpenAPIValue(seedanceAudioDependencies, "video") {
 		t.Fatalf("Seedance reference combinations are unclear: %+v", combinationRules["seedance-2.0"])
+	}
+	seedance25 := combinationRules["seedance-2.5"]
+	if seedance25 == nil || seedance25["max_reference_images"] != float64(30) || seedance25["max_reference_videos"] != float64(10) || seedance25["max_reference_audios"] != float64(10) || seedance25["max_reference_media_duration_seconds"] != 30.2 {
+		t.Fatalf("Seedance 2.5 reference combinations are incomplete: %+v", seedance25)
 	}
 	if combinationRules["flux-3-video"] == nil {
 		t.Fatal("FLUX 3 Video reference combinations are missing")
@@ -211,7 +215,7 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 		}
 	}
 	for schemaName, limit := range map[string]float64{
-		"Flux3VideoRequest": 5000, "SeedanceVideoRequest": 5000,
+		"Flux3VideoRequest": 5000, "SeedanceVideoRequest": 5000, "Seedance25VideoRequest": 5000,
 		"Veo31VideoRequest": 9999, "KlingO3OmniVideoRequest": 2500, "MiniMaxH3VideoRequest": 2000,
 		"GrokImagine15ReferenceRequest": 5000,
 		"DialogueAudioRequest":          5000, "MusicAudioRequest": 9999, "SoundEffectsAudioRequest": 9999,
@@ -229,6 +233,15 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	flux3Reference := schemas["Flux3VideoReferenceRequest"].(map[string]any)["properties"].(map[string]any)
 	if flux3Reference["image"] != nil || flux3Reference["audio"] != nil || flux3Reference["video"].(map[string]any)["maxItems"] != float64(1) || !strings.Contains(flux3Reference["video"].(map[string]any)["description"].(string), "15.05 seconds") {
 		t.Fatalf("FLUX 3 Video reference limits are incomplete: %+v", flux3Reference)
+	}
+	seedance25Video := schemas["Seedance25VideoRequest"].(map[string]any)["properties"].(map[string]any)
+	seedance25Size := schemas["Seedance25Size"].(map[string]any)
+	if seedance25Video["duration"].(map[string]any)["maximum"] != float64(30) || len(seedance25Size["enum"].([]any)) != 12 || seedance25Size["x-resolution-by-size"].(map[string]any)["640x640"] != "480p" || seedance25Size["x-resolution-by-size"].(map[string]any)["960x960"] != "720p" {
+		t.Fatalf("Seedance 2.5 video contract is incomplete: video=%+v size=%+v", seedance25Video, seedance25Size)
+	}
+	seedance25Reference := schemas["Seedance25ReferenceRequest"].(map[string]any)["properties"].(map[string]any)
+	if seedance25Reference["image"].(map[string]any)["maxItems"] != float64(30) || seedance25Reference["video"].(map[string]any)["maxItems"] != float64(10) || seedance25Reference["audio"].(map[string]any)["maxItems"] != float64(10) || !strings.Contains(seedance25Reference["audio"].(map[string]any)["description"].(string), "30.2 seconds") {
+		t.Fatalf("Seedance 2.5 reference limits are incomplete: %+v", seedance25Reference)
 	}
 	o3Video := schemas["KlingO3OmniVideoRequest"].(map[string]any)["properties"].(map[string]any)
 	o3Size := schemas["KlingO3OmniSize"].(map[string]any)

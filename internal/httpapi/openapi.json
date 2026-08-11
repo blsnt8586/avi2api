@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AIV2API",
-    "version": "1.5.1",
+    "version": "1.6.0",
     "description": "Image, video, and audio generation API. Video, audio, and asynchronous image endpoints return tasks.",
     "license": {"name": "All rights reserved", "identifier": "LicenseRef-Proprietary"}
   },
@@ -18,6 +18,7 @@
       "seedance-2.0": 5000,
       "seedance-2.0-fast": 5000,
       "seedance-2.0-mini": 5000,
+      "seedance-2.5": 5000,
       "veo-3.1": 9999,
       "veo-3.1-fast": 9999,
       "kling-o3-omni": 2500,
@@ -96,13 +97,13 @@
         "tags": ["Videos"],
         "operationId": "createVideo",
         "summary": "Create a video task",
-        "description": "The five entries below are request templates, not values for a mode field and not all mutually exclusive. The API has no mode field: it infers reference inputs from uploaded multipart fields. No-reference requests use application/json; requests with reference media use multipart/form-data. Seedance can combine image, video, and audio references; Kling O3 Omni accepts up to seven images, start/end frames, or one video plus up to four images; FLUX 3 Video supports either start/end frames or one video continuation reference; MiniMax H3 can combine image and audio references. Frame inputs are exclusive with all other reference media. Grok Imagine 1.5 is image-to-video only: start_frame is required and end_frame is unsupported.",
+        "description": "The entries below are request templates, not values for a mode field and not all mutually exclusive. The API has no mode field: it infers reference inputs from uploaded multipart fields. No-reference requests use application/json; requests with reference media use multipart/form-data. Seedance 2.5 and Seedance 2.0 can combine image, video, and audio references; Kling O3 Omni accepts up to seven images, start/end frames, or one video plus up to four images; FLUX 3 Video supports either start/end frames or one video continuation reference; MiniMax H3 can combine image and audio references. Frame inputs are exclusive with all other reference media. Grok Imagine 1.5 is image-to-video only: start_frame is required and end_frame is unsupported.",
         "x-generation-modes": [
-          {"id": "none", "name": "No reference", "content_type": "application/json", "models": ["flux-3-video", "seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "veo-3.1", "veo-3.1-fast", "kling-o3-omni", "minimax-h3"], "required_media": [], "rule": "Do not send image, start_frame, end_frame, video, or audio."},
-          {"id": "image", "name": "Image reference", "content_type": "multipart/form-data", "models": ["seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "veo-3.1", "kling-o3-omni", "minimax-h3"], "required_media": ["image or image[]"], "rule": "Cannot be combined with start_frame or end_frame. Veo 3.1 fixes size=1280x720 and duration=8. Kling O3 Omni accepts seven images, or four when a video reference is also present."},
-          {"id": "frame", "name": "Start/end frame", "content_type": "multipart/form-data", "models": ["flux-3-video", "seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "veo-3.1", "veo-3.1-fast", "kling-o3-omni", "minimax-h3", "grok-imagine-1.5"], "required_media": ["start_frame"], "optional_media": ["end_frame"], "model_exceptions": {"grok-imagine-1.5": "start_frame is required and end_frame is unsupported"}, "rule": "end_frame requires start_frame. Frames cannot be combined with ordinary images, videos, or audio. Grok Imagine 1.5 requires start_frame and rejects end_frame."},
-          {"id": "video", "name": "Video reference", "content_type": "multipart/form-data", "models": ["flux-3-video", "seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "kling-o3-omni"], "required_media": ["video or video[]"], "rule": "Kling O3 Omni accepts one 3-10.05 second file and up to four images; duration must match the file within 0.05 seconds and 2160p is unavailable. FLUX 3 Video accepts one file up to 50 MB and 15.05 seconds; Seedance 2.0 models accept 3 files totaling 15 seconds. Cannot be combined with start_frame or end_frame."},
-          {"id": "audio", "name": "Audio reference", "content_type": "multipart/form-data", "models": ["seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "minimax-h3"], "required_media": ["audio or audio[]", "supporting reference"], "rule": "Seedance requires an image or video and accepts one audio file totaling 15 seconds. MiniMax H3 requires an ordinary image and accepts three totaling 15 seconds."}
+          {"id": "none", "name": "No reference", "content_type": "application/json", "models": ["flux-3-video", "seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5", "veo-3.1", "veo-3.1-fast", "kling-o3-omni", "minimax-h3"], "required_media": [], "rule": "Do not send image, start_frame, end_frame, video, or audio."},
+          {"id": "image", "name": "Image reference", "content_type": "multipart/form-data", "models": ["seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5", "veo-3.1", "kling-o3-omni", "minimax-h3"], "required_media": ["image or image[]"], "rule": "Cannot be combined with start_frame or end_frame. Seedance 2.5 accepts up to 30 images. Veo 3.1 fixes size=1280x720 and duration=8. Kling O3 Omni accepts seven images, or four when a video reference is also present."},
+          {"id": "frame", "name": "Start/end frame", "content_type": "multipart/form-data", "models": ["flux-3-video", "seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5", "veo-3.1", "veo-3.1-fast", "kling-o3-omni", "minimax-h3", "grok-imagine-1.5"], "required_media": ["start_frame"], "optional_media": ["end_frame"], "model_exceptions": {"grok-imagine-1.5": "start_frame is required and end_frame is unsupported"}, "rule": "end_frame requires start_frame. Frames cannot be combined with ordinary images, videos, or audio. Grok Imagine 1.5 requires start_frame and rejects end_frame."},
+          {"id": "video", "name": "Video reference", "content_type": "multipart/form-data", "models": ["flux-3-video", "seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5", "kling-o3-omni"], "required_media": ["video or video[]"], "rule": "Seedance 2.5 accepts up to 10 files totaling 30.2 seconds. Kling O3 Omni accepts one 3-10.05 second file and up to four images; duration must match the file within 0.05 seconds and 2160p is unavailable. FLUX 3 Video accepts one file up to 50 MB and 15.05 seconds; Seedance 2.0 models accept 3 files totaling 15 seconds. Cannot be combined with start_frame or end_frame."},
+          {"id": "audio", "name": "Audio reference", "content_type": "multipart/form-data", "models": ["seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5", "minimax-h3"], "required_media": ["audio or audio[]", "supporting reference"], "rule": "Seedance 2.5 accepts up to 10 files totaling 30.2 seconds and requires an image or video. Seedance 2.0 models accept one audio file totaling 15 seconds. MiniMax H3 requires an ordinary image and accepts three totaling 15 seconds."}
         ],
         "x-reference-combinations": {
           "mode_field": false,
@@ -115,6 +116,15 @@
               "models": ["seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini"],
               "combinable_reference_fields": ["image", "video", "audio"],
               "audio_requires_any": ["image", "video"]
+            },
+            {
+              "models": ["seedance-2.5"],
+              "combinable_reference_fields": ["image", "video", "audio"],
+              "audio_requires_any": ["image", "video"],
+              "max_reference_images": 30,
+              "max_reference_videos": 10,
+              "max_reference_audios": 10,
+              "max_reference_media_duration_seconds": 30.2
             },
             {
               "models": ["flux-3-video"],
@@ -389,6 +399,7 @@
           {"$ref": "#/components/schemas/Flux3VideoRequest"},
           {"$ref": "#/components/schemas/SeedanceVideoRequest"},
           {"$ref": "#/components/schemas/SeedanceFastVideoRequest"},
+          {"$ref": "#/components/schemas/Seedance25VideoRequest"},
           {"$ref": "#/components/schemas/Veo31VideoRequest"},
           {"$ref": "#/components/schemas/KlingO3OmniVideoRequest"},
           {"$ref": "#/components/schemas/MiniMaxH3VideoRequest"}
@@ -416,6 +427,37 @@
           "resolution": {"type": "string", "enum": ["480p", "720p", "1080p", "2160p"], "default": "720p"},
           "generate_audio": {"type": "boolean", "default": true, "description": "Accepted by Leonardo. The current schema price is unchanged when false."}
         }
+      },
+      "Seedance25Size": {
+        "type": "string",
+        "enum": ["992x432", "864x496", "752x560", "640x640", "560x752", "496x864", "1470x630", "1280x720", "1112x834", "960x960", "834x1112", "720x1280"],
+        "default": "1280x720",
+        "description": "Exact Leonardo output dimensions. Each size is tied to the 480p or 720p price tier.",
+        "x-resolution-by-size": {
+          "992x432": "480p", "864x496": "480p", "752x560": "480p", "640x640": "480p", "560x752": "480p", "496x864": "480p",
+          "1470x630": "720p", "1280x720": "720p", "1112x834": "720p", "960x960": "720p", "834x1112": "720p", "720x1280": "720p"
+        }
+      },
+      "Seedance25DimensionRules": {
+        "description": "Enforces Seedance 2.5 size-to-resolution price tier mapping when both fields are present.",
+        "allOf": [
+          {"if": {"required": ["size"], "properties": {"size": {"enum": ["992x432", "864x496", "752x560", "640x640", "560x752", "496x864"]}}}, "then": {"properties": {"resolution": {"const": "480p"}}}},
+          {"if": {"required": ["size"], "properties": {"size": {"enum": ["1470x630", "1280x720", "1112x834", "960x960", "834x1112", "720x1280"]}}}, "then": {"properties": {"resolution": {"const": "720p"}}}},
+          {"if": {"required": ["resolution"], "properties": {"resolution": {"const": "480p"}}}, "then": {"properties": {"size": {"enum": ["992x432", "864x496", "752x560", "640x640", "560x752", "496x864"]}}}},
+          {"if": {"required": ["resolution"], "properties": {"resolution": {"const": "720p"}}}, "then": {"properties": {"size": {"enum": ["1470x630", "1280x720", "1112x834", "960x960", "834x1112", "720x1280"]}}}}
+        ]
+      },
+      "Seedance25VideoRequest": {
+        "type": "object", "required": ["model", "prompt"], "additionalProperties": false,
+        "properties": {
+          "model": {"const": "seedance-2.5"},
+          "prompt": {"type": "string", "minLength": 1, "maxLength": 5000},
+          "duration": {"type": "integer", "minimum": 4, "maximum": 30, "default": 8},
+          "size": {"$ref": "#/components/schemas/Seedance25Size"},
+          "resolution": {"type": "string", "enum": ["480p", "720p"], "default": "720p"},
+          "generate_audio": {"type": "boolean", "default": true, "description": "Controls native output audio. The current Leonardo tokens price is unchanged when false."}
+        },
+        "allOf": [{"$ref": "#/components/schemas/Seedance25DimensionRules"}]
       },
       "SeedanceFastVideoRequest": {
         "type": "object", "required": ["model", "prompt"], "additionalProperties": false,
@@ -467,6 +509,7 @@
           {"$ref": "#/components/schemas/Flux3VideoEstimateRequest"},
           {"$ref": "#/components/schemas/SeedanceVideoEstimateRequest"},
           {"$ref": "#/components/schemas/SeedanceFastVideoEstimateRequest"},
+          {"$ref": "#/components/schemas/Seedance25VideoEstimateRequest"},
           {"$ref": "#/components/schemas/Veo31VideoEstimateRequest"},
           {"$ref": "#/components/schemas/KlingO3OmniVideoEstimateRequest"},
           {"$ref": "#/components/schemas/MiniMaxH3VideoEstimateRequest"},
@@ -488,6 +531,18 @@
       "SeedanceVideoEstimateRequest": {
         "type": "object", "required": ["model"], "additionalProperties": false,
         "properties": {"model": {"const": "seedance-2.0"}, "duration": {"type": "integer", "minimum": 4, "maximum": 15, "default": 8}, "size": {"type": "string", "enum": ["1280x720", "720x1280"], "default": "1280x720"}, "resolution": {"type": "string", "enum": ["480p", "720p", "1080p", "2160p"], "default": "720p"}, "generate_audio": {"type": "boolean", "default": true}, "has_video_reference": {"type": "boolean", "default": false}}
+      },
+      "Seedance25VideoEstimateRequest": {
+        "type": "object", "required": ["model"], "additionalProperties": false,
+        "properties": {
+          "model": {"const": "seedance-2.5"},
+          "duration": {"type": "integer", "minimum": 4, "maximum": 30, "default": 8},
+          "size": {"$ref": "#/components/schemas/Seedance25Size"},
+          "resolution": {"type": "string", "enum": ["480p", "720p"], "default": "720p"},
+          "generate_audio": {"type": "boolean", "default": true},
+          "has_video_reference": {"type": "boolean", "default": false}
+        },
+        "allOf": [{"$ref": "#/components/schemas/Seedance25DimensionRules"}]
       },
       "SeedanceFastVideoEstimateRequest": {
         "type": "object", "required": ["model"], "additionalProperties": false,
@@ -532,6 +587,7 @@
           {"$ref": "#/components/schemas/Flux3VideoReferenceRequest"},
           {"$ref": "#/components/schemas/SeedanceReferenceRequest"},
           {"$ref": "#/components/schemas/SeedanceFastReferenceRequest"},
+          {"$ref": "#/components/schemas/Seedance25ReferenceRequest"},
           {"$ref": "#/components/schemas/Veo31ReferenceRequest"},
           {"$ref": "#/components/schemas/Veo31FastReferenceRequest"},
           {"$ref": "#/components/schemas/KlingO3OmniReferenceRequest"},
@@ -587,6 +643,30 @@
           {"if": {"properties": {"end_frame": {}}, "required": ["end_frame"]}, "then": {"properties": {"start_frame": {}}, "required": ["start_frame"]}},
           {"if": {"properties": {"start_frame": {}, "end_frame": {}}, "anyOf": [{"properties": {"start_frame": {}}, "required": ["start_frame"]}, {"properties": {"end_frame": {}}, "required": ["end_frame"]}]}, "then": {"not": {"anyOf": [{"properties": {"image": {}}, "required": ["image"]}, {"properties": {"video": {}}, "required": ["video"]}, {"properties": {"audio": {}}, "required": ["audio"]}]}}},
           {"if": {"properties": {"audio": {}}, "required": ["audio"]}, "then": {"properties": {"image": {}, "video": {}}, "anyOf": [{"properties": {"image": {}}, "required": ["image"]}, {"properties": {"video": {}}, "required": ["video"]}]}}
+        ]
+      },
+      "Seedance25ReferenceRequest": {
+        "description": "Seedance 2.5 multipart request. Ordinary image, video, and audio references may be combined. start_frame with optional end_frame is a separate mode and is exclusive with those reference fields. Audio requires at least one ordinary image or video reference.",
+        "type": "object", "required": ["model", "prompt"], "additionalProperties": false,
+        "properties": {
+          "model": {"const": "seedance-2.5"},
+          "prompt": {"type": "string", "minLength": 1, "maxLength": 5000},
+          "duration": {"type": "integer", "minimum": 4, "maximum": 30, "default": 8},
+          "size": {"$ref": "#/components/schemas/Seedance25Size"},
+          "resolution": {"type": "string", "enum": ["480p", "720p"], "default": "720p"},
+          "image": {"type": "array", "maxItems": 30, "items": {"type": "string", "format": "binary"}},
+          "start_frame": {"type": "string", "format": "binary"},
+          "end_frame": {"type": "string", "format": "binary", "description": "Requires start_frame."},
+          "video": {"type": "array", "maxItems": 10, "description": "MP4, MOV, or WebM; combined duration must not exceed 30.2 seconds.", "items": {"type": "string", "format": "binary"}},
+          "audio": {"type": "array", "maxItems": 10, "description": "Combined duration must not exceed 30.2 seconds; requires an ordinary image or video reference.", "items": {"type": "string", "format": "binary"}},
+          "reference_strength": {"type": "string", "enum": ["LOW", "MID", "HIGH"], "default": "MID"},
+          "generate_audio": {"type": "boolean", "default": true}
+        },
+        "allOf": [
+          {"$ref": "#/components/schemas/Seedance25DimensionRules"},
+          {"if": {"required": ["end_frame"]}, "then": {"required": ["start_frame"]}},
+          {"if": {"anyOf": [{"required": ["start_frame"]}, {"required": ["end_frame"]}]}, "then": {"not": {"anyOf": [{"required": ["image"]}, {"required": ["video"]}, {"required": ["audio"]}]}}},
+          {"if": {"required": ["audio"]}, "then": {"anyOf": [{"required": ["image"]}, {"required": ["video"]}]}}
         ]
       },
       "Veo31ReferenceRequest": {

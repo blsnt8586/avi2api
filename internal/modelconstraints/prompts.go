@@ -13,6 +13,7 @@ var promptLimits = map[string]int{
 	"seedance-2.0":      5000,
 	"seedance-2.0-fast": 5000,
 	"seedance-2.0-mini": 5000,
+	"seedance-2.5":      5000,
 	"veo-3.1":           9999,
 	"veo-3.1-fast":      9999,
 	"kling-o3-omni":     2500,

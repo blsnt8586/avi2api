@@ -1,6 +1,6 @@
 # AIV2API Project Record
 
-Last updated: 2026-08-09
+Last updated: 2026-08-11
 
 ## Project Goal
 
@@ -114,6 +114,7 @@ Public models:
 - `seedance-2.0`
 - `seedance-2.0-fast`
 - `seedance-2.0-mini`
+- `seedance-2.5` -> Leonardo `bytedance/seedance-2.5`
 - `veo-3.1` -> Leonardo `veo-3.1-generate-001`
 - `veo-3.1-fast` -> Leonardo `veo-3.1-fast-generate-001`
 - `kling-o3-omni` -> Leonardo `kling-video-o-3`
@@ -141,6 +142,7 @@ Model constraints:
 - Seedance 2.0 resolution: `480p`, `720p`, `1080p`, `2160p`
 - Seedance 2.0 Fast resolution: `480p`, `720p`
 - Seedance 2.0 Mini supports `480p` and `720p`
+- Seedance 2.5 supports `480p` and `720p` through twelve exact landscape, portrait, square, and cinema sizes
 - FLUX 3 Video supports `720p` and `1080p` through fourteen exact aspect-ratio dimensions
 - Veo 3.1 and Veo 3.1 Fast support `720p`, `1080p`, and `2160p`
 - Kling O3 Omni supports `720p`, `1080p`, and `2160p` through nine exact landscape, portrait, and square sizes; default is `1920x1080` at `1080p`
@@ -154,6 +156,7 @@ Veo 3.1 models accept only 4, 6, or 8 seconds. Both support start/end frames and
 - MiniMax H3 accepts 5 through 15 seconds and limits prompts to 2,000 characters. It accepts five ordinary image references, one start frame, one end frame, and three reference audio files totaling at most 15 seconds. Reference audio requires an ordinary image reference. Native audio is always enabled, so `generate_audio=false` is rejected. Leonardo schema `1.247.2` prices it at 140 credits per second.
 - Grok Imagine 1.5 accepts 3 through 15 seconds and limits prompts to 5,000 characters. It requires exactly one `start_frame` guidance input and rejects `end_frame`, ordinary image references, reference video, and reference audio. Native audio defaults to enabled and may be disabled without changing the current Schema token price. Its exact dimensions map to 100, 165, or 290 credits per second for the 480p, 720p, and 1080p tiers.
 - Seedance accepts at most 4 ordinary reference images, one start frame, one end frame, 3 reference videos, and one reference audio file
+- Seedance 2.5 accepts at most 30 ordinary reference images, one start frame, one end frame, 10 reference videos, and 10 reference audio files. Reference video and audio totals are independently capped at 30.2 seconds; audio requires an ordinary image or video reference. Frames are exclusive with ordinary image, video, and audio references.
 - Seedance reference videos may total at most 15 seconds
 - Seedance reference audio may total at most 15 seconds
 - FLUX 3 Video accepts one start frame, one optional end frame, or one reference video up to 50 MB and 15.05 seconds; these modes are mutually exclusive. Native audio may be disabled without changing the current Schema price.
@@ -329,7 +332,7 @@ The API documentation table separates parameter meaning from accepted values. Ke
 
 Relevant artifacts live under `artifacts/`, including Leonardo HAR captures, screenshots, live image results, and UI visual checks.
 
-The strongest current upstream evidence is Leonardo `GetRelease` schema version `1.255.2`, re-read through the public GraphQL release query and an active account-scoped catalog. It confirms FLUX 3 Video and Kling O3 Omni IDs, exact sizes, durations, reference combinations, and price modifiers. Seedance 2.5 remains schema-verified but is disabled until the account rollout is available. Earlier HAR and Schema 1.247.2 evidence remains the source for the existing image, MiniMax H3, and Grok Imagine 1.5 contracts.
+The strongest current upstream evidence is Leonardo `GetRelease` schema version `1.258.0`, read through `publicJsonSchemaRegistry.release` and an active account-scoped catalog. It confirms Seedance 2.5 account availability, ID, exact sizes, 4-30 second duration range, reference combinations, native audio, and 180/292 credits-per-second base rates with 258/466 credits-per-second video-reference rates. Schema 1.255.2 remains the source for FLUX 3 Video and Kling O3 Omni; earlier Schema 1.247.2 evidence remains the source for the existing image, MiniMax H3, and Grok Imagine 1.5 contracts.
 
 Do not commit fresh HAR files or browser state without checking for Authorization headers, cookies, JWTs, signed URLs, email addresses, or other secrets.
 
@@ -398,7 +401,7 @@ Before claiming a change works:
 - A paid audio probe submitted `sound-effects-v2` at 1 second and `n=1`. The first generation exposed a parser gap because Leonardo left `generated_images.url` empty while populating `generated_images.urls.asset`; after fixing that mapping, a second probe succeeded with `audio/mpeg`, a downloadable MP3, a 2-credit actual delta, and a consumed/reconciled reservation.
 - Seedance ordinary image, start/end frame, video, and audio reference generation is schema-verified but still needs an approved paid end-to-end test.
 - FLUX 3 Video parameters, exact sizes, reference limits, account-scoped availability, and price modifiers are schema-verified against Leonardo `1.255.2`; no paid end-to-end FLUX 3 Video generation has been run through AIV2API.
-- Seedance 2.5 remains disabled because the current account-scoped catalog does not expose its release gate; its migration and schema evidence are retained for later reactivation.
+- Seedance 2.5 is enabled from Schema 1.258.0. Its parameters and pricing are schema-verified; no paid end-to-end generation probe has been run through AIV2API.
 - Veo 3.1 and Veo 3.1 Fast submission shapes and costs are verified against Leonardo schema `1.232.1`; neither has received a paid end-to-end generation probe through AIV2API yet.
 - Kling O3 Omni parameters, nine dimensions, reference combinations, native-audio modifiers, and reference-video pricing are schema-verified against Leonardo `1.255.2`; no paid end-to-end generation probe has been run through AIV2API.
 - MiniMax H3 parameters, guidance limits, six 2K sizes, forced native audio, and 140-credits-per-second price are schema-verified against Leonardo `1.247.2`; no paid end-to-end MiniMax H3 generation has been run through AIV2API.
