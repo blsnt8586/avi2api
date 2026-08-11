@@ -247,6 +247,14 @@ func TestPaidCreationRequestRequiresKnownPOSTPath(t *testing.T) {
 	}
 }
 
+func TestImageCreationRoutesAreAsynchronous(t *testing.T) {
+	for _, path := range []string{"/v1/images/generations", "/v1/images/edits", "/v1/tasks/images"} {
+		if synchronousCreationRequest(httptest.NewRequest(http.MethodPost, path, nil)) {
+			t.Fatalf("image creation path %s still consumes a synchronous wait slot", path)
+		}
+	}
+}
+
 func TestGenerationBulkheadRejectsWithoutCallingHandler(t *testing.T) {
 	server := &Server{generationSlots: make(chan struct{}, 1), multipartSlots: make(chan struct{}, 1), syncSlots: make(chan struct{}, 1)}
 	server.generationSlots <- struct{}{}
@@ -615,10 +623,25 @@ func TestNormalizeAsyncImageRequest(t *testing.T) {
 		{Model: "gpt-image-2", Prompt: "test", OutputFormat: "jpeg"},
 		{Model: "gpt-image-2", Prompt: "test", OutputCompression: &compression},
 		{Model: "gpt-image-2", Prompt: "test", SourceImage: &domain.SourceImage{}},
+		{Model: "gpt-image-2", Prompt: "test", ReferenceImages: []domain.SourceMedia{{Path: "internal"}}},
 	} {
 		if _, err := normalizeAsyncImageRequest(invalid); err == nil {
 			t.Fatalf("expected async image request to be rejected: %+v", invalid)
 		}
+	}
+	withReference, err := normalizeAsyncImageDelivery(domain.ImageRequest{
+		Model: "gpt-image-2", Prompt: "test", ReferenceImages: []domain.SourceMedia{{Filename: "reference.png"}},
+	})
+	if err != nil || withReference.ResponseFormat != "url" {
+		t.Fatalf("unexpected multipart async image defaults: %+v %v", withReference, err)
+	}
+}
+
+func TestImageIdempotencyRequestIgnoresAssetPath(t *testing.T) {
+	request := domain.ImageRequest{ReferenceImages: []domain.SourceMedia{{Filename: "reference.png", Path: "asset-random", SHA256: "digest"}}}
+	canonical := imageIdempotencyRequest(request)
+	if canonical.ReferenceImages[0].Path != "" || request.ReferenceImages[0].Path == "" {
+		t.Fatalf("unexpected canonical request: original=%+v canonical=%+v", request, canonical)
 	}
 }
 

@@ -25,7 +25,7 @@ func paidCreationRequest(r *http.Request) bool {
 
 func synchronousCreationRequest(r *http.Request) bool {
 	switch r.URL.Path {
-	case "/v1/images/generations", "/v1/images/edits", "/v1/chat/completions":
+	case "/v1/chat/completions":
 		return true
 	default:
 		return false

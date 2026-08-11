@@ -25,7 +25,6 @@ import type {
   CachedAudioResult,
   CachedImageResult,
   CachedVideoResult,
-  ImageResponse,
   MediaKind,
   PlaygroundOutput,
   PlaygroundTask,
@@ -240,14 +239,6 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
   const [size, setSize] = useSessionState("image-size", "1024x1024");
   const [quality, setQuality] = useSessionState("image-quality", "low");
   const [count, setCount] = useSessionState("image-count", 1);
-  const [format, setFormat] = useSessionState<"png" | "jpeg">(
-    "image-format",
-    "jpeg",
-  );
-  const [compression, setCompression] = useSessionState(
-    "image-compression",
-    90,
-  );
   const [background, setBackground] = useSessionState<"auto" | "opaque">(
     "image-background",
     "opaque",
@@ -256,7 +247,8 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
   const [files, setFiles] = useState<File[]>([]);
   const [cachedResult, setCachedResult, cacheReady] =
     useCachedResult<CachedImageResult>("latest-image");
-  const mutation = useMutation({
+  const [taskID, setTaskID] = useState("");
+  const create = useMutation({
     mutationFn: async () => {
       if (!apiKey.trim()) throw new Error("请先填写 API Key");
       if (!prompt.trim()) throw new Error("请输入图像描述");
@@ -268,14 +260,12 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
         prompt: prompt.trim(),
         size,
         n: model === "gpt-image-2" ? 1 : count,
-        response_format: "b64_json",
-        output_format: format,
-        output_compression: format === "jpeg" ? compression : undefined,
+		response_format: "url",
         background,
         moderation: "auto",
       };
       if (mode === "generation")
-        return publicAPI<ImageResponse>("/v1/images/generations", apiKey, {
+		return publicAPI<PlaygroundTask>("/v1/tasks/images", apiKey, {
           method: "POST",
           headers: { "Idempotency-Key": idempotencyKey() },
           body: JSON.stringify({
@@ -292,14 +282,37 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
         if (value !== undefined) form.append(key, String(value));
       });
       files.forEach((file) => form.append("image[]", file));
-      return publicAPI<ImageResponse>("/v1/images/edits", apiKey, {
+		return publicAPI<PlaygroundTask>("/v1/tasks/images", apiKey, {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey() },
         body: form,
       });
     },
-    onSuccess: (response) =>
-      setCachedResult({ response, format, saved_at: Date.now() }),
+    onSuccess: (task) => setTaskID(task.id),
+  });
+  const task = useQuery({
+    queryKey: ["playground-image", taskID],
+    queryFn: () => publicAPI<PlaygroundTask>(`/v1/tasks/${taskID}`, apiKey),
+    enabled: Boolean(taskID && apiKey),
+    refetchInterval: (query) =>
+      terminalStatuses.includes(query.state.data?.status || "") ? false : 3000,
+  });
+  const liveCurrent = task.data || create.data;
+  React.useEffect(() => {
+    if (liveCurrent?.status === "succeeded" && liveCurrent.result?.data?.length)
+      setCachedResult({ task: liveCurrent, saved_at: Date.now() });
+  }, [liveCurrent, setCachedResult]);
+  const current = create.isPending
+    ? undefined
+    : liveCurrent || cachedResult?.task;
+  const cancel = useMutation({
+    mutationFn: () =>
+      publicAPI<{ id: string; status: string }>(
+        `/v1/tasks/${taskID}/cancel`,
+        apiKey,
+        { method: "POST" },
+      ),
+    onSuccess: () => task.refetch(),
   });
   function selectModel(next: PlaygroundImageModel) {
     setModel(next);
@@ -307,20 +320,19 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     if (next === "gpt-image-2") setCount(1);
   }
   function clear() {
-    mutation.reset();
+	setTaskID("");
+	create.reset();
     setCachedResult(null);
   }
-  const cachedOutputs =
-    mutation.isPending || mutation.error
-      ? undefined
-      : cachedResult?.response.data;
   return (
     <div className="playground-shell">
       <form
         className="playground-form"
         onSubmit={(e) => {
           e.preventDefault();
-          mutation.mutate();
+		  setTaskID("");
+		  create.reset();
+		  create.mutate();
         }}
       >
         <div className="playground-form-heading">
@@ -421,37 +433,15 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
             />
           </label>
         </div>
-        <details className="playground-advanced">
+		<details className="playground-advanced">
           <summary>
             <span>
               <strong>高级参数</strong>
-              <small>输出格式、压缩与背景</small>
+			  <small>异步交付与背景</small>
             </span>
             <Plus />
           </summary>
-          <div className="playground-fields">
-            <label>
-              输出格式
-              <select
-                value={format}
-                onChange={(e) => setFormat(e.target.value as "png" | "jpeg")}
-              >
-                <option value="jpeg">JPEG</option>
-                <option value="png">PNG</option>
-              </select>
-            </label>
-            {format === "jpeg" && (
-              <label>
-                JPEG 压缩质量
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={compression}
-                  onChange={(e) => setCompression(Number(e.target.value))}
-                />
-              </label>
-            )}
+		  <div className="playground-fields">
             <label>
               背景
               <select
@@ -468,7 +458,7 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
           <div className="playground-contract">
             <span>
               <code>response_format</code>
-              <strong>b64_json</strong>
+			  <strong>url</strong>
             </span>
             <span>
               <code>moderation</code>
@@ -484,21 +474,26 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
             </span>
           </div>
         </details>
-        {mutation.error && <p className="error">{mutation.error.message}</p>}
-        <button className="playground-submit" disabled={mutation.isPending}>
-          <ImageIcon />
-          {mutation.isPending ? "正在生成…" : "生成图像"}
+		{create.error && <p className="error">{create.error.message}</p>}
+		<button className="playground-submit" disabled={create.isPending}>
+		  <ImageIcon />
+		  {create.isPending ? "正在提交…" : "创建图像任务"}
         </button>
       </form>
       <PlaygroundResult
         kind="image"
-        imageFormat={cachedResult?.format || format}
-        pending={mutation.isPending}
+		pending={create.isPending}
         restoring={!cacheReady}
-        error={mutation.error?.message}
-        outputs={cachedOutputs}
+		error={create.error?.message || task.error?.message}
+		outputs={current?.result?.data}
+		task={current}
         cachedAt={cachedResult?.saved_at}
         onClear={clear}
+		onCancel={
+		  liveCurrent?.status === "queued" && !cancel.isPending
+			? () => cancel.mutate()
+			: undefined
+		}
       />
     </div>
   );
@@ -1365,7 +1360,7 @@ function PlaygroundResult({
 }) {
   const [viewMode, setViewMode] = useState<"fit" | "fill">("fit");
   const hasMedia = Boolean(outputs?.length);
-  const succeeded = kind === "image" ? hasMedia : task?.status === "succeeded";
+  const succeeded = task ? task.status === "succeeded" : hasMedia;
   const activeTask = Boolean(task && !terminalStatuses.includes(task.status));
   return (
     <section className="playground-preview">
@@ -1442,7 +1437,7 @@ function PlaygroundResult({
             <RefreshCw className="spin" />
             <strong>
               {kind === "image"
-                ? "正在等待图像生成"
+				? "正在提交图像任务"
                 : kind === "video"
                   ? "正在提交视频任务"
                   : "正在提交音频任务"}
@@ -1498,7 +1493,7 @@ function PlaygroundResult({
           <div className="playground-progress-note">
             <RefreshCw className="spin" />
             <span>
-              每 3 秒自动更新，完成后会显示{kind === "video" ? "视频" : "音频"}
+              每 3 秒自动更新，完成后会显示{kind === "image" ? "图像" : kind === "video" ? "视频" : "音频"}
               。
             </span>
             {onCancel && (

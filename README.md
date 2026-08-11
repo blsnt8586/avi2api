@@ -87,34 +87,24 @@ Set the plaintext key shown once by the administration UI:
 export AIV2API_API_KEY="leo_your_api_key"
 ```
 
-Text-to-image:
+Text-to-image is asynchronous:
 
 ```bash
-curl http://127.0.0.1:8080/v1/images/generations \
+curl http://127.0.0.1:8080/v1/tasks/images \
   -H "Authorization: Bearer $AIV2API_API_KEY" \
   -H "Idempotency-Key: image-example-001" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-image-2","prompt":"a red ceramic teapot on a white table","size":"1024x1024","quality":"low","n":1}'
 ```
 
-OpenAI-compatible GPT Image 2 request routed to Leonardo's real `GPT Image-2` model:
-
-```bash
-curl http://127.0.0.1:8080/v1/images/generations \
-  -H "Authorization: Bearer $AIV2API_API_KEY" \
-  -H "Idempotency-Key: image-example-002" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-image-2","prompt":"a product photo of a red ceramic teapot","size":"1024x1024","quality":"low","output_format":"png"}'
-```
-
-`gpt-image-2` defaults to `b64_json`, matching the current OpenAI Images API behavior. The compatibility layer accepts `quality=auto|low|medium|high`, the exact GPT Image 2 dimensions exposed by Leonardo, `output_format=png|jpeg`, JPEG `output_compression`, `background=auto|opaque`, and `moderation=auto`. `auto` quality is intentionally normalized to `low`: Leonardo defaults this model to the much more expensive `MEDIUM` tier. PNG and JPEG conversion happens locally; WebP encoding is not exposed.
+The response is a queued task. Poll `GET /v1/tasks/{id}` until `status=succeeded`, then read `result.data[].url`. Image tasks accept `response_format=url`; Base64 delivery and local output transcoding are not part of the asynchronous contract. For `gpt-image-2`, `quality=auto|low|medium|high` is accepted and `auto` is intentionally normalized to `low`: Leonardo defaults this model to the much more expensive `MEDIUM` tier.
 
 Public model aliases are intentionally limited to `gpt-image-2`, `nano-banana-2`, `nano-banana-pro`, and `seedream-5.0-pro`. Administrators can inspect Leonardo's complete current image-model catalog through `GET /admin/api/platform-models` or the Platform Models page. Credit cost and supported generation options vary by upstream model. Seedream 5.0 Pro accepts custom 768–2048px edges; it costs 45 credits normally and 90 credits when the Schema 2K threshold is met.
 
 Image-to-image:
 
 ```bash
-curl http://127.0.0.1:8080/v1/images/edits \
+curl http://127.0.0.1:8080/v1/tasks/images \
   -H "Authorization: Bearer $AIV2API_API_KEY" \
   -H "Idempotency-Key: image-edit-example-001" \
   -F "image[]=@product.png" \
@@ -126,7 +116,7 @@ curl http://127.0.0.1:8080/v1/images/edits \
   -F "reference_strength=MID"
 ```
 
-The edits endpoint follows the OpenAI multipart convention and accepts either `image` or repeated `image[]` fields. All four public models support up to six reference images. `reference_strength=LOW|MID|HIGH` is a Leonardo extension and defaults to `MID`. Mask editing is not exposed because these Leonardo model schemas only publish image-reference guidance.
+The async image endpoint accepts JSON for text-only generation and multipart for reference-image generation. It accepts either `image` or repeated `image[]` fields; all four public models support up to six reference images. `reference_strength=LOW|MID|HIGH` defaults to `MID`. Uploaded references are stored as temporary task assets and removed at terminal state. Mask editing is not exposed because these Leonardo model schemas only publish image-reference guidance. `/v1/images/generations` and `/v1/images/edits` remain asynchronous compatibility aliases; new clients should use `/v1/tasks/images`.
 
 Text-to-video is asynchronous:
 
@@ -168,9 +158,9 @@ curl http://127.0.0.1:8080/v1/tasks/images \
 
 Async image, video, and audio requests reserve their estimated credits at creation. Each account has an execution limit (`image_concurrency`) and a separate waiting limit (`queue_capacity`). The system also enforces a database-backed global execution limit, queue hard limit, overload high/resume watermarks, maintenance drain mode, and optional execution pause. With concurrency 5 and queue capacity 5, at most 5 tasks execute and 5 wait. A full account routes new work to another eligible account; creation returns `account_queue_full` only when every eligible account is full. Global protection returns `system_queue_full`, `system_overloaded`, or `system_maintenance` before creating a task. Cancelling a queued task releases its reservation immediately.
 
-Synchronous image and chat endpoints use the same durable task path. When their synchronous wait budget expires they return HTTP `202`, the task ID, `Location`, and `Retry-After`; reuse the original `Idempotency-Key` and poll that task instead of creating a second operation.
+Chat compatibility uses the same durable image task path and may wait for its compatibility response budget. The public image endpoints themselves always return tasks immediately.
 
-`POST /v1/tasks/images` always returns URL-based task results. It accepts `response_format=url` only and rejects `b64_json`, `output_format`, `output_compression`, and reference-image fields. Use synchronous `/v1/images/edits` for reference images. Public task responses omit provider/account IDs, credit ledger fields, upstream generation IDs, and raw request payloads.
+`POST /v1/tasks/images` always returns URL-based task results. It accepts `response_format=url` only and rejects `b64_json`, `output_format`, and `output_compression`. Reference images use multipart `image`/`image[]` plus optional `reference_strength`. Public task responses omit provider/account IDs, credit ledger fields, upstream generation IDs, and raw request payloads.
 
 Other endpoints:
 
@@ -183,7 +173,7 @@ Other endpoints:
 - `POST /v1/chat/completions`
 - `GET /healthz`, `GET /readyz`, `GET /metrics`
 
-Synchronous image endpoints accept `response_format=url|b64_json`. Downloaded image data is limited by `LEO_MAX_IMAGE_BYTES` (25 MiB by default). Uploads accept PNG, JPEG, and WebP. Chat Completions accepts at most one Base64 PNG/JPEG/WebP data URL and rejects remote image URLs.
+Asynchronous image results are URL-only. Downloaded image data is limited by `LEO_MAX_IMAGE_BYTES` (25 MiB by default). Reference uploads accept PNG, JPEG, and WebP. Chat Completions accepts at most one Base64 PNG/JPEG/WebP data URL and rejects remote image URLs.
 
 ## Configuration
 

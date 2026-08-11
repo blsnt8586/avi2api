@@ -28,7 +28,7 @@ func TestOpenAPISpec(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.OpenAPI != "3.1.0" || document.Info.Version != "1.6.0" || document.Paths["/v1/images/generations"] == nil || document.Paths["/v1/images/estimate"] == nil || document.Paths["/v1/videos/estimate"] == nil || document.Paths["/v1/audio/generations"] == nil || document.Paths["/v1/chat/completions"] == nil || document.Paths["/v1/tasks/images"] == nil {
+	if document.OpenAPI != "3.1.0" || document.Info.Version != "1.7.0" || document.Paths["/v1/images/generations"] == nil || document.Paths["/v1/images/estimate"] == nil || document.Paths["/v1/videos/estimate"] == nil || document.Paths["/v1/audio/generations"] == nil || document.Paths["/v1/chat/completions"] == nil || document.Paths["/v1/tasks/images"] == nil {
 		t.Fatalf("incomplete OpenAPI document: openapi=%q contract=%q paths=%d", document.OpenAPI, document.Info.Version, len(document.Paths))
 	}
 }
@@ -164,9 +164,19 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	if properties["image"] == nil || properties["reference_strength"] == nil {
 		t.Fatalf("ImageEditRequest is incomplete: %+v", properties)
 	}
+	if properties["output_format"] != nil || properties["output_compression"] != nil || properties["response_format"].(map[string]any)["const"] != "url" {
+		t.Fatalf("async image edit schema exposes synchronous delivery parameters: %+v", properties)
+	}
 	asyncImage := schemas["AsyncImageRequest"].(map[string]any)["properties"].(map[string]any)
 	if asyncImage["output_format"] != nil || asyncImage["output_compression"] != nil {
 		t.Fatalf("async image schema exposes unsupported delivery parameters: %+v", asyncImage)
+	}
+	taskImagePath := document.Paths["/v1/tasks/images"].(map[string]any)
+	taskImagePost := taskImagePath["post"].(map[string]any)
+	taskImageRequestBody := taskImagePost["requestBody"].(map[string]any)
+	taskImageContent := taskImageRequestBody["content"].(map[string]any)
+	if taskImageContent["application/json"] == nil || taskImageContent["multipart/form-data"] == nil {
+		t.Fatalf("async image task must document JSON and multipart requests: %+v", taskImageContent)
 	}
 	imageRequest := schemas["ImageRequest"].(map[string]any)["properties"].(map[string]any)
 	if imageRequest["prompt"].(map[string]any)["maxLength"] != float64(9999) {

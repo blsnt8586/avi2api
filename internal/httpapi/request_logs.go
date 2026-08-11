@@ -163,7 +163,7 @@ func noteImageRequest(r *http.Request, request domain.ImageRequest) {
 	metadata.Parameters = map[string]any{
 		"size": request.Size, "quality": request.Quality, "n": request.N,
 		"response_format": request.ResponseFormat, "output_format": request.OutputFormat,
-		"reference_images": len(request.SourceImages) + boolInt(request.SourceImage != nil),
+		"reference_images": len(request.ReferenceImages) + len(request.SourceImages) + boolInt(request.SourceImage != nil),
 	}
 }
 

@@ -62,7 +62,7 @@ Public routes:
 - `POST /v1/audio/{id}/cancel`
 - `POST /v1/chat/completions`
 
-Authentication uses `Authorization: Bearer <API key>`. Every paid image/video/audio/chat creation requires `Idempotency-Key`; synchronous wait expiry returns the durable task with HTTP 202 instead of a bare timeout.
+Authentication uses `Authorization: Bearer <API key>`. Every paid image/video/audio/chat creation requires `Idempotency-Key`; image, video, and audio creation returns a durable task immediately.
 
 Public task reads return a dedicated DTO containing lifecycle state, queue position, model/prompt, result, sanitized failure information, retry state, and timestamps. Admin task APIs retain provider, account, reservation, cost, and upstream identifiers. `GET /v1/models` is filtered by the current API Key and reports `owned_by=aiv2api`.
 
@@ -75,20 +75,18 @@ Public models:
 - `nano-banana-pro` -> Leonardo `gemini-image-2`
 - `seedream-5.0-pro` -> Leonardo `seedream-5.0-pro`
 
-Generation accepts JSON. Edits accept `multipart/form-data` with `image` or repeated `image[]`.
+`POST /v1/tasks/images` accepts JSON for text-to-image and `multipart/form-data` with `image` or repeated `image[]` for reference-image generation. `/v1/images/generations` and `/v1/images/edits` remain asynchronous compatibility aliases.
 
-`POST /v1/tasks/images` is URL-only asynchronous delivery. It accepts `response_format=url` and rejects `b64_json`, `output_format`, `output_compression`, and all reference-image fields; references use synchronous `/v1/images/edits`.
+`POST /v1/tasks/images` is URL-only asynchronous delivery. It accepts `response_format=url`, rejects `b64_json`, `output_format`, and `output_compression`, and stores multipart reference images as temporary task assets until terminal cleanup.
 
 Public image parameters:
 
 - `model`, `prompt`, `size`, `n`
 - `quality` for `gpt-image-2`
-- `response_format`: `url` or `b64_json`
-- `output_format`: `png` or `jpeg`
-- `output_compression`: `0..100`, JPEG only
+- `response_format`: `url` only for asynchronous image tasks
 - `background`: `auto` or `opaque`; Leonardo output is currently opaque
 - `moderation`: only `auto`
-- edit-only `image`/`image[]` and `reference_strength`
+- multipart-only `image`/`image[]` and `reference_strength`
 
 `reference_strength` is backed by Leonardo schema and accepts only `LOW`, `MID`, or `HIGH`; default is `MID`.
 
@@ -102,7 +100,7 @@ Gateway limits:
 - Seedream 5.0 Pro accepts custom `768..2048` per edge; Schema 1.247.2 lists standard UI presets and a 45-credit base with a 90-credit 2K threshold
 - WebP output encoding, masks, streaming, partial images, and adjustable `input_fidelity` are not exposed
 
-Gateway delivery parameters (`response_format`, `output_format`, `output_compression`) are handled locally after Leonardo generation. They are not sent as Leonardo generation parameters.
+Gateway delivery is URL-only for asynchronous image tasks; `response_format` is normalized locally and no output transcoding parameters are exposed. These delivery fields are not sent as Leonardo generation parameters.
 
 `POST /v1/images/estimate` accepts `model`, `size`, `quality`, and `n`, runs the same model validation and pricing path as task admission, and does not create a task or reserve credits. It returns per-output and total estimated credits, normalized parameters, pricing basis/tier, formula, active price version, and the fields that affect cost. GPT Image 2 uses its exact pixel-and-quality formula; Nano Banana 2/Pro map every legal size to the Leonardo Small/Medium/Large price tier; Seedream 5.0 Pro uses the Schema 1.247.2 45/90-credit size threshold. Delivery parameters, moderation, reference media, and reference strength do not currently change image credits.
 

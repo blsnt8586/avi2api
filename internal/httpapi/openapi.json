@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AIV2API",
-    "version": "1.6.0",
-    "description": "Image, video, and audio generation API. Video, audio, and asynchronous image endpoints return tasks.",
+    "version": "1.7.0",
+    "description": "Asynchronous image, video, and audio generation API. Image compatibility aliases also return durable tasks.",
     "license": {"name": "All rights reserved", "identifier": "LicenseRef-Proprietary"}
   },
   "x-prompt-limit-by-model": {
@@ -32,7 +32,7 @@
   "servers": [{"url": "/", "description": "Current host"}],
   "tags": [
     {"name": "Models", "description": "Models available to the authenticated API key."},
-    {"name": "Images", "description": "Synchronous and asynchronous image generation and editing."},
+    {"name": "Images", "description": "Asynchronous image generation and reference-image tasks."},
     {"name": "Videos", "description": "Asynchronous video generation and reference media."},
     {"name": "Audio", "description": "Asynchronous speech, music, and sound effect generation."},
     {"name": "Chat", "description": "OpenAI Chat Completions compatibility for image generation clients."},
@@ -66,30 +66,32 @@
     },
     "/v1/images/generations": {
       "post": {
-        "tags": ["Images"],
-        "operationId": "createImage",
-        "summary": "Generate images",
-        "description": "Synchronous OpenAI Images-compatible response. Idempotency-Key is required. When the synchronous wait budget expires, the API returns 202 with the durable task and a Location header instead of creating a second operation.",
+        "tags": ["Images", "Tasks"],
+        "operationId": "createImageGenerationTask",
+        "summary": "Create an asynchronous text-to-image task",
+        "deprecated": true,
+        "description": "Asynchronous compatibility alias. New clients should use POST /v1/tasks/images.",
         "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ImageRequest"}}}},
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsyncImageRequest"}}}},
         "responses": {
-          "200": {"description": "Generated images", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ImageResult"}}}},
-          "202": {"description": "Synchronous wait expired; continue with the returned task and Location header", "headers": {"Location": {"schema": {"type": "string"}}, "Retry-After": {"schema": {"type": "integer"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "422": {"$ref": "#/components/responses/ImageConversionFailed"}, "429": {"$ref": "#/components/responses/RateLimited"}, "502": {"$ref": "#/components/responses/UpstreamImageFailure"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+          "202": {"description": "Task created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}},
+          "200": {"description": "Existing idempotent task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "422": {"$ref": "#/components/responses/CostUnavailable"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}
         }
       }
     },
     "/v1/images/edits": {
       "post": {
-        "tags": ["Images"], "operationId": "editImage", "summary": "Edit images using references", "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "tags": ["Images", "Tasks"], "operationId": "createImageEditTask", "summary": "Create an asynchronous image-reference task", "deprecated": true, "description": "Asynchronous compatibility alias for multipart image-reference requests. New clients should use POST /v1/tasks/images.", "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
         "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"$ref": "#/components/schemas/ImageEditRequest"}}}},
-        "responses": {"200": {"description": "Edited images", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ImageResult"}}}}, "202": {"description": "Synchronous wait expired; continue polling the returned task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "413": {"description": "Reference image exceeds the configured size limit", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "415": {"description": "Reference image type is not PNG, JPEG, or WebP", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "422": {"$ref": "#/components/responses/ImageConversionFailed"}, "429": {"$ref": "#/components/responses/RateLimited"}, "502": {"$ref": "#/components/responses/UpstreamImageFailure"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
+        "responses": {"202": {"description": "Task created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "200": {"description": "Existing idempotent task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "413": {"description": "Reference image exceeds the configured size limit", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "415": {"description": "Reference image type is not PNG, JPEG, or WebP", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "422": {"$ref": "#/components/responses/CostUnavailable"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
       }
     },
     "/v1/tasks/images": {
       "post": {
         "tags": ["Images", "Tasks"], "operationId": "createAsyncImageTask", "summary": "Create an asynchronous image task", "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsyncImageRequest"}}}},
-        "responses": {"202": {"description": "Task created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "200": {"description": "Existing idempotent task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "422": {"$ref": "#/components/responses/CostUnavailable"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
+        "description": "Use application/json for text-only generation or multipart/form-data with image/image[] for reference-image generation. Both forms return a durable task immediately. Results are URL-only.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsyncImageRequest"}}, "multipart/form-data": {"schema": {"$ref": "#/components/schemas/ImageEditRequest"}}}},
+        "responses": {"202": {"description": "Task created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "200": {"description": "Existing idempotent task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "413": {"description": "Reference image exceeds the configured size limit", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "415": {"description": "Reference image type is not PNG, JPEG, or WebP", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "422": {"$ref": "#/components/responses/CostUnavailable"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
       }
     },
     "/v1/videos/generations": {
@@ -315,7 +317,7 @@
       },
       "ImageEditRequest": {
         "type": "object", "required": ["model", "prompt", "image"], "additionalProperties": false,
-        "description": "Multipart image-reference request. Leonardo-native seed, prompt_enhance, style_ids, and Nano Banana 2 video references are not exposed.",
+        "description": "URL-only asynchronous multipart image-reference request. Leonardo-native seed, prompt_enhance, style_ids, and Nano Banana 2 video references are not exposed.",
         "properties": {
           "model": {"type": "string", "enum": ["gpt-image-2", "nano-banana-2", "nano-banana-pro", "seedream-5.0-pro"]},
           "prompt": {"type": "string", "minLength": 1, "maxLength": 9999},
@@ -324,9 +326,7 @@
           "size": {"$ref": "#/components/schemas/ImageSize"},
           "n": {"$ref": "#/components/schemas/ImageQuantity"},
           "quality": {"type": "string", "enum": ["auto", "low", "medium", "high"], "default": "low", "description": "gpt-image-2 only. auto is normalized to low by this gateway."},
-          "response_format": {"type": "string", "enum": ["url", "b64_json"]},
-          "output_format": {"type": "string", "enum": ["png", "jpeg"], "description": "Used with response_format=b64_json"},
-          "output_compression": {"type": "integer", "minimum": 0, "maximum": 100, "description": "JPEG only"},
+          "response_format": {"const": "url", "default": "url", "description": "Async tasks always return URLs; b64_json is unavailable."},
           "background": {"type": "string", "enum": ["auto", "opaque"]},
           "moderation": {"const": "auto"}
         }

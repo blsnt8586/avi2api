@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
-  Activity,
   AlertTriangle,
   AudioLines,
   Boxes,
@@ -48,7 +47,7 @@ type DocParameter = readonly [
   accepted: string,
 ];
 
-type ImageEndpoint = "generations" | "edits" | "async";
+type ImageEndpoint = "generation" | "reference";
 
 function ImageSizeCost({
   size,
@@ -82,7 +81,7 @@ function imageParametersForModel(
   endpoint: ImageEndpoint,
 ): DocParameter[] {
   const parameters: DocParameter[] = [];
-  if (endpoint === "edits") {
+  if (endpoint === "reference") {
     parameters.push(
       ["image / image[]", "file", "必填", "参考图片。", "PNG、JPEG 或 WebP，1–6 张"],
       ["reference_strength", "string", "可选", "参考图影响强度。", "LOW、MID、HIGH；默认 MID"],
@@ -90,19 +89,13 @@ function imageParametersForModel(
   }
   parameters.push(
     ["model", "string", "必填", "生成模型。", model],
-    ["prompt", "string", "必填", endpoint === "edits" ? "图片修改要求。" : "图片内容描述。", `1–${imageModelDocs[model].promptMax.toLocaleString()} 个 Unicode 字符`],
+    ["prompt", "string", "必填", endpoint === "reference" ? "图片修改要求。" : "图片内容描述。", `1–${imageModelDocs[model].promptMax.toLocaleString()} 个 Unicode 字符`],
     ["size", "string", "可选", "输出尺寸。", imageModelDocs[model].size],
     ["n", "integer", "可选", "生成数量。", model === "gpt-image-2" ? "固定为 1" : "1–4；默认 1"],
-    ["response_format", "string", "可选", "结果格式。", endpoint === "async" ? "固定为 url" : "url 或 b64_json"],
+    ["response_format", "string", "可选", "结果格式。", "固定为 url"],
   );
   if (model === "gpt-image-2") {
     parameters.push(["quality", "string", "可选", "生成质量。", "auto、low、medium、high；默认 auto"]);
-  }
-  if (endpoint !== "async") {
-    parameters.push(
-      ["output_format", "string", "可选", "Base64 图片格式。", "png 或 jpeg；默认 png"],
-      ["output_compression", "integer", "可选", "JPEG 压缩质量。", "0–100；仅用于 jpeg"],
-    );
   }
   parameters.push(
     ["background", "string", "可选", "背景模式。", "auto 或 opaque；当前结果均为不透明"],
@@ -240,9 +233,9 @@ const publicErrors = [
   ],
   [
     "422",
-    "cost_unavailable / image_conversion_failed",
-    "价格规则缺失，或同步图片无法转换为所请求格式",
-    "更换已定价参数或输出格式",
+	"cost_unavailable",
+	"当前参数缺少有效价格规则",
+	"更换已定价参数",
   ],
   [
     "429",
@@ -261,12 +254,6 @@ const publicErrors = [
     "account_queue_full / api_key_capacity_exhausted / system_queue_full / system_overloaded / system_maintenance / provider_circuit_open / gateway_overloaded",
     "账号、API Key 或系统容量保护暂不可用",
     "按 Retry-After 重试",
-  ],
-  [
-    "202",
-    "processing",
-    "同步等待预算结束，后台任务仍在执行",
-    "按 Location 和 Retry-After 查询同一任务",
   ],
 ];
 
@@ -311,7 +298,7 @@ function DeveloperOverview() {
           <div>
             <span>04</span>
             <strong>读取结果</strong>
-            <p>同步图片直接返回；其他任务每 3 秒查询一次。</p>
+			<p>所有媒体生成都返回任务；每 3 秒查询一次直到终态。</p>
           </div>
         </div>
       </section>
@@ -412,7 +399,7 @@ export function APIDocs() {
           <span>认证</span>
           <strong>Bearer Token</strong>
           <span>协议</span>
-          <strong>图像同步/异步 · 视频与音频异步</strong>
+		  <strong>图像、视频与音频统一异步</strong>
           <span>规范</span>
           <a href="/openapi.json" target="_blank" rel="noreferrer">
             OpenAPI 3.1 JSON
@@ -436,7 +423,7 @@ export function APIDocs() {
 }
 
 function ImageDocs() {
-  const [endpoint, setEndpoint] = useState<ImageEndpoint>("generations");
+  const [endpoint, setEndpoint] = useState<ImageEndpoint>("generation");
   const [model, setModel] = useState<PublicModel>("gpt-image-2");
   const doc = imageModelDocs[model];
   const chatParameters = chatParametersForModel(model);
@@ -451,20 +438,10 @@ function ImageDocs() {
     staleTime: 5 * 60 * 1000,
   });
   const costsBySize = new Map(matrixQuery.data?.rows.map((row) => [row.size, row.costs]) || []);
-  const isAsync = endpoint === "async";
-  const endpointPath = isAsync
-    ? "/v1/tasks/images"
-    : `/v1/images/${endpoint}`;
+  const endpointPath = "/v1/tasks/images";
   const params = imageParametersForModel(model, endpoint);
-  const sample =
-    endpoint === "generations"
-      ? generationExample(model)
-      : endpoint === "edits"
-        ? editExample(model)
-        : asyncImageExample(model);
-  const responseExample = isAsync
-    ? asyncImageTaskResponseExample(model)
-    : imageResponseExample;
+  const sample = endpoint === "generation" ? asyncImageExample(model) : editExample(model);
+  const responseExample = asyncImageTaskResponseExample(model);
   const asyncPoll = imageTaskPollExample();
   const chatSample = chatCompletionExample();
   return (
@@ -472,25 +449,18 @@ function ImageDocs() {
       <div className="doc-toolbar">
         <div className="segmented" aria-label="图像接口">
           <button
-            className={endpoint === "generations" ? "active" : ""}
-            onClick={() => setEndpoint("generations")}
+            className={endpoint === "generation" ? "active" : ""}
+			onClick={() => setEndpoint("generation")}
           >
             <ImageIcon />
             文生图
           </button>
           <button
-            className={endpoint === "edits" ? "active" : ""}
-            onClick={() => setEndpoint("edits")}
+            className={endpoint === "reference" ? "active" : ""}
+			onClick={() => setEndpoint("reference")}
           >
             <Images />
             图生图
-          </button>
-          <button
-            className={endpoint === "async" ? "active" : ""}
-            onClick={() => setEndpoint("async")}
-          >
-            <Activity />
-            异步任务
           </button>
         </div>
         <div className="doc-toolbar-actions">
@@ -508,17 +478,13 @@ function ImageDocs() {
         <div>
           <span className="eyebrow">请求格式</span>
           <strong>
-            {endpoint === "generations"
-              ? "application/json"
-              : endpoint === "edits"
-                ? "multipart/form-data"
-                : "application/json"}
+			{endpoint === "generation" ? "application/json" : "multipart/form-data"}
           </strong>
         </div>
         <div>
           <span className="eyebrow">响应</span>
           <strong>
-            {isAsync ? "异步 · HTTP 202 Task" : "同步 · OpenAI Images 兼容结构"}
+			异步 · HTTP 202 Task
           </strong>
         </div>
       </div>
@@ -631,11 +597,7 @@ function ImageDocs() {
         <div>
           <h2>请求示例</h2>
           <p>
-            {endpoint === "generations"
-              ? "最小可用 JSON 请求"
-              : endpoint === "edits"
-                ? "上传参考图时使用 multipart"
-                : "异步图片任务固定返回 URL"}
+			{endpoint === "generation" ? "文生图使用 JSON" : "参考图使用 multipart"}
           </p>
         </div>
         <CopyCode value={sample} />
@@ -647,17 +609,7 @@ function ImageDocs() {
         <div>
           <h2>成功响应示例</h2>
           <p>
-            {isAsync ? (
-              <>
-                返回 HTTP 202 Task；通过 <code>queue_position</code> 和{" "}
-                <code>status</code> 跟踪执行状态。
-              </>
-            ) : (
-              <>
-                <code>response_format=url</code> 返回 URL；选择{" "}
-                <code>b64_json</code> 时对应字段替换为 Base64 数据。
-              </>
-            )}
+			返回 HTTP 202 Task；通过 <code>queue_position</code> 和 <code>status</code> 跟踪执行状态。
           </p>
         </div>
         <CopyCode value={responseExample} />
@@ -665,8 +617,7 @@ function ImageDocs() {
       <pre className="code-block">
         <code>{responseExample}</code>
       </pre>
-      {isAsync && (
-        <>
+		<>
           <div className="doc-section-title">
             <div>
               <h2>查询与取消</h2>
@@ -679,8 +630,7 @@ function ImageDocs() {
           <pre className="code-block">
             <code>{asyncPoll}</code>
           </pre>
-        </>
-      )}
+		</>
       <div className="doc-section-title">
         <div>
           <h2>参数</h2>
@@ -1442,22 +1392,13 @@ function chatCompletionExample() {
   -d '{\n    "model": "gpt-image-2",\n    "stream": false,\n    "messages": [\n      {\n        "role": "user",\n        "content": "生成一张白色背景上的红色陶瓷方块产品照"\n      }\n    ]\n  }'`;
 }
 
-function generationExample(model: PublicModel) {
-  const quality = model === "gpt-image-2" ? `\n    "quality": "low",` : "";
-  return `curl $BASE_URL/v1/images/generations \\
-  -H "Authorization: Bearer $AIV2API_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
-  -d '{\n    "model": "${model}",\n    "prompt": "一张白色背景上的产品摄影，柔和棚拍光线",\n    "size": "1024x1024",${quality}\n    "n": 1,\n    "response_format": "url"\n  }'`;
-}
-
 function editExample(model: PublicModel) {
   const quality =
     model === "gpt-image-2"
       ? ` \\
   -F "quality=low"`
       : "";
-  return `curl $BASE_URL/v1/images/edits \\
+  return `curl $BASE_URL/v1/tasks/images \\
   -H "Authorization: Bearer $AIV2API_API_KEY" \\
   -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
   -F "image[]=@product.png" \\

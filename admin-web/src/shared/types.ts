@@ -451,13 +451,7 @@ export type PlaygroundTask = {
   error_details?: TaskErrorDetails;
 };
 
-export type ImageResponse = { created: number; data: PlaygroundOutput[] };
-
-export type CachedImageResult = {
-  response: ImageResponse;
-  format: "png" | "jpeg";
-  saved_at: number;
-};
+export type CachedImageResult = { task: PlaygroundTask; saved_at: number };
 
 export type CachedVideoResult = { task: PlaygroundTask; saved_at: number };
 

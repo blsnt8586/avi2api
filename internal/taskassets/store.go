@@ -133,6 +133,14 @@ func (s *Store) CleanupVideoRequest(request domain.VideoRequest) error {
 	return joined
 }
 
+func (s *Store) CleanupImageRequest(request domain.ImageRequest) error {
+	var joined error
+	for _, asset := range request.ReferenceImages {
+		joined = errors.Join(joined, s.Remove(asset))
+	}
+	return joined
+}
+
 func (s *Store) CleanupOlderThan(age time.Duration) error {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {

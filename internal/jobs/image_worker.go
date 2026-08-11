@@ -28,6 +28,14 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	}
 	stopLease := w.startLeaseHeartbeat(ctx, cancel, id, leaseID)
 	defer stopLease()
+	var req domain.ImageRequest
+	if err := json.Unmarshal(task.Request, &req); err != nil {
+		if isSubmittedGenerationTask(task) {
+			return w.markSubmissionUncertain(ctx, id, leaseID, task.AccountID, "invalid_request_state", err.Error())
+		}
+		return w.fail(ctx, id, leaseID, "invalid_request", err)
+	}
+	defer w.cleanupTerminalImageAssets(id, req)
 	if isSubmittedGenerationTask(task) {
 		if task.UpstreamDeadlineAt != nil && !task.UpstreamDeadlineAt.After(time.Now()) {
 			return w.markSubmissionUncertain(ctx, id, leaseID, task.AccountID, "upstream_deadline_exceeded", "upstream generation deadline exceeded")
@@ -42,10 +50,6 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 		account, token, err := w.Accounts.Token(ctx, account)
 		if err != nil {
 			return w.yieldSubmittedRetry(ctx, id, leaseID, account.ID, task.UpstreamDeadlineAt, "session_error", err.Error(), 30*time.Second)
-		}
-		var req domain.ImageRequest
-		if err := json.Unmarshal(task.Request, &req); err != nil {
-			return w.markSubmissionUncertain(ctx, id, leaseID, &account.ID, "invalid_request_state", err.Error())
 		}
 		client, err := leonardo.New(account.ProxyURL, account.UserAgent, w.Store.GetSettingString(ctx, "schema_version", w.Config.SchemaVersion))
 		if err != nil {
@@ -86,10 +90,6 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	if err != nil {
 		return w.fail(ctx, id, leaseID, "model_not_found", err)
 	}
-	var req domain.ImageRequest
-	if err := json.Unmarshal(task.Request, &req); err != nil {
-		return w.fail(ctx, id, leaseID, "invalid_request", err)
-	}
 	width, height, err := imageopts.ParseSize(req.Model, req.Size)
 	if err != nil {
 		return w.fail(ctx, id, leaseID, "invalid_size", err)
@@ -123,8 +123,9 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	if req.SourceImage != nil {
 		sources = append([]domain.SourceImage{*req.SourceImage}, sources...)
 	}
-	imageReferences := make([]leonardo.ImageReference, 0, len(sources))
-	if len(sources) > 0 {
+	imageReferences := make([]leonardo.ImageReference, 0, len(sources)+len(req.ReferenceImages))
+	totalSources := len(sources) + len(req.ReferenceImages)
+	if totalSources > 0 {
 		if err = w.update(ctx, id, leaseID, domain.TaskUploading, 15, &account.ID, "", nil, "", ""); err != nil {
 			return err
 		}
@@ -139,7 +140,19 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 				return w.fail(ctx, id, leaseID, "upload_failed", uploadErr)
 			}
 			imageReferences = append(imageReferences, leonardo.ImageReference{ID: uploaded.InitImageID, Type: "UPLOADED", Strength: req.ReferenceStrength})
-			progress := 15 + ((i + 1) * 4 / len(sources))
+			progress := 15 + ((i + 1) * 4 / totalSources)
+			if err := w.update(ctx, id, leaseID, domain.TaskUploading, progress, &account.ID, "", nil, "", ""); err != nil {
+				return err
+			}
+		}
+		for i, source := range req.ReferenceImages {
+			uploaded, uploadErr := w.uploadTaskImage(ctx, client, token, account.TeamID, source)
+			if uploadErr != nil {
+				w.recordAccountFailure(ctx, account, uploadErr)
+				return w.fail(ctx, id, leaseID, "upload_failed", uploadErr)
+			}
+			imageReferences = append(imageReferences, leonardo.ImageReference{ID: uploaded.InitImageID, Type: "UPLOADED", Strength: req.ReferenceStrength})
+			progress := 15 + ((len(sources) + i + 1) * 4 / totalSources)
 			if err := w.update(ctx, id, leaseID, domain.TaskUploading, progress, &account.ID, "", nil, "", ""); err != nil {
 				return err
 			}
@@ -249,3 +262,21 @@ func (w *Worker) pollGeneration(ctx context.Context, id, leaseID uuid.UUID, gene
 }
 
 func parseSize(size string) (int, int, error) { return imageopts.ParseSize("", size) }
+
+func (w *Worker) cleanupTerminalImageAssets(id uuid.UUID, request domain.ImageRequest) {
+	if w.Assets == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	task, err := w.Store.GetTask(ctx, id)
+	if err != nil {
+		return
+	}
+	switch task.Status {
+	case domain.TaskSucceeded, domain.TaskFailed, domain.TaskCancelled, domain.TaskSubmissionUncertain:
+		if err := w.Assets.CleanupImageRequest(request); err != nil {
+			w.Log.Warn("cleanup task image assets", "task_id", id, "error", err)
+		}
+	}
+}

@@ -101,30 +101,7 @@ type imageEstimateStore interface {
 }
 
 func (s *Server) imageGeneration(w http.ResponseWriter, r *http.Request) {
-	var req domain.ImageRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, 400, "invalid_request", err.Error())
-		return
-	}
-	if err := validatePublicImageRequest(req); err != nil {
-		writeError(w, 400, "invalid_request", err.Error())
-		return
-	}
-	task, _, err := s.createTask(r, req)
-	if err != nil {
-		writeCreateTaskError(w, err)
-		return
-	}
-	task, err = s.waitTask(r.Context(), task.ID, s.Config.SyncTimeout)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			s.writePendingTask(w, task)
-			return
-		}
-		writeError(w, 500, "generation_wait_failed", err.Error())
-		return
-	}
-	s.writeImageResult(w, r.Context(), task)
+	s.createAsyncImage(w, r, false)
 }
 
 func (s *Server) imageEstimate(w http.ResponseWriter, r *http.Request) {
@@ -482,28 +459,49 @@ func estimateVideoCost(ctx context.Context, rules imageEstimateStore, req videoE
 }
 
 func (s *Server) asyncImage(w http.ResponseWriter, r *http.Request) {
+	s.createAsyncImage(w, r, false)
+}
+
+func (s *Server) createAsyncImage(w http.ResponseWriter, r *http.Request, requireReference bool) {
 	var req domain.ImageRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, 400, "invalid_request", err.Error())
-		return
-	}
 	var err error
-	req, err = normalizeAsyncImageRequest(req)
+	created := false
+	defer func() {
+		if !created && s.Assets != nil {
+			_ = s.Assets.CleanupImageRequest(req)
+		}
+	}()
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") && (requireReference || r.URL.Path == "/v1/tasks/images") {
+		req, err = s.parseAsyncImageMultipart(r)
+	} else if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		err = errors.New("text-to-image compatibility endpoint requires application/json; use multipart /v1/tasks/images for reference images")
+	} else if requireReference {
+		err = errors.New("image edits require multipart/form-data with image or image[]")
+	} else if decodeErr := decodeJSON(r, &req); decodeErr != nil {
+		err = decodeErr
+	} else {
+		req, err = normalizeAsyncImageRequest(req)
+	}
 	if err != nil {
 		writeError(w, 400, "invalid_request", err.Error())
 		return
 	}
-	task, created, err := s.createTask(r, req)
+	if requireReference && len(req.ReferenceImages) == 0 {
+		writeError(w, 400, "invalid_request", "image is required")
+		return
+	}
+	task, taskCreated, err := s.createTask(r, req)
 	if err != nil {
 		writeCreateTaskError(w, err)
 		return
 	}
-	writeJSON(w, map[bool]int{true: 202, false: 200}[created], newPublicTaskResponse(task))
+	created = taskCreated
+	writeJSON(w, map[bool]int{true: 202, false: 200}[taskCreated], newPublicTaskResponse(task))
 }
 
 func validatePublicImageRequest(req domain.ImageRequest) error {
-	if req.Public != nil || len(req.StyleIDs) > 0 || len(req.ReferenceIDs) > 0 || req.SourceImage != nil || len(req.SourceImages) > 0 || req.ImageStrength != nil || req.ReferenceStrength != "" {
-		return errors.New("this endpoint accepts only documented public image parameters; use /v1/images/edits for reference images")
+	if req.Public != nil || len(req.StyleIDs) > 0 || len(req.ReferenceIDs) > 0 || req.SourceImage != nil || len(req.SourceImages) > 0 || len(req.ReferenceImages) > 0 || req.ImageStrength != nil || req.ReferenceStrength != "" {
+		return errors.New("this endpoint accepts only documented public image parameters; use multipart /v1/tasks/images for reference images")
 	}
 	return nil
 }
@@ -512,6 +510,10 @@ func normalizeAsyncImageRequest(req domain.ImageRequest) (domain.ImageRequest, e
 	if err := validatePublicImageRequest(req); err != nil {
 		return domain.ImageRequest{}, err
 	}
+	return normalizeAsyncImageDelivery(req)
+}
+
+func normalizeAsyncImageDelivery(req domain.ImageRequest) (domain.ImageRequest, error) {
 	if req.ResponseFormat == "" {
 		req.ResponseFormat = "url"
 	}
@@ -547,7 +549,7 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 			req.Quality = "low"
 		}
 	}
-	imageCount := len(req.SourceImages)
+	imageCount := len(req.SourceImages) + len(req.ReferenceImages)
 	if req.SourceImage != nil {
 		imageCount++
 	}
@@ -590,7 +592,7 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	noteImageRequest(r, req)
 	idem := r.Header.Get("Idempotency-Key")
 	if idem != "" {
-		if task, err := s.Store.GetIdempotentTask(r.Context(), key.ID, "image", req, idem); err == nil {
+		if task, err := s.Store.GetIdempotentTaskWithHashRequest(r.Context(), key.ID, "image", imageIdempotencyRequest(req), idem); err == nil {
 			noteRequestTask(r, task)
 			return task, false, nil
 		} else if !errors.Is(err, store.ErrNotFound) {
@@ -612,7 +614,7 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	if err := s.admitDailyQuota(r.Context(), key.ID, images); err != nil {
 		return domain.Task{}, false, err
 	}
-	task, created, err := s.Store.CreateReservedTask(r.Context(), key.ID, "image", req.Model, req.Prompt, req, idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
+	task, created, err := s.Store.CreateReservedTaskWithHashRequest(r.Context(), key.ID, "image", req.Model, req.Prompt, req, imageIdempotencyRequest(req), idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
 	noteRequestTask(r, task)
 	if err != nil {
 		s.rollbackDailyQuota(r.Context(), key.ID, images)
@@ -624,6 +626,12 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	}
 	s.enqueueTask(r.Context(), task)
 	return task, created, nil
+}
+
+func imageIdempotencyRequest(request domain.ImageRequest) domain.ImageRequest {
+	clone := request
+	clone.ReferenceImages = canonicalMedia(request.ReferenceImages)
+	return clone
 }
 
 // enqueueTask is intentionally best effort. The task and its account
@@ -845,10 +853,18 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "not_cancellable", "only queued tasks can be cancelled")
 		return
 	}
-	if task.Kind == "video" && s.Assets != nil {
-		var request domain.VideoRequest
-		if json.Unmarshal(task.Request, &request) == nil {
-			_ = s.Assets.CleanupVideoRequest(request)
+	if s.Assets != nil {
+		switch task.Kind {
+		case "video":
+			var request domain.VideoRequest
+			if json.Unmarshal(task.Request, &request) == nil {
+				_ = s.Assets.CleanupVideoRequest(request)
+			}
+		case "image":
+			var request domain.ImageRequest
+			if json.Unmarshal(task.Request, &request) == nil {
+				_ = s.Assets.CleanupImageRequest(request)
+			}
 		}
 	}
 	_ = s.Store.ClearTerminalTaskSourceImage(r.Context(), id)
@@ -856,89 +872,77 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) imageEdit(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, s.Config.MaxImageBytes+(1<<20))
-	if err := r.ParseMultipartForm(s.Config.MaxImageBytes); err != nil {
-		writeError(w, 400, "invalid_multipart", err.Error())
-		return
+	s.createAsyncImage(w, r, true)
+}
+
+func (s *Server) parseAsyncImageMultipart(r *http.Request) (domain.ImageRequest, error) {
+	maxBody := s.Config.MaxImageBytes*6 + (1 << 20)
+	if s.Config.MaxMultipartBytes > 0 && maxBody > s.Config.MaxMultipartBytes {
+		maxBody = s.Config.MaxMultipartBytes
+	}
+	r.Body = http.MaxBytesReader(nil, r.Body, maxBody)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return domain.ImageRequest{}, err
 	}
 	defer r.MultipartForm.RemoveAll()
 	if len(r.MultipartForm.File["mask"]) > 0 {
-		writeError(w, 400, "unsupported_mask", "mask editing is not exposed by the selected Leonardo models")
-		return
+		return domain.ImageRequest{}, errors.New("mask editing is not exposed by the selected Leonardo models")
 	}
 	var files []*multipart.FileHeader
 	files = append(files, r.MultipartForm.File["image"]...)
 	files = append(files, r.MultipartForm.File["image[]"]...)
 	if len(files) == 0 {
-		writeError(w, 400, "invalid_request", "image is required")
-		return
+		return domain.ImageRequest{}, errors.New("image is required")
 	}
 	if len(files) > 6 {
-		writeError(w, 400, "too_many_images", "at most 6 reference images are supported")
-		return
+		return domain.ImageRequest{}, errors.New("at most 6 reference images are supported")
 	}
-	sources := make([]domain.SourceImage, 0, len(files))
-	for _, header := range files {
-		file, err := header.Open()
-		if err != nil {
-			writeError(w, 400, "image_read_failed", err.Error())
-			return
-		}
-		data, readErr := io.ReadAll(io.LimitReader(file, s.Config.MaxImageBytes+1))
-		_ = file.Close()
-		if readErr != nil {
-			writeError(w, 400, "image_read_failed", readErr.Error())
-			return
-		}
-		if int64(len(data)) > s.Config.MaxImageBytes {
-			writeError(w, 413, "image_too_large", "image exceeds configured size limit")
-			return
-		}
-		mediaType := http.DetectContentType(data)
-		if mediaType != "image/png" && mediaType != "image/jpeg" && mediaType != "image/webp" {
-			writeError(w, 415, "unsupported_image_type", "only PNG, JPEG and WebP are supported")
-			return
-		}
-		sources = append(sources, domain.SourceImage{Filename: header.Filename, MediaType: mediaType, Data: base64.StdEncoding.EncodeToString(data)})
+	if s.Assets == nil {
+		return domain.ImageRequest{}, errors.New("task asset storage is not configured")
 	}
 	req := domain.ImageRequest{
 		Model: r.FormValue("model"), Prompt: r.FormValue("prompt"), Size: r.FormValue("size"),
 		ResponseFormat: r.FormValue("response_format"), Quality: r.FormValue("quality"),
 		OutputFormat: r.FormValue("output_format"), Background: r.FormValue("background"),
 		Moderation: r.FormValue("moderation"), ReferenceStrength: r.FormValue("reference_strength"),
-		SourceImages: sources,
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = s.Assets.CleanupImageRequest(req)
+		}
+	}()
+	for _, header := range files {
+		asset, err := s.Assets.Save(header, s.Config.MaxImageBytes)
+		if err != nil {
+			return domain.ImageRequest{}, err
+		}
+		if !isImageMedia(asset.MediaType) {
+			_ = s.Assets.Remove(asset)
+			return domain.ImageRequest{}, errors.New("only PNG, JPEG and WebP are supported")
+		}
+		req.ReferenceImages = append(req.ReferenceImages, asset)
 	}
 	if v := r.FormValue("n"); v != "" {
 		if _, err := fmt.Sscanf(v, "%d", &req.N); err != nil {
-			writeError(w, 400, "invalid_request", "n must be an integer")
-			return
+			return domain.ImageRequest{}, errors.New("n must be an integer")
 		}
 	}
 	if r.FormValue("image_strength") != "" {
-		writeError(w, 400, "unsupported_parameter", "image_strength is not used by the selected reference-image models; use reference_strength")
-		return
+		return domain.ImageRequest{}, errors.New("image_strength is not used by the selected reference-image models; use reference_strength")
 	}
 	if v := r.FormValue("output_compression"); v != "" {
 		var compression int
 		if _, err := fmt.Sscanf(v, "%d", &compression); err != nil {
-			writeError(w, 400, "invalid_request", "output_compression must be an integer")
-			return
+			return domain.ImageRequest{}, errors.New("output_compression must be an integer")
 		}
 		req.OutputCompression = &compression
 	}
-	task, _, err := s.createTask(r, req)
+	var err error
+	req, err = normalizeAsyncImageDelivery(req)
 	if err != nil {
-		writeCreateTaskError(w, err)
-		return
+		return domain.ImageRequest{}, err
 	}
-	task, err = s.waitTask(r.Context(), task.ID, s.Config.SyncTimeout)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			s.writePendingTask(w, task)
-			return
-		}
-		writeError(w, 500, "generation_wait_failed", err.Error())
-		return
-	}
-	s.writeImageResult(w, r.Context(), task)
+	cleanup = false
+	return req, nil
 }

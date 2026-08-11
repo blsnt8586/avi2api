@@ -235,6 +235,7 @@ type ImageRequest struct {
 	ReferenceIDs      []string      `json:"reference_ids,omitempty"`
 	SourceImage       *SourceImage  `json:"source_image,omitempty"`
 	SourceImages      []SourceImage `json:"source_images,omitempty"`
+	ReferenceImages   []SourceMedia `json:"reference_images,omitempty"`
 	ReferenceStrength string        `json:"reference_strength,omitempty"`
 	ImageStrength     *float64      `json:"image_strength,omitempty"`
 }
