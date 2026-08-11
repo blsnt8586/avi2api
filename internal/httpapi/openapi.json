@@ -2,9 +2,31 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AIV2API",
-    "version": "1.5.0",
+    "version": "1.5.1",
     "description": "Image, video, and audio generation API. Video, audio, and asynchronous image endpoints return tasks.",
     "license": {"name": "All rights reserved", "identifier": "LicenseRef-Proprietary"}
+  },
+  "x-prompt-limit-by-model": {
+    "counting": "Unicode code points",
+    "rejection": "HTTP 400 prompt_too_long before pricing, account routing, task creation, or credit reservation",
+    "limits": {
+      "gpt-image-2": 9999,
+      "nano-banana-2": 9999,
+      "nano-banana-pro": 9999,
+      "seedream-5.0-pro": 9999,
+      "flux-3-video": 5000,
+      "seedance-2.0": 5000,
+      "seedance-2.0-fast": 5000,
+      "seedance-2.0-mini": 5000,
+      "veo-3.1": 9999,
+      "veo-3.1-fast": 9999,
+      "kling-o3-omni": 2500,
+      "minimax-h3": 2000,
+      "grok-imagine-1.5": 5000,
+      "dialogue-v3": 5000,
+      "music-v1": 9999,
+      "sound-effects-v2": 9999
+    }
   },
   "servers": [{"url": "/", "description": "Current host"}],
   "tags": [
@@ -660,6 +682,8 @@
       },
       "ChatCompletionRequest": {
         "type": "object", "required": ["messages"], "additionalProperties": false,
+        "description": "The final user message becomes an image prompt. Its combined text is limited by the selected image model and is rejected before task admission when too long.",
+        "x-final-user-prompt-limit-by-model": {"gpt-image-2": 9999, "nano-banana-2": 9999, "nano-banana-pro": 9999, "seedream-5.0-pro": 9999},
         "properties": {
           "model": {"type": "string", "enum": ["gpt-image-2", "nano-banana-2", "nano-banana-pro", "seedream-5.0-pro"], "default": "gpt-image-2"},
           "stream": {"type": "boolean", "default": false},
@@ -670,7 +694,7 @@
         "type": "object", "required": ["role", "content"], "additionalProperties": false,
         "properties": {
           "role": {"type": "string", "enum": ["system", "user", "assistant"]},
-          "content": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/ChatContentPart"}, "contains": {"$ref": "#/components/schemas/ChatImageContentPart"}, "minContains": 0, "maxContains": 1}]}
+          "content": {"oneOf": [{"type": "string", "minLength": 1, "maxLength": 9999}, {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/ChatContentPart"}, "contains": {"$ref": "#/components/schemas/ChatImageContentPart"}, "minContains": 0, "maxContains": 1}]}
         }
       },
       "ChatContentPart": {
@@ -679,7 +703,7 @@
           {"$ref": "#/components/schemas/ChatImageContentPart"}
         ]
       },
-      "ChatTextContentPart": {"type": "object", "required": ["type", "text"], "additionalProperties": false, "properties": {"type": {"const": "text"}, "text": {"type": "string", "minLength": 1}}},
+      "ChatTextContentPart": {"type": "object", "required": ["type", "text"], "additionalProperties": false, "properties": {"type": {"const": "text"}, "text": {"type": "string", "minLength": 1, "maxLength": 9999}}},
       "ChatImageContentPart": {"type": "object", "required": ["type", "image_url"], "additionalProperties": false, "properties": {"type": {"const": "image_url"}, "image_url": {"type": "object", "required": ["url"], "additionalProperties": false, "properties": {"url": {"type": "string", "pattern": "^data:image/(png|jpeg|webp);base64,"}}}}},
       "ChatCompletion": {
         "type": "object", "required": ["id", "object", "created", "model", "choices"], "additionalProperties": false,
@@ -702,11 +726,11 @@
         }
       },
       "CancelResult": {"type": "object", "required": ["id", "status"], "properties": {"id": {"type": "string", "format": "uuid"}, "status": {"const": "cancelled"}}},
-      "Error": {"type": "object", "required": ["message", "type", "code"], "properties": {"message": {"type": "string"}, "type": {"type": "string"}, "code": {"type": "string"}}},
+      "Error": {"type": "object", "required": ["message", "type", "code"], "properties": {"message": {"type": "string"}, "type": {"type": "string"}, "code": {"type": "string"}, "details": {"type": "object", "description": "Structured error context when available.", "additionalProperties": true, "properties": {"model": {"type": "string"}, "actual_characters": {"type": "integer", "minimum": 0}, "max_characters": {"type": "integer", "minimum": 1}}}}},
       "ErrorResponse": {"type": "object", "required": ["error"], "properties": {"error": {"$ref": "#/components/schemas/Error"}}}
     },
     "responses": {
-      "BadRequest": {"description": "Invalid request parameters", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}, "examples": {"invalid_request": {"value": {"error": {"message": "prompt is required", "type": "invalid_request", "code": "invalid_request"}}}, "idempotency_key_required": {"value": {"error": {"message": "Idempotency-Key header is required", "type": "idempotency_key_required", "code": "idempotency_key_required"}}}, "idempotency_key_too_long": {"value": {"error": {"message": "Idempotency-Key must not exceed 255 characters", "type": "idempotency_key_too_long", "code": "idempotency_key_too_long"}}}}}}},
+      "BadRequest": {"description": "Invalid request parameters", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}, "examples": {"invalid_request": {"value": {"error": {"message": "prompt is required", "type": "invalid_request", "code": "invalid_request"}}}, "prompt_too_long": {"value": {"error": {"message": "prompt must not exceed 2000 Unicode characters for minimax-h3 (received 2001)", "type": "prompt_too_long", "code": "prompt_too_long", "details": {"model": "minimax-h3", "actual_characters": 2001, "max_characters": 2000}}}}, "idempotency_key_required": {"value": {"error": {"message": "Idempotency-Key header is required", "type": "idempotency_key_required", "code": "idempotency_key_required"}}}, "idempotency_key_too_long": {"value": {"error": {"message": "Idempotency-Key must not exceed 255 characters", "type": "idempotency_key_too_long", "code": "idempotency_key_too_long"}}}}}}},
       "Unauthorized": {"description": "Missing or invalid Bearer API key", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}, "example": {"error": {"message": "missing Bearer API key", "type": "invalid_api_key", "code": "invalid_api_key"}}}}},
       "NotFound": {"description": "Task not found for this API key", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
       "InsufficientBalance": {"description": "Account pool balance is below the estimated generation cost", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}, "example": {"error": {"message": "the account pool does not have enough available credits", "type": "insufficient_pool_balance", "code": "insufficient_pool_balance"}}}}},

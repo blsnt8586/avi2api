@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 type publicAudioJSONRequest struct {
@@ -58,6 +57,9 @@ func (s *Server) createAudioTask(r *http.Request, req domain.AudioRequest) (doma
 	}
 	if req.Model == "" {
 		req.Model = "sound-effects-v2"
+	}
+	if err := validateModelPrompt(req.Model, req.Prompt); err != nil {
+		return domain.Task{}, false, err
 	}
 	key := r.Context().Value(apiKeyContext).(domain.APIKey)
 	if !allowed(key.AllowedModels, req.Model) {
@@ -133,9 +135,6 @@ func applyAndValidateAudioDefaults(req *domain.AudioRequest, model domain.ModelC
 		if !allowed(model.Capabilities, "text-to-speech") {
 			return errors.New("selected model is not a speech model")
 		}
-		if utf8.RuneCountInString(req.Prompt) > 5000 {
-			return errors.New("dialogue-v3 prompt must not exceed 5000 characters")
-		}
 		if req.Duration != 0 || req.DurationMinutes != 0 || req.ForceInstrumental || req.Loop {
 			return errors.New("dialogue-v3 only accepts voice, language and prompt_influence audio options")
 		}
@@ -170,9 +169,6 @@ func applyAndValidateAudioDefaults(req *domain.AudioRequest, model domain.ModelC
 		if !allowed(model.Capabilities, "text-to-music") {
 			return errors.New("selected model is not a music model")
 		}
-		if utf8.RuneCountInString(req.Prompt) > 9999 {
-			return errors.New("music-v1 prompt must not exceed 9999 characters")
-		}
 		if req.Duration != 0 || req.Voice != "" || req.Language != "" || req.PromptInfluence != nil || req.Loop {
 			return errors.New("music-v1 only accepts duration_minutes and force_instrumental audio options")
 		}
@@ -188,9 +184,6 @@ func applyAndValidateAudioDefaults(req *domain.AudioRequest, model domain.ModelC
 	case "sound-effects-v2":
 		if !allowed(model.Capabilities, "text-to-sound") {
 			return errors.New("selected model is not a sound effect model")
-		}
-		if utf8.RuneCountInString(req.Prompt) > 9999 {
-			return errors.New("sound-effects-v2 prompt must not exceed 9999 characters")
 		}
 		if req.DurationMinutes != 0 || req.Voice != "" || req.Language != "" || req.ForceInstrumental {
 			return errors.New("sound-effects-v2 only accepts duration, loop and prompt_influence audio options")

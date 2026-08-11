@@ -525,11 +525,11 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	if strings.TrimSpace(req.Prompt) == "" {
 		return domain.Task{}, false, errors.New("prompt is required")
 	}
-	if promptTooLong(req.Prompt, 10000) {
-		return domain.Task{}, false, errors.New("prompt must not exceed 10000 characters")
-	}
 	if req.Model == "" {
 		req.Model = "leonardo-auto"
+	}
+	if err := validateModelPrompt(req.Model, req.Prompt); err != nil {
+		return domain.Task{}, false, err
 	}
 	notPublic := false
 	req.Public = &notPublic
@@ -638,9 +638,6 @@ func (s *Server) enqueueTask(ctx context.Context, task domain.Task) {
 }
 
 func validateImageOptions(req domain.ImageRequest, model domain.ModelConfig) error {
-	if promptTooLong(req.Prompt, 9999) {
-		return errors.New("prompt must not exceed 9999 characters for Leonardo image models")
-	}
 	if _, _, err := imageopts.ParseSize(req.Model, req.Size); err != nil {
 		return err
 	}

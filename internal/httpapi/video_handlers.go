@@ -204,8 +204,8 @@ func (s *Server) createVideoTask(r *http.Request, req domain.VideoRequest) (doma
 	if !ok {
 		return domain.Task{}, false, errors.New("unknown video model")
 	}
-	if promptTooLong(req.Prompt, spec.PromptMaxCharacters) {
-		return domain.Task{}, false, fmt.Errorf("prompt must not exceed %d characters for %s", spec.PromptMaxCharacters, req.Model)
+	if err := validateModelPrompt(req.Model, req.Prompt); err != nil {
+		return domain.Task{}, false, err
 	}
 	model, err := s.Store.GetModel(r.Context(), req.Model)
 	if err != nil || !supportsVideoGeneration(model) {

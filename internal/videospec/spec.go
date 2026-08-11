@@ -27,7 +27,6 @@ type Spec struct {
 	UsesResolutionMode          bool
 	UsesExactDimensions         bool
 	ResolutionBySize            map[string]string
-	PromptMaxCharacters         int
 }
 
 var standardSizes = []string{"1280x720", "720x1280"}
@@ -37,19 +36,19 @@ var specs = map[string]Spec{
 		DefaultDuration: 8, Durations: integerRange(4, 15), DefaultSize: "1280x720", Sizes: standardSizes,
 		DefaultResolution: "720p", Resolutions: []string{"480p", "720p", "1080p", "2160p"},
 		MaxReferenceImages: 4, SupportsStartEndFrame: true, SupportsEndFrame: true, MaxReferenceVideos: 3, MaxReferenceAudios: 1, MaxVideoDuration: 15, MaxAudioDuration: 15,
-		SupportsGenerateAudio: true, UsesResolutionMode: true, PromptMaxCharacters: 5000,
+		SupportsGenerateAudio: true, UsesResolutionMode: true,
 	},
 	"seedance-2.0-fast": {
 		DefaultDuration: 8, Durations: integerRange(4, 15), DefaultSize: "1280x720", Sizes: standardSizes,
 		DefaultResolution: "720p", Resolutions: []string{"480p", "720p"},
 		MaxReferenceImages: 4, SupportsStartEndFrame: true, SupportsEndFrame: true, MaxReferenceVideos: 3, MaxReferenceAudios: 1, MaxVideoDuration: 15, MaxAudioDuration: 15,
-		SupportsGenerateAudio: true, UsesResolutionMode: true, PromptMaxCharacters: 5000,
+		SupportsGenerateAudio: true, UsesResolutionMode: true,
 	},
 	"seedance-2.0-mini": {
 		DefaultDuration: 8, Durations: integerRange(4, 15), DefaultSize: "1280x720", Sizes: standardSizes,
 		DefaultResolution: "720p", Resolutions: []string{"480p", "720p"},
 		MaxReferenceImages: 4, SupportsStartEndFrame: true, SupportsEndFrame: true, MaxReferenceVideos: 3, MaxReferenceAudios: 1, MaxVideoDuration: 15, MaxAudioDuration: 15,
-		SupportsGenerateAudio: true, PromptMaxCharacters: 5000,
+		SupportsGenerateAudio: true,
 	},
 	"flux-3-video": {
 		DefaultDuration: 8, Durations: integerRange(5, 20), DefaultSize: "1280x720",
@@ -60,7 +59,7 @@ var specs = map[string]Spec{
 		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p"},
 		SupportsStartEndFrame: true, SupportsEndFrame: true,
 		MaxReferenceVideos: 1, MaxVideoDuration: 15.05, MaxReferenceVideoBytes: 50_000_000,
-		SupportsGenerateAudio: true, UsesExactDimensions: true, PromptMaxCharacters: 5000,
+		SupportsGenerateAudio: true, UsesExactDimensions: true,
 		ResolutionBySize: map[string]string{
 			"1470x630": "720p", "1360x680": "720p", "1280x720": "720p", "1112x834": "720p", "960x960": "720p", "834x1112": "720p", "720x1280": "720p",
 			"2520x1080": "1080p", "2160x1080": "1080p", "1920x1080": "1080p", "1440x1080": "1080p", "1440x1440": "1080p", "1080x1440": "1080p", "1080x1920": "1080p",
@@ -70,13 +69,12 @@ var specs = map[string]Spec{
 		DefaultDuration: 8, Durations: []int{4, 6, 8}, DefaultSize: "1280x720", Sizes: standardSizes,
 		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p", "2160p"},
 		MaxReferenceImages: 3, SupportsStartEndFrame: true, SupportsEndFrame: true, SupportsGenerateAudio: true,
-		UsesResolutionMode: true, PromptMaxCharacters: 9999,
+		UsesResolutionMode: true,
 	},
 	"veo-3.1-fast": {
 		DefaultDuration: 8, Durations: []int{4, 6, 8}, DefaultSize: "1280x720", Sizes: standardSizes,
 		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p", "2160p"},
 		SupportsStartEndFrame: true, SupportsEndFrame: true, SupportsGenerateAudio: true, UsesResolutionMode: true,
-		PromptMaxCharacters: 9999,
 	},
 	"kling-o3-omni": {
 		DefaultDuration: 5, Durations: integerRange(3, 15), DefaultSize: "1920x1080",
@@ -91,7 +89,7 @@ var specs = map[string]Spec{
 		MaxReferenceVideos: 1, MinVideoDuration: 3, MaxVideoDuration: 10.05,
 		MinReferenceVideoDimension: 720, MaxReferenceVideoDimension: 2160,
 		VideoReferenceResolutions: []string{"720p", "1080p"}, OmitDurationWithVideo: true,
-		SupportsGenerateAudio: true, UsesExactDimensions: true, PromptMaxCharacters: 2500,
+		SupportsGenerateAudio: true, UsesExactDimensions: true,
 		ResolutionBySize: map[string]string{
 			"1280x720": "720p", "720x1280": "720p", "960x960": "720p",
 			"1920x1080": "1080p", "1080x1920": "1080p", "1440x1440": "1080p",
@@ -104,7 +102,6 @@ var specs = map[string]Spec{
 		DefaultResolution: "1440p", Resolutions: []string{"1440p"}, MaxReferenceImages: 5,
 		SupportsStartEndFrame: true, SupportsEndFrame: true, MaxReferenceAudios: 3, MaxAudioDuration: 15,
 		SupportsGenerateAudio: true, AlwaysGenerateAudio: true, UsesExactDimensions: true,
-		PromptMaxCharacters: 2000,
 	},
 	"grok-imagine-1.5": {
 		DefaultDuration: 6, Durations: integerRange(3, 15), DefaultSize: "736x400",
@@ -121,7 +118,6 @@ var specs = map[string]Spec{
 			"1280x720": "720p", "720x1280": "720p", "960x960": "720p",
 			"1888x1072": "1080p", "1072x1888": "1080p", "1424x1424": "1080p",
 		},
-		PromptMaxCharacters: 5000,
 	},
 }
 

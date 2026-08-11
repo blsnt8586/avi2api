@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"github.com/leonardo2api/leonardo2api/internal/modelconstraints"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,7 @@ func TestOpenAPISpec(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.OpenAPI != "3.1.0" || document.Info.Version != "1.5.0" || document.Paths["/v1/images/generations"] == nil || document.Paths["/v1/images/estimate"] == nil || document.Paths["/v1/videos/estimate"] == nil || document.Paths["/v1/audio/generations"] == nil || document.Paths["/v1/chat/completions"] == nil || document.Paths["/v1/tasks/images"] == nil {
+	if document.OpenAPI != "3.1.0" || document.Info.Version != "1.5.1" || document.Paths["/v1/images/generations"] == nil || document.Paths["/v1/images/estimate"] == nil || document.Paths["/v1/videos/estimate"] == nil || document.Paths["/v1/audio/generations"] == nil || document.Paths["/v1/chat/completions"] == nil || document.Paths["/v1/tasks/images"] == nil {
 		t.Fatalf("incomplete OpenAPI document: openapi=%q contract=%q paths=%d", document.OpenAPI, document.Info.Version, len(document.Paths))
 	}
 }
@@ -40,6 +41,20 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := document["paths"].(map[string]any)
+	promptContract := document["x-prompt-limit-by-model"].(map[string]any)
+	if promptContract["counting"] != "Unicode code points" {
+		t.Fatalf("prompt counting semantics are missing: %+v", promptContract)
+	}
+	promptLimits := promptContract["limits"].(map[string]any)
+	wantPromptLimits := modelconstraints.AllPromptLimits()
+	if len(promptLimits) != len(wantPromptLimits) {
+		t.Fatalf("OpenAPI prompt models=%d, backend=%d", len(promptLimits), len(wantPromptLimits))
+	}
+	for model, limit := range wantPromptLimits {
+		if promptLimits[model] != float64(limit) {
+			t.Errorf("OpenAPI prompt limit for %s=%v, want %d", model, promptLimits[model], limit)
+		}
+	}
 	for path, rawItem := range paths {
 		item := rawItem.(map[string]any)
 		for _, method := range []string{"get", "post", "put", "patch", "delete"} {
@@ -295,21 +310,4 @@ func containsOpenAPIValue(values []any, want string) bool {
 		}
 	}
 	return false
-}
-
-func TestPromptLengthCountsUnicodeCharacters(t *testing.T) {
-	prompt := make([]rune, 10000)
-	for i := range prompt {
-		prompt[i] = '生'
-	}
-	if got := len(string(prompt)); got <= 10000 {
-		t.Fatalf("test prompt must exceed 10000 UTF-8 bytes, got %d", got)
-	}
-	if promptTooLong(string(prompt), 10000) {
-		t.Fatal("exactly 10000 Unicode characters must be accepted")
-	}
-	prompt = append(prompt, '成')
-	if !promptTooLong(string(prompt), 10000) {
-		t.Fatal("10001 Unicode characters must be rejected")
-	}
 }

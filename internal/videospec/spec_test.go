@@ -4,30 +4,29 @@ import "testing"
 
 func TestPublicVideoSpecs(t *testing.T) {
 	tests := []struct {
-		model               string
-		duration            int
-		resolution          string
-		referenceImages     int
-		generateAudio       bool
-		usesResolutionMode  bool
-		promptMaxCharacters int
+		model              string
+		duration           int
+		resolution         string
+		referenceImages    int
+		generateAudio      bool
+		usesResolutionMode bool
 	}{
-		{"seedance-2.0", 15, "2160p", 4, true, true, 5000},
-		{"seedance-2.0-fast", 15, "720p", 4, true, true, 5000},
-		{"seedance-2.0-mini", 15, "720p", 4, true, false, 5000},
-		{"flux-3-video", 20, "1080p", 0, true, false, 5000},
-		{"veo-3.1", 8, "2160p", 3, true, true, 9999},
-		{"veo-3.1-fast", 6, "1080p", 0, true, true, 9999},
-		{"kling-o3-omni", 15, "2160p", 7, true, false, 2500},
-		{"minimax-h3", 15, "1440p", 5, true, false, 2000},
-		{"grok-imagine-1.5", 15, "1080p", 0, true, false, 5000},
+		{"seedance-2.0", 15, "2160p", 4, true, true},
+		{"seedance-2.0-fast", 15, "720p", 4, true, true},
+		{"seedance-2.0-mini", 15, "720p", 4, true, false},
+		{"flux-3-video", 20, "1080p", 0, true, false},
+		{"veo-3.1", 8, "2160p", 3, true, true},
+		{"veo-3.1-fast", 6, "1080p", 0, true, true},
+		{"kling-o3-omni", 15, "2160p", 7, true, false},
+		{"minimax-h3", 15, "1440p", 5, true, false},
+		{"grok-imagine-1.5", 15, "1080p", 0, true, false},
 	}
 	for _, test := range tests {
 		spec, ok := Get(test.model)
 		if !ok {
 			t.Fatalf("missing spec for %s", test.model)
 		}
-		if !spec.SupportsDuration(test.duration) || !spec.SupportsResolution(test.resolution) || spec.MaxReferenceImages != test.referenceImages || spec.SupportsGenerateAudio != test.generateAudio || spec.UsesResolutionMode != test.usesResolutionMode || spec.PromptMaxCharacters != test.promptMaxCharacters {
+		if !spec.SupportsDuration(test.duration) || !spec.SupportsResolution(test.resolution) || spec.MaxReferenceImages != test.referenceImages || spec.SupportsGenerateAudio != test.generateAudio || spec.UsesResolutionMode != test.usesResolutionMode {
 			t.Fatalf("unexpected spec for %s: %+v", test.model, spec)
 		}
 	}

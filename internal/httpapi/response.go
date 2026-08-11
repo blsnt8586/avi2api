@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 func decodeJSON(r *http.Request, v any) error {
@@ -73,6 +72,10 @@ func writeCreateTaskError(w http.ResponseWriter, err error) {
 		}
 	} else if strings.Contains(err.Error(), "idempotency") {
 		code = "idempotency_conflict"
+	}
+	if re != nil && re.Details != nil {
+		writeErrorDetails(w, statusFor(err), code, err.Error(), re.Details)
+		return
 	}
 	writeError(w, statusFor(err), code, err.Error())
 }
@@ -147,10 +150,6 @@ func statusFor(err error) int {
 		return 409
 	}
 	return 400
-}
-
-func promptTooLong(prompt string, limit int) bool {
-	return utf8.RuneCountInString(prompt) > limit
 }
 
 func sendSSE(w io.Writer, v any) error {

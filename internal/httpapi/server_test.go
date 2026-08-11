@@ -294,11 +294,14 @@ func TestValidateGPTImage2Options(t *testing.T) {
 func TestValidateImageOptionsUsesLeonardoPromptAndQualityLimits(t *testing.T) {
 	model := domain.ModelConfig{Capabilities: []string{"quality"}}
 	valid := domain.ImageRequest{Model: "gpt-image-2", Prompt: strings.Repeat("a", 9999), Size: "1024x1024", Quality: "low"}
+	if err := validateModelPrompt(valid.Model, valid.Prompt); err != nil {
+		t.Fatal(err)
+	}
 	if err := validateImageOptions(valid, model); err != nil {
 		t.Fatal(err)
 	}
 	valid.Prompt += "a"
-	if err := validateImageOptions(valid, model); err == nil {
+	if err := validateModelPrompt(valid.Model, valid.Prompt); err == nil {
 		t.Fatal("expected a 10000-character image prompt to be rejected")
 	}
 	if err := validateImageOptions(domain.ImageRequest{Model: "nano-banana-2", Prompt: "test", Size: "1024x1024", Quality: "auto"}, domain.ModelConfig{}); err == nil {
@@ -521,11 +524,14 @@ func TestApplyAndValidateAudioPromptLimitsMatchSchema(t *testing.T) {
 	limits := map[string]int{"dialogue-v3": 5000, "music-v1": 9999, "sound-effects-v2": 9999}
 	for model, limit := range limits {
 		valid := domain.AudioRequest{Model: model, Prompt: strings.Repeat("生", limit)}
+		if err := validateModelPrompt(model, valid.Prompt); err != nil {
+			t.Fatalf("%s rejected %d-character prompt: %v", model, limit, err)
+		}
 		if err := applyAndValidateAudioDefaults(&valid, models[model]); err != nil {
 			t.Fatalf("%s rejected %d-character prompt: %v", model, limit, err)
 		}
 		invalid := domain.AudioRequest{Model: model, Prompt: strings.Repeat("生", limit+1)}
-		if err := applyAndValidateAudioDefaults(&invalid, models[model]); err == nil {
+		if err := validateModelPrompt(model, invalid.Prompt); err == nil {
 			t.Fatalf("%s accepted %d-character prompt", model, limit+1)
 		}
 	}

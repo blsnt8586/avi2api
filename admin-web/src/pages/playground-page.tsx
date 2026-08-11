@@ -36,6 +36,7 @@ import { imageModels, imageSizes } from "../shared/catalog";
 import { idempotencyKey, publicAPI } from "../shared/api";
 import { clearPlaygroundCache, useCachedResult, useSessionState } from "../shared/cache";
 import { statusText } from "../shared/status";
+import { assertPromptLength } from "../shared/text";
 import {
   PublicAudioModel,
   audioModelDocs,
@@ -149,18 +150,21 @@ export function Playground() {
 }
 
 function ChatPlayground({ apiKey }: { apiKey: string }) {
-  const [model, setModel] = useSessionState("chat-model", "gpt-image-2");
+  const [model, setModel] = useSessionState<PlaygroundImageModel>("chat-model", "gpt-image-2");
   const [prompt, setPrompt] = useSessionState("chat-prompt", "生成一张白色背景上的产品摄影，柔和棚拍光线");
   const mutation = useMutation({
-    mutationFn: () => publicAPI<Record<string, unknown>>("/v1/chat/completions", apiKey, {
-      method: "POST",
-      headers: { "Idempotency-Key": idempotencyKey() },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    }),
+    mutationFn: () => {
+      assertPromptLength(prompt, model, imageModelDocs[model].promptMax);
+      return publicAPI<Record<string, unknown>>("/v1/chat/completions", apiKey, {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey() },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+    },
   });
   return (
     <section className="playground-workspace chat-playground">
@@ -170,12 +174,12 @@ function ChatPlayground({ apiKey }: { apiKey: string }) {
           <Badge tone="warning">会消耗积分</Badge>
         </div>
         <label>模型
-          <select value={model} onChange={(event) => setModel(event.target.value)}>
+          <select value={model} onChange={(event) => setModel(event.target.value as PlaygroundImageModel)}>
             {imageModels.map((value) => <option value={value} key={value}>{value}</option>)}
           </select>
         </label>
         <label>用户消息
-          <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={9999} rows={6} />
+          <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={6} />
         </label>
         {mutation.error && <p className="error" role="alert">{mutation.error.message}</p>}
         <Button type="submit" disabled={!apiKey.trim() || !prompt.trim() || mutation.isPending}>
@@ -256,6 +260,7 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     mutationFn: async () => {
       if (!apiKey.trim()) throw new Error("请先填写 API Key");
       if (!prompt.trim()) throw new Error("请输入图像描述");
+      assertPromptLength(prompt, model, imageModelDocs[model].promptMax);
       if (mode === "edit" && !files.length)
         throw new Error("图生图至少需要 1 张参考图");
       const common = {
@@ -361,7 +366,6 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
           提示词
           <textarea
             rows={5}
-            maxLength={9999}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="描述主体、场景、光线、构图和风格…"
@@ -584,8 +588,7 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     mutationFn: async () => {
       if (!apiKey.trim()) throw new Error("请先填写 API Key");
       if (!prompt.trim()) throw new Error("请输入视频描述");
-      if (prompt.length > selectedVideoSpec.promptMax)
-        throw new Error(`当前模型提示词最多 ${selectedVideoSpec.promptMax} 字符`);
+      assertPromptLength(prompt, model, selectedVideoSpec.promptMax);
       if (selectedVideoSpec.requiresStartFrame && !startFrame.length)
         throw new Error("Grok Imagine 1.5 必须上传首帧");
       if (!supportsVideoEndFrame(selectedVideoSpec) && endFrame.length)
@@ -746,7 +749,6 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
           提示词
           <textarea
             rows={5}
-            maxLength={selectedVideoSpec.promptMax}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="描述画面、动作、运镜、节奏和氛围…"
@@ -973,6 +975,7 @@ function AudioPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     mutationFn: async () => {
       if (!apiKey.trim()) throw new Error("请先填写 API Key");
       if (!prompt.trim()) throw new Error("请输入音频描述");
+      assertPromptLength(prompt, model, audioModelDocs[model].promptMax);
       const common = { model, prompt: prompt.trim(), n: count };
       const body =
         model === "dialogue-v3"
@@ -1081,7 +1084,6 @@ function AudioPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
           提示词
           <textarea
             rows={5}
-            maxLength={model === "dialogue-v3" ? 5000 : 10000}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder={

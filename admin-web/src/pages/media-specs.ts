@@ -12,6 +12,7 @@ export const imageModelDocs: Record<
     size: string;
     sizeNote: string;
     quantity: string;
+    promptMax: number;
     customSize?: string;
   }
 > = {
@@ -25,6 +26,7 @@ export const imageModelDocs: Record<
     size: "默认 1024x1024；宽高必须命中 Leonardo 枚举，比例不超过 3:1，总像素为 655,360–8,294,400",
     sizeNote: "表内是常用预设；还可使用符合上述条件的 Leonardo 枚举宽高组合，不能传任意像素。",
     quantity: "固定 1 张",
+    promptMax: 9999,
   },
   "nano-banana-2": {
     name: "Nano Banana 2",
@@ -36,6 +38,7 @@ export const imageModelDocs: Record<
     size: "默认 1024x1024；宽高必须命中 Leonardo 枚举，标准预设最大为 6336x2688 或 3072x5504",
     sizeNote: "表内是常用预设；还可组合 Leonardo 已开放的宽、高枚举，不能传任意像素。",
     quantity: "1–4 张；默认 1 张",
+    promptMax: 9999,
   },
   "nano-banana-pro": {
     name: "Nano Banana Pro",
@@ -47,6 +50,7 @@ export const imageModelDocs: Record<
     size: "默认 1024x1024；使用与 Nano Banana 2 相同的平台尺寸体系",
     sizeNote: "表内是常用预设；还可组合 Leonardo 已开放的宽、高枚举，不能传任意像素。",
     quantity: "1–4 张；默认 1 张",
+    promptMax: 9999,
   },
   "seedream-5.0-pro": {
     name: "Seedream 5.0 Pro",
@@ -58,6 +62,7 @@ export const imageModelDocs: Record<
     size: "默认 1024x1024；支持自定义 768–2048 像素边长，标准画幅见尺寸表",
     sizeNote: "表内包含常用预设和完整的连续自定义范围。",
     quantity: "1–4 张；默认 1 张",
+    promptMax: 9999,
     customSize: "WIDTHxHEIGHT；宽、高均可填写 768–2048 的整数像素，例如 1600x1200",
   },
 };
@@ -340,13 +345,14 @@ export type PublicAudioModel = "dialogue-v3" | "music-v1" | "sound-effects-v2";
 
 export const audioModelDocs: Record<
   PublicAudioModel,
-  { name: string; role: string; use: string; price: string; limits: string[] }
+  { name: string; role: string; use: string; price: string; limits: string[]; promptMax: number }
 > = {
   "dialogue-v3": {
     name: "Dialogue V3",
     role: "文本转语音",
     use: "将文本转换为单人语音，使用公开语音别名选择声音。",
     price: "90 积分 / 1000 字符 / 条",
+    promptMax: 5000,
     limits: [
       "文本最长 5,000 个字符",
       "每次 1–4 条；voice、language、prompt_influence 可用",
@@ -357,6 +363,7 @@ export const audioModelDocs: Record<
     role: "提示词配乐",
     use: "根据文字描述生成音乐，可要求纯音乐。时长以整分钟计费。",
     price: "700 积分 / 分钟 / 条",
+    promptMax: 9999,
     limits: [
       "duration_minutes 仅支持 1–10",
       "提示词最多 9,999 个 Unicode 字符",
@@ -368,6 +375,7 @@ export const audioModelDocs: Record<
     role: "提示词音效",
     use: "生成短音效或环境声；可选择循环输出。",
     price: "2 积分 / 秒 / 条",
+    promptMax: 9999,
     limits: [
       "duration 仅支持 1–22 秒",
       "提示词最多 9,999 个 Unicode 字符",

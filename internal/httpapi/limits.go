@@ -19,6 +19,7 @@ type requestError struct {
 	Status     int
 	Code       string
 	Message    string
+	Details    any
 	RetryAfter time.Duration
 }
 

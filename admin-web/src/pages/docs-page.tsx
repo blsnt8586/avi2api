@@ -90,7 +90,7 @@ function imageParametersForModel(
   }
   parameters.push(
     ["model", "string", "必填", "生成模型。", model],
-    ["prompt", "string", "必填", endpoint === "edits" ? "图片修改要求。" : "图片内容描述。", "1–9,999 个字符"],
+    ["prompt", "string", "必填", endpoint === "edits" ? "图片修改要求。" : "图片内容描述。", `1–${imageModelDocs[model].promptMax.toLocaleString()} 个 Unicode 字符`],
     ["size", "string", "可选", "输出尺寸。", imageModelDocs[model].size],
     ["n", "integer", "可选", "生成数量。", model === "gpt-image-2" ? "固定为 1" : "1–4；默认 1"],
     ["response_format", "string", "可选", "结果格式。", endpoint === "async" ? "固定为 url" : "url 或 b64_json"],
@@ -112,50 +112,52 @@ function imageParametersForModel(
   return parameters;
 }
 
-const chatParameters: DocParameter[] = [
-  [
-    "model",
-    "string",
-    "可选",
-    "图片模型。",
-    "四个公开图片模型；默认 gpt-image-2",
-  ],
-  [
-    "messages",
-    "object[]",
-    "必填",
-    "对话消息；最后一条 user 消息用于生成。",
-    "至少 1 条，并包含 user 消息",
-  ],
-  [
-    "messages[].role",
-    "string",
-    "必填",
-    "消息角色。",
-    "system、user 或 assistant",
-  ],
-  [
-    "messages[].content",
-    "string | part[]",
-    "必填",
-    "文字提示词，可附一张 Base64 参考图。",
-    "字符串或 text/image_url 内容块；图片不超过 25 MiB",
-  ],
-  [
-    "stream",
-    "boolean",
-    "可选",
-    "是否使用 SSE。",
-    "true 或 false；默认 false",
-  ],
-  [
-    "Idempotency-Key",
-    "header",
-    "建议",
-    "网络重试时复用原任务。",
-    "同一业务请求保持相同值",
-  ],
-];
+function chatParametersForModel(model: PublicModel): DocParameter[] {
+  return [
+    [
+      "model",
+      "string",
+      "可选",
+      "图片模型。",
+      "四个公开图片模型；默认 gpt-image-2",
+    ],
+    [
+      "messages",
+      "object[]",
+      "必填",
+      "对话消息；最后一条 user 消息用于生成。",
+      "至少 1 条，并包含 user 消息",
+    ],
+    [
+      "messages[].role",
+      "string",
+      "必填",
+      "消息角色。",
+      "system、user 或 assistant",
+    ],
+    [
+      "messages[].content",
+      "string | part[]",
+      "必填",
+      "文字提示词，可附一张 Base64 参考图。",
+      `最终 user 提示词最多 ${imageModelDocs[model].promptMax.toLocaleString()} 个 Unicode 字符；可附 1 张不超过 25 MiB 的 Base64 图片`,
+    ],
+    [
+      "stream",
+      "boolean",
+      "可选",
+      "是否使用 SSE。",
+      "true 或 false；默认 false",
+    ],
+    [
+      "Idempotency-Key",
+      "header",
+      "建议",
+      "网络重试时复用原任务。",
+      "同一业务请求保持相同值",
+    ],
+  ];
+}
 
 function ParameterTable({ parameters }: { parameters: DocParameter[] }) {
   return (
@@ -214,6 +216,12 @@ const publicErrors = [
     "invalid_request / invalid_task_id / idempotency_key_required / idempotency_key_too_long",
     "参数、任务 ID 不合法，或 Idempotency-Key 缺失、超过 255 个字符",
     "修正请求后重试",
+  ],
+  [
+    "400",
+    "prompt_too_long",
+    "提示词超过当前模型上限；details 返回模型、实际字符数和最大字符数",
+    "缩短提示词后重试；任务不会创建，也不会预留积分",
   ],
   ["401", "invalid_api_key", "API Key 缺失、无效或已停用", "更换有效密钥"],
   ["402", "insufficient_pool_balance", "可用积分不足", "补充积分后重试"],
@@ -431,6 +439,7 @@ function ImageDocs() {
   const [endpoint, setEndpoint] = useState<ImageEndpoint>("generations");
   const [model, setModel] = useState<PublicModel>("gpt-image-2");
   const doc = imageModelDocs[model];
+  const chatParameters = chatParametersForModel(model);
   const sizeGroups = imageSizeGroups[model];
   const matrixSizes = sizeGroups.flatMap((group) => [group.small, group.medium, group.large]).filter((size): size is string => Boolean(size));
   const matrixQuery = useQuery({
@@ -550,6 +559,10 @@ function ImageDocs() {
         </div>
       </div>
       <div className="model-facts">
+        <p>
+          <strong>提示词：</strong>
+          最多 {doc.promptMax.toLocaleString()} 个 Unicode 字符
+        </p>
         <p>
           <strong>质量：</strong>
           {doc.quality}
@@ -957,7 +970,7 @@ function videoParametersForMode(model: PublicVideoModel, mode: VideoMode): DocPa
   const fixedVeoImage = model === "veo-3.1" && mode === "image";
   const parameters: DocParameter[] = [
     ["model", "string", "必填", "视频模型。", model],
-    ["prompt", "string", "必填", "视频内容和镜头描述。", `1–${spec.promptMax.toLocaleString()} 个字符`],
+    ["prompt", "string", "必填", "视频内容和镜头描述。", `1–${spec.promptMax.toLocaleString()} 个 Unicode 字符`],
     ["duration", "integer", fixedVeoImage ? "固定" : "可选", "视频时长。", fixedVeoImage ? "固定为 8 秒" : `${spec.duration}；默认 ${spec.defaultDuration} 秒`],
     ["size", "string", fixedVeoImage ? "固定" : "可选", "画面方向和尺寸。", fixedVeoImage ? "固定为 1280x720" : modelVideoSizes(model).map((item) => item.value).join("、")],
     ["resolution", "string", spec.resolutions.length === 1 ? "固定" : "可选", "输出清晰度。", spec.sizes?.some((item) => item.resolution) ? `必须与 size 对应：${spec.resolutions.join("、")}` : spec.resolutions.join("、")],
@@ -1115,6 +1128,7 @@ function VideoDocs() {
         </div>
       </div>
       <div className="model-facts">
+        <p><strong>提示词：</strong>最多 {doc.promptMax.toLocaleString()} 个 Unicode 字符</p>
         <p><strong>参考输入：</strong>{videoReferenceSummary(model)}</p>
         <p>
           <strong>原生音频：</strong>
@@ -1237,7 +1251,7 @@ function VideoDocs() {
 function audioParametersForModel(model: PublicAudioModel): DocParameter[] {
   const parameters: DocParameter[] = [
     ["model", "string", model === "sound-effects-v2" ? "可选" : "必填", "音频模型。", `${model}${model === "sound-effects-v2" ? "；默认 sound-effects-v2" : ""}`],
-    ["prompt", "string", "必填", "朗读文本、音乐描述或音效描述。", model === "dialogue-v3" ? "1–5,000 个字符" : "1–9,999 个字符"],
+    ["prompt", "string", "必填", "朗读文本、音乐描述或音效描述。", `1–${audioModelDocs[model].promptMax.toLocaleString()} 个 Unicode 字符`],
     ["n", "integer", "可选", "生成数量。", "1–4；默认 1"],
   ];
   if (model === "dialogue-v3") {
@@ -1346,6 +1360,10 @@ function AudioDocs() {
             ))}
           </ul>
         </div>
+      </div>
+      <div className="model-facts">
+        <p><strong>提示词：</strong>最多 {doc.promptMax.toLocaleString()} 个 Unicode 字符</p>
+        <p><strong>生成数量：</strong>每次 1–4 条</p>
       </div>
       <div className="doc-section-title">
         <div>
