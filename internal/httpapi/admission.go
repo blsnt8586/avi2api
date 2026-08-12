@@ -15,8 +15,8 @@ func paidCreationRequest(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/v1/images/generations", "/v1/images/edits", "/v1/tasks/images",
-		"/v1/videos/generations", "/v1/audio/generations", "/v1/chat/completions":
+	case "/v1/images/generations", "/v1/videos/generations",
+		"/v1/audio/generations", "/v1/chat/completions":
 		return true
 	default:
 		return false

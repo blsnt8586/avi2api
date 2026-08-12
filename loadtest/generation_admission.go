@@ -46,7 +46,7 @@ func main() {
 			defer wg.Done()
 			for index := range jobs {
 				payload, _ := json.Marshal(map[string]any{"model": "gpt-image-2", "prompt": fmt.Sprintf("load fixture %d", index), "size": "1024x1024", "quality": "low", "n": 1, "response_format": "url"})
-				req, err := http.NewRequest(http.MethodPost, *baseURL+"/v1/tasks/images", bytes.NewReader(payload))
+				req, err := http.NewRequest(http.MethodPost, *baseURL+"/v1/images/generations", bytes.NewReader(payload))
 				if err != nil {
 					results <- sample{err: err.Error()}
 					continue

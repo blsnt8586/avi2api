@@ -2,11 +2,11 @@
 
 AIV2API is a multi-provider gateway for image, video, and audio generation. Leonardo AI is the first provider adapter; additional providers use isolated authentication, balance, pricing, submission, polling, and result adapters behind the same public API.
 
-Go service that exposes curated Leonardo image, video, and audio generation through OpenAI-compatible and asynchronous APIs. It uses PostgreSQL for durable state, Redis/Asynq for distributed execution, and a React administration UI embedded in the Go binary.
+Go service that exposes curated Leonardo image, video, and audio generation through a media-specific asynchronous API. It uses PostgreSQL for durable state, Redis/Asynq for distributed execution, and a React administration UI embedded in the Go binary.
 
 ## Implemented
 
-- OpenAI-compatible text-to-image and image edit endpoints
+- Symmetric asynchronous image, video, and audio endpoints
 - Leonardo session refresh, GraphQL generation, result polling, and balance refresh
 - Real image upload flow: `UploadImage` GraphQL, presigned multipart upload, moderation polling
 - Encrypted account Cookie and access-token storage with AES-256-GCM
@@ -90,21 +90,21 @@ export AIV2API_API_KEY="leo_your_api_key"
 Text-to-image is asynchronous:
 
 ```bash
-curl http://127.0.0.1:8080/v1/tasks/images \
+curl http://127.0.0.1:8080/v1/images/generations \
   -H "Authorization: Bearer $AIV2API_API_KEY" \
   -H "Idempotency-Key: image-example-001" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-image-2","prompt":"a red ceramic teapot on a white table","size":"1024x1024","quality":"low","n":1}'
 ```
 
-The response is a queued task. Poll `GET /v1/tasks/{id}` until `status=succeeded`, then read `result.data[].url`. Image tasks accept `response_format=url`; Base64 delivery and local output transcoding are not part of the asynchronous contract. For `gpt-image-2`, `quality=auto|low|medium|high` is accepted and `auto` is intentionally normalized to `low`: Leonardo defaults this model to the much more expensive `MEDIUM` tier.
+The response is a queued task. Poll `GET /v1/images/{id}` until `status=succeeded`, then read `result.data[].url`. Image tasks accept `response_format=url`; Base64 delivery and local output transcoding are not part of the asynchronous contract. For `gpt-image-2`, `quality=auto|low|medium|high` is accepted and `auto` is intentionally normalized to `low`: Leonardo defaults this model to the much more expensive `MEDIUM` tier.
 
 Public model aliases are intentionally limited to `gpt-image-2`, `nano-banana-2`, `nano-banana-pro`, and `seedream-5.0-pro`. Administrators can inspect Leonardo's complete current image-model catalog through `GET /admin/api/platform-models` or the Platform Models page. Credit cost and supported generation options vary by upstream model. Seedream 5.0 Pro accepts custom 768–2048px edges; it costs 45 credits normally and 90 credits when the Schema 2K threshold is met.
 
 Image-to-image:
 
 ```bash
-curl http://127.0.0.1:8080/v1/tasks/images \
+curl http://127.0.0.1:8080/v1/images/generations \
   -H "Authorization: Bearer $AIV2API_API_KEY" \
   -H "Idempotency-Key: image-edit-example-001" \
   -F "image[]=@product.png" \
@@ -116,7 +116,7 @@ curl http://127.0.0.1:8080/v1/tasks/images \
   -F "reference_strength=MID"
 ```
 
-The async image endpoint accepts JSON for text-only generation and multipart for reference-image generation. It accepts either `image` or repeated `image[]` fields; all four public models support up to six reference images. `reference_strength=LOW|MID|HIGH` defaults to `MID`. Uploaded references are stored as temporary task assets and removed at terminal state. Mask editing is not exposed because these Leonardo model schemas only publish image-reference guidance. `/v1/images/generations` and `/v1/images/edits` remain asynchronous compatibility aliases; new clients should use `/v1/tasks/images`.
+`POST /v1/images/generations` accepts JSON for text-only generation and multipart for reference-image generation. It accepts either `image` or repeated `image[]` fields; all four public models support up to six reference images. `reference_strength=LOW|MID|HIGH` defaults to `MID`. Uploaded references are stored as temporary task assets and removed at terminal state. Mask editing is not exposed because these Leonardo model schemas only publish image-reference guidance.
 
 Text-to-video is asynchronous:
 
@@ -128,7 +128,7 @@ curl http://127.0.0.1:8080/v1/videos/generations \
   -d '{"model":"seedance-2.0-fast","prompt":"a slow cinematic orbit around a glass sculpture","duration":4,"size":"1280x720","resolution":"720p"}'
 ```
 
-The response is a queued task. Poll `GET /v1/tasks/{id}` or `GET /v1/videos/{id}` until `status=succeeded`; the result contains an MP4 URL. Public video models are `flux-3-video`, `seedance-2.0`, `seedance-2.0-fast`, `seedance-2.0-mini`, `seedance-2.5`, `veo-3.1`, `veo-3.1-fast`, `kling-o3-omni`, `minimax-h3`, and `grok-imagine-1.5`. Seedance 2.5 maps to Leonardo `bytedance/seedance-2.5`, supports 4–30 seconds, twelve exact 480p/720p dimensions, native audio, up to 30 images, one start/end frame pair, 10 reference videos, and 10 reference audio files. Kling Video O3 Omni maps to Leonardo `kling-video-o-3`, defaults to 1080p at 5 seconds, supports 3–15 seconds, nine exact 720p/1080p/2160p dimensions, native audio, up to seven images, start/end frames, or one reference video plus up to four images. FLUX 3 Video maps to Leonardo `bfl/flux-3-video`, supports 5–20 seconds, fourteen exact 720p/1080p dimensions, synchronized native audio, start/end frames, and one video continuation reference. MiniMax H3 maps to Leonardo `hailuo-03`, generates fixed 1440p video at 5–15 seconds, and always includes native audio. Grok Imagine 1.5 is image-to-video only: multipart `start_frame` is required, `end_frame` and other reference fields are rejected, duration is 3–15 seconds, and native audio defaults to enabled. Video quantity is fixed at one.
+The response is a queued task. Poll `GET /v1/videos/{id}` until `status=succeeded`; the result contains an MP4 URL. Public video models are `flux-3-video`, `seedance-2.0`, `seedance-2.0-fast`, `seedance-2.0-mini`, `seedance-2.5`, `veo-3.1`, `veo-3.1-fast`, `kling-o3-omni`, `minimax-h3`, and `grok-imagine-1.5`. Seedance 2.5 maps to Leonardo `bytedance/seedance-2.5`, supports 4–30 seconds, twelve exact 480p/720p dimensions, native audio, up to 30 images, one start/end frame pair, 10 reference videos, and 10 reference audio files. Kling Video O3 Omni maps to Leonardo `kling-video-o-3`, defaults to 1080p at 5 seconds, supports 3–15 seconds, nine exact 720p/1080p/2160p dimensions, native audio, up to seven images, start/end frames, or one reference video plus up to four images. FLUX 3 Video maps to Leonardo `bfl/flux-3-video`, supports 5–20 seconds, fourteen exact 720p/1080p dimensions, synchronized native audio, start/end frames, and one video continuation reference. MiniMax H3 maps to Leonardo `hailuo-03`, generates fixed 1440p video at 5–15 seconds, and always includes native audio. Grok Imagine 1.5 is image-to-video only: multipart `start_frame` is required, `end_frame` and other reference fields are rejected, duration is 3–15 seconds, and native audio defaults to enabled. Video quantity is fixed at one.
 
 Video prompt limits are model-specific: Seedance and Grok Imagine 1.5 are 5,000 Unicode characters; Kling O3 Omni is 2,500; Veo 3.1/Fast are 9,999; MiniMax H3 is 2,000. `POST /v1/videos/estimate` includes native-audio and video-reference pricing modifiers. Kling O3 Omni costs 224, 280, or 420 credits per second at 720p, 1080p, or 2160p with native audio; a reference video costs 252 credits per input second and does not support 2160p. Grok dimensions map to fixed 480p, 720p, or 1080p price tiers at 100, 165, or 290 credits per second. Seedance and Grok accept `generate_audio=false`, but the current Leonardo schema price is unchanged by that flag.
 
@@ -146,10 +146,10 @@ Poll `GET /v1/audio/{id}` until `status=succeeded`, then read `result.data[0].ur
 
 Seedance video requests may use multipart fields `image[]`, `start_frame`, `end_frame`, `video[]`, `audio[]`, `reference_strength`, and `generate_audio`. Kling O3 Omni accepts up to seven images, one start frame with optional end frame, or one 3–10.05 second reference video plus up to four images; frame inputs are exclusive with image/video inputs, and reference-video duration must match the integer `duration` within 0.05 seconds. FLUX 3 Video accepts `start_frame` and optional `end_frame`, or one `video` continuation file up to 50 MB and 15.05 seconds; these modes are mutually exclusive. Seedance 2.0 models accept up to 4 images, 3 videos totaling 15 seconds, and one audio file up to 15 seconds. Veo 3.1 ordinary image references require `size=1280x720` and `duration=8`. Grok Imagine 1.5 accepts only `start_frame` plus generation parameters; its nine exact size/resolution pairs are documented at `/docs` and in `/openapi.json`. Video and audio references are streamed through temporary files under `LEO_TASK_ASSET_DIR`; defaults are 200 MiB per video and 50 MiB per audio file.
 
-Asynchronous task:
+Asynchronous image task:
 
 ```bash
-curl http://127.0.0.1:8080/v1/tasks/images \
+curl http://127.0.0.1:8080/v1/images/generations \
   -H "Authorization: Bearer $AIV2API_API_KEY" \
   -H "Idempotency-Key: example-001" \
   -H "Content-Type: application/json" \
@@ -160,13 +160,16 @@ Async image, video, and audio requests reserve their estimated credits at creati
 
 Chat compatibility uses the same durable image task path and may wait for its compatibility response budget. The public image endpoints themselves always return tasks immediately.
 
-`POST /v1/tasks/images` always returns URL-based task results. It accepts `response_format=url` only and rejects `b64_json`, `output_format`, and `output_compression`. Reference images use multipart `image`/`image[]` plus optional `reference_strength`. Public task responses omit provider/account IDs, credit ledger fields, upstream generation IDs, and raw request payloads.
+`POST /v1/images/generations` always returns URL-based task results. It accepts `response_format=url` only and rejects `b64_json`, `output_format`, and `output_compression`. Reference images use multipart `image`/`image[]` plus optional `reference_strength`. Public task responses omit provider/account IDs, credit ledger fields, upstream generation IDs, and raw request payloads.
 
 Other endpoints:
 
 - `GET /v1/models`
-- `GET /v1/tasks/{id}`
-- `POST /v1/tasks/{id}/cancel`
+- `GET /v1/images/{id}`
+- `POST /v1/images/{id}/cancel`
+- `POST /v1/videos/generations`
+- `GET /v1/videos/{id}`
+- `POST /v1/videos/{id}/cancel`
 - `POST /v1/audio/generations`
 - `GET /v1/audio/{id}`
 - `POST /v1/audio/{id}/cancel`

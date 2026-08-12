@@ -50,10 +50,8 @@ Public routes:
 - `POST /v1/images/estimate`
 - `POST /v1/videos/estimate`
 - `POST /v1/images/generations`
-- `POST /v1/images/edits`
-- `POST /v1/tasks/images`
-- `GET /v1/tasks/{id}`
-- `POST /v1/tasks/{id}/cancel`
+- `GET /v1/images/{id}`
+- `POST /v1/images/{id}/cancel`
 - `POST /v1/videos/generations`
 - `GET /v1/videos/{id}`
 - `POST /v1/videos/{id}/cancel`
@@ -75,9 +73,9 @@ Public models:
 - `nano-banana-pro` -> Leonardo `gemini-image-2`
 - `seedream-5.0-pro` -> Leonardo `seedream-5.0-pro`
 
-`POST /v1/tasks/images` accepts JSON for text-to-image and `multipart/form-data` with `image` or repeated `image[]` for reference-image generation. `/v1/images/generations` and `/v1/images/edits` remain asynchronous compatibility aliases.
+`POST /v1/images/generations` accepts JSON for text-to-image and `multipart/form-data` with `image` or repeated `image[]` for reference-image generation.
 
-`POST /v1/tasks/images` is URL-only asynchronous delivery. It accepts `response_format=url`, rejects `b64_json`, `output_format`, and `output_compression`, and stores multipart reference images as temporary task assets until terminal cleanup.
+`POST /v1/images/generations` is URL-only asynchronous delivery. It accepts `response_format=url`, rejects `b64_json`, `output_format`, and `output_compression`, and stores multipart reference images as temporary task assets until terminal cleanup.
 
 Public image parameters:
 

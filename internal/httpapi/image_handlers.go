@@ -101,7 +101,7 @@ type imageEstimateStore interface {
 }
 
 func (s *Server) imageGeneration(w http.ResponseWriter, r *http.Request) {
-	s.createAsyncImage(w, r, false)
+	s.createAsyncImage(w, r)
 }
 
 func (s *Server) imageEstimate(w http.ResponseWriter, r *http.Request) {
@@ -458,11 +458,7 @@ func estimateVideoCost(ctx context.Context, rules imageEstimateStore, req videoE
 	}, nil
 }
 
-func (s *Server) asyncImage(w http.ResponseWriter, r *http.Request) {
-	s.createAsyncImage(w, r, false)
-}
-
-func (s *Server) createAsyncImage(w http.ResponseWriter, r *http.Request, requireReference bool) {
+func (s *Server) createAsyncImage(w http.ResponseWriter, r *http.Request) {
 	var req domain.ImageRequest
 	var err error
 	created := false
@@ -471,12 +467,8 @@ func (s *Server) createAsyncImage(w http.ResponseWriter, r *http.Request, requir
 			_ = s.Assets.CleanupImageRequest(req)
 		}
 	}()
-	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") && (requireReference || r.URL.Path == "/v1/tasks/images") {
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
 		req, err = s.parseAsyncImageMultipart(r)
-	} else if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
-		err = errors.New("text-to-image compatibility endpoint requires application/json; use multipart /v1/tasks/images for reference images")
-	} else if requireReference {
-		err = errors.New("image edits require multipart/form-data with image or image[]")
 	} else if decodeErr := decodeJSON(r, &req); decodeErr != nil {
 		err = decodeErr
 	} else {
@@ -484,10 +476,6 @@ func (s *Server) createAsyncImage(w http.ResponseWriter, r *http.Request, requir
 	}
 	if err != nil {
 		writeError(w, 400, "invalid_request", err.Error())
-		return
-	}
-	if requireReference && len(req.ReferenceImages) == 0 {
-		writeError(w, 400, "invalid_request", "image is required")
 		return
 	}
 	task, taskCreated, err := s.createTask(r, req)
@@ -501,7 +489,7 @@ func (s *Server) createAsyncImage(w http.ResponseWriter, r *http.Request, requir
 
 func validatePublicImageRequest(req domain.ImageRequest) error {
 	if req.Public != nil || len(req.StyleIDs) > 0 || len(req.ReferenceIDs) > 0 || req.SourceImage != nil || len(req.SourceImages) > 0 || len(req.ReferenceImages) > 0 || req.ImageStrength != nil || req.ReferenceStrength != "" {
-		return errors.New("this endpoint accepts only documented public image parameters; use multipart /v1/tasks/images for reference images")
+		return errors.New("reference images must be uploaded with multipart/form-data using image or image[]")
 	}
 	return nil
 }
@@ -712,7 +700,7 @@ func (s *Server) waitTask(ctx context.Context, id uuid.UUID, timeout time.Durati
 }
 
 func (s *Server) writePendingTask(w http.ResponseWriter, task domain.Task) {
-	w.Header().Set("Location", "/v1/tasks/"+task.ID.String())
+	w.Header().Set("Location", "/v1/images/"+task.ID.String())
 	w.Header().Set("Retry-After", "3")
 	writeJSON(w, http.StatusAccepted, newPublicTaskResponse(task))
 }
@@ -814,7 +802,19 @@ func (s *Server) download(ctx context.Context, u string) ([]byte, error) {
 	return b, nil
 }
 
-func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getImageTask(w http.ResponseWriter, r *http.Request) {
+	s.getTaskForKind(w, r, "image")
+}
+
+func (s *Server) getVideoTask(w http.ResponseWriter, r *http.Request) {
+	s.getTaskForKind(w, r, "video")
+}
+
+func (s *Server) getAudioTask(w http.ResponseWriter, r *http.Request) {
+	s.getTaskForKind(w, r, "audio")
+}
+
+func (s *Server) getTaskForKind(w http.ResponseWriter, r *http.Request, kind string) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeError(w, 400, "invalid_task_id", "invalid task id")
@@ -822,7 +822,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	}
 	task, err := s.Store.GetPublicTask(r.Context(), id)
 	key := r.Context().Value(apiKeyContext).(domain.APIKey)
-	if err != nil || task.APIKeyID == nil || *task.APIKeyID != key.ID {
+	if err != nil || task.APIKeyID == nil || *task.APIKeyID != key.ID || task.Kind != kind {
 		writeError(w, 404, "not_found", "task not found")
 		return
 	}
@@ -831,7 +831,19 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, newPublicTaskResponse(task))
 }
 
-func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
+func (s *Server) cancelImageTask(w http.ResponseWriter, r *http.Request) {
+	s.cancelTaskForKind(w, r, "image")
+}
+
+func (s *Server) cancelVideoTask(w http.ResponseWriter, r *http.Request) {
+	s.cancelTaskForKind(w, r, "video")
+}
+
+func (s *Server) cancelAudioTask(w http.ResponseWriter, r *http.Request) {
+	s.cancelTaskForKind(w, r, "audio")
+}
+
+func (s *Server) cancelTaskForKind(w http.ResponseWriter, r *http.Request, kind string) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeError(w, 400, "invalid_task_id", "invalid task id")
@@ -839,7 +851,7 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.Context().Value(apiKeyContext).(domain.APIKey)
 	task, taskErr := s.Store.GetTask(r.Context(), id)
-	if taskErr != nil || task.APIKeyID == nil || *task.APIKeyID != key.ID {
+	if taskErr != nil || task.APIKeyID == nil || *task.APIKeyID != key.ID || task.Kind != kind {
 		writeError(w, 404, "not_found", "task not found")
 		return
 	}
@@ -869,10 +881,6 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Store.ClearTerminalTaskSourceImage(r.Context(), id)
 	writeJSON(w, 200, map[string]any{"id": id, "status": domain.TaskCancelled})
-}
-
-func (s *Server) imageEdit(w http.ResponseWriter, r *http.Request) {
-	s.createAsyncImage(w, r, true)
 }
 
 func (s *Server) parseAsyncImageMultipart(r *http.Request) (domain.ImageRequest, error) {

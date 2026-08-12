@@ -438,7 +438,7 @@ function ImageDocs() {
     staleTime: 5 * 60 * 1000,
   });
   const costsBySize = new Map(matrixQuery.data?.rows.map((row) => [row.size, row.costs]) || []);
-  const endpointPath = "/v1/tasks/images";
+  const endpointPath = "/v1/images/generations";
   const params = imageParametersForModel(model, endpoint);
   const sample = endpoint === "generation" ? asyncImageExample(model) : editExample(model);
   const responseExample = asyncImageTaskResponseExample(model);
@@ -1352,7 +1352,7 @@ function AudioDocs() {
 
 function asyncImageExample(model: PublicModel) {
   const quality = model === "gpt-image-2" ? `\n    "quality": "low",` : "";
-  return `curl $BASE_URL/v1/tasks/images \\
+  return `curl $BASE_URL/v1/images/generations \\
   -H "Authorization: Bearer $AIV2API_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
@@ -1376,11 +1376,11 @@ function asyncImageTaskResponseExample(model: PublicModel) {
 }
 
 function imageTaskPollExample() {
-  return `curl $BASE_URL/v1/tasks/TASK_ID \\
+  return `curl $BASE_URL/v1/images/TASK_ID \\
   -H "Authorization: Bearer $AIV2API_API_KEY"
 
 # 仅 queued 任务可取消
-curl -X POST $BASE_URL/v1/tasks/TASK_ID/cancel \\
+curl -X POST $BASE_URL/v1/images/TASK_ID/cancel \\
   -H "Authorization: Bearer $AIV2API_API_KEY"`;
 }
 
@@ -1398,7 +1398,7 @@ function editExample(model: PublicModel) {
       ? ` \\
   -F "quality=low"`
       : "";
-  return `curl $BASE_URL/v1/tasks/images \\
+  return `curl $BASE_URL/v1/images/generations \\
   -H "Authorization: Bearer $AIV2API_API_KEY" \\
   -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
   -F "image[]=@product.png" \\

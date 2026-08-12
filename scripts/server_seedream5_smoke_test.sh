@@ -51,7 +51,7 @@ HTTP_STATUS="$(curl -sS -o "$WORK_DIR/create.json" -w '%{http_code}' \
   -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $RUN_ID" \
   -d '{"model":"seedream-5.0-pro","prompt":"A colossal neon phoenix made of liquid chrome and electric cyan plasma rising above a rain-soaked cyberpunk megacity at midnight, ancient floating temples woven between skyscrapers, holographic calligraphy and luminous street markets, cinematic anamorphic composition, dramatic volumetric lighting, ultra-detailed feathers reflecting the city, dynamic rooftop perspective, rich magenta and teal contrast, premium sci-fi concept art, breathtaking scale, crisp geometric details, no logos, no watermark","size":"2048x1152","response_format":"url","n":1}' \
-  "$BASE_URL/v1/tasks/images")"
+  "$BASE_URL/v1/images/generations")"
 [ "$HTTP_STATUS" = "202" ] || [ "$HTTP_STATUS" = "200" ] || {
   jq . "$WORK_DIR/create.json" >&2
   exit 1
@@ -72,7 +72,7 @@ BALANCE_BEFORE="$(printf '%s' "$ACCOUNT_ROW" | cut -d'|' -f3)"
 deadline=$(( $(date +%s) + 600 ))
 last_status=""
 while :; do
-  curl -fsS -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/tasks/$TASK_ID" >"$WORK_DIR/task.json"
+  curl -fsS -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/images/$TASK_ID" >"$WORK_DIR/task.json"
   status="$(jq -r '.status' "$WORK_DIR/task.json")"
   if [ "$status" != "$last_status" ]; then
     echo "task_status=$status progress=$(jq -r '.progress' "$WORK_DIR/task.json")"

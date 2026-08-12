@@ -19,7 +19,7 @@ db() {
 cleanup() {
   for task_id in $TASK_IDS; do
     if [ -n "$API_KEY" ]; then
-      curl -sS -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/tasks/$task_id/cancel" >/dev/null 2>&1 || true
+      curl -sS -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/images/$task_id/cancel" >/dev/null 2>&1 || true
     fi
   done
   if [ -n "$KEY_ID" ]; then
@@ -45,7 +45,7 @@ while [ "$i" -le 3 ]; do
     -H 'Content-Type: application/json' \
     -H "Idempotency-Key: $RUN_ID-$i" \
     -d '{"model":"gpt-image-2","prompt":"A simple centered matte blue ceramic sphere on a plain white studio background, no text","size":"1024x1024","quality":"low","response_format":"url","background":"opaque","moderation":"auto","n":1}' \
-    "$BASE_URL/v1/tasks/images"
+    "$BASE_URL/v1/images/generations"
   task_id="$(jq -r .id "$response")"
   TASK_IDS="$TASK_IDS $task_id"
   jq -r '"created id="+.id+" status="+.status+" queue_position="+((.queue_position // 0)|tostring)' "$response"
@@ -55,9 +55,9 @@ done
 sleep 2
 cancelled=0
 for task_id in $TASK_IDS; do
-  status="$(curl -fsS -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/tasks/$task_id" | jq -r .status)"
+  status="$(curl -fsS -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/images/$task_id" | jq -r .status)"
   if [ "$status" = "queued" ]; then
-    curl -fsS -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/tasks/$task_id/cancel" >/dev/null
+    curl -fsS -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/images/$task_id/cancel" >/dev/null
     cancelled=$((cancelled + 1))
   fi
 done
@@ -67,7 +67,7 @@ deadline=$(( $(date +%s) + 600 ))
 while :; do
   terminal=0
   for task_id in $TASK_IDS; do
-    status="$(curl -fsS -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/tasks/$task_id" | jq -r .status)"
+    status="$(curl -fsS -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/images/$task_id" | jq -r .status)"
     case "$status" in
       succeeded|failed|cancelled|submission_uncertain) terminal=$((terminal + 1)) ;;
     esac

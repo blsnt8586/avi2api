@@ -265,7 +265,7 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
         moderation: "auto",
       };
       if (mode === "generation")
-		return publicAPI<PlaygroundTask>("/v1/tasks/images", apiKey, {
+		return publicAPI<PlaygroundTask>("/v1/images/generations", apiKey, {
           method: "POST",
           headers: { "Idempotency-Key": idempotencyKey() },
           body: JSON.stringify({
@@ -282,7 +282,7 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
         if (value !== undefined) form.append(key, String(value));
       });
       files.forEach((file) => form.append("image[]", file));
-		return publicAPI<PlaygroundTask>("/v1/tasks/images", apiKey, {
+		return publicAPI<PlaygroundTask>("/v1/images/generations", apiKey, {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey() },
         body: form,
@@ -292,7 +292,7 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
   });
   const task = useQuery({
     queryKey: ["playground-image", taskID],
-    queryFn: () => publicAPI<PlaygroundTask>(`/v1/tasks/${taskID}`, apiKey),
+    queryFn: () => publicAPI<PlaygroundTask>(`/v1/images/${taskID}`, apiKey),
     enabled: Boolean(taskID && apiKey),
     refetchInterval: (query) =>
       terminalStatuses.includes(query.state.data?.status || "") ? false : 3000,
@@ -308,7 +308,7 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
   const cancel = useMutation({
     mutationFn: () =>
       publicAPI<{ id: string; status: string }>(
-        `/v1/tasks/${taskID}/cancel`,
+        `/v1/images/${taskID}/cancel`,
         apiKey,
         { method: "POST" },
       ),

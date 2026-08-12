@@ -38,7 +38,7 @@ func TestParseAsyncImageMultipartReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	request := httptest.NewRequest("POST", "/v1/tasks/images", &body)
+	request := httptest.NewRequest("POST", "/v1/images/generations", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	server := &Server{Assets: assets, Config: config.Config{MaxImageBytes: 1 << 20, MaxMultipartBytes: 8 << 20}}
 	parsed, err := server.parseAsyncImageMultipart(request)

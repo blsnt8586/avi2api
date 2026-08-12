@@ -28,8 +28,13 @@ func TestOpenAPISpec(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.OpenAPI != "3.1.0" || document.Info.Version != "1.7.0" || document.Paths["/v1/images/generations"] == nil || document.Paths["/v1/images/estimate"] == nil || document.Paths["/v1/videos/estimate"] == nil || document.Paths["/v1/audio/generations"] == nil || document.Paths["/v1/chat/completions"] == nil || document.Paths["/v1/tasks/images"] == nil {
+	if document.OpenAPI != "3.1.0" || document.Info.Version != "2.0.0" || document.Paths["/v1/images/generations"] == nil || document.Paths["/v1/images/{id}"] == nil || document.Paths["/v1/images/{id}/cancel"] == nil || document.Paths["/v1/images/estimate"] == nil || document.Paths["/v1/videos/estimate"] == nil || document.Paths["/v1/audio/generations"] == nil || document.Paths["/v1/chat/completions"] == nil {
 		t.Fatalf("incomplete OpenAPI document: openapi=%q contract=%q paths=%d", document.OpenAPI, document.Info.Version, len(document.Paths))
+	}
+	for _, removed := range []string{"/v1/tasks/images", "/v1/images/edits", "/v1/tasks/{id}", "/v1/tasks/{id}/cancel"} {
+		if document.Paths[removed] != nil {
+			t.Fatalf("removed path %s is still documented", removed)
+		}
 	}
 }
 
@@ -156,22 +161,22 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	}
 	components := document["components"].(map[string]any)
 	schemas := components["schemas"].(map[string]any)
-	imageEdit := schemas["ImageEditRequest"].(map[string]any)
-	if imageEdit["allOf"] != nil {
-		t.Fatal("ImageEditRequest must not combine additionalProperties=false through allOf")
+	imageReference := schemas["ImageReferenceRequest"].(map[string]any)
+	if imageReference["allOf"] != nil {
+		t.Fatal("ImageReferenceRequest must not combine additionalProperties=false through allOf")
 	}
-	properties := imageEdit["properties"].(map[string]any)
+	properties := imageReference["properties"].(map[string]any)
 	if properties["image"] == nil || properties["reference_strength"] == nil {
-		t.Fatalf("ImageEditRequest is incomplete: %+v", properties)
+		t.Fatalf("ImageReferenceRequest is incomplete: %+v", properties)
 	}
 	if properties["output_format"] != nil || properties["output_compression"] != nil || properties["response_format"].(map[string]any)["const"] != "url" {
-		t.Fatalf("async image edit schema exposes synchronous delivery parameters: %+v", properties)
+		t.Fatalf("async image reference schema exposes synchronous delivery parameters: %+v", properties)
 	}
 	asyncImage := schemas["AsyncImageRequest"].(map[string]any)["properties"].(map[string]any)
 	if asyncImage["output_format"] != nil || asyncImage["output_compression"] != nil {
 		t.Fatalf("async image schema exposes unsupported delivery parameters: %+v", asyncImage)
 	}
-	taskImagePath := document.Paths["/v1/tasks/images"].(map[string]any)
+	taskImagePath := paths["/v1/images/generations"].(map[string]any)
 	taskImagePost := taskImagePath["post"].(map[string]any)
 	taskImageRequestBody := taskImagePost["requestBody"].(map[string]any)
 	taskImageContent := taskImageRequestBody["content"].(map[string]any)

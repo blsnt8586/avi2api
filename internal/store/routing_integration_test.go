@@ -468,7 +468,7 @@ func TestListAPIRequestLogsPageFiltersAndUsesStableOrdering(t *testing.T) {
 	entries := []domain.APIRequestLog{
 		{RequestID: "request-success", APIKeyID: &keyID, APIKeyPrefix: "fixture", AccountID: &accountID, Method: "POST", Path: "/v1/images/generations", Kind: "image", Model: "gpt-image-2", Parameters: []byte(`{"size":"1024x1024"}`), Status: 200, DurationMS: 10},
 		{RequestID: "request-cost", APIKeyID: &keyID, APIKeyPrefix: "fixture", Method: "POST", Path: "/v1/images/generations", Kind: "image", Model: "nano-banana-2", Parameters: []byte(`{"size":"768x1344"}`), Status: 422, ErrorCode: "cost_unavailable", DurationMS: 2},
-		{RequestID: "request-poll", APIKeyID: &keyID, APIKeyPrefix: "fixture", AccountID: &accountID, Method: "GET", Path: "/v1/tasks/fixture", Status: 200, DurationMS: 1},
+		{RequestID: "request-poll", APIKeyID: &keyID, APIKeyPrefix: "fixture", AccountID: &accountID, Method: "GET", Path: "/v1/images/fixture", Status: 200, DurationMS: 1},
 	}
 	for _, entry := range entries {
 		if err := st.WriteAPIRequestLog(ctx, entry); err != nil {

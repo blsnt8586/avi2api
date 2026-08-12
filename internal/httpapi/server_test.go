@@ -235,20 +235,20 @@ func TestResponseErrorCode(t *testing.T) {
 
 func TestPaidCreationRequestRequiresKnownPOSTPath(t *testing.T) {
 	for _, path := range []string{
-		"/v1/images/generations", "/v1/images/edits", "/v1/tasks/images",
+		"/v1/images/generations",
 		"/v1/videos/generations", "/v1/audio/generations", "/v1/chat/completions",
 	} {
 		if !paidCreationRequest(httptest.NewRequest(http.MethodPost, path, nil)) {
 			t.Fatalf("paid creation path %s was not protected", path)
 		}
 	}
-	if paidCreationRequest(httptest.NewRequest(http.MethodGet, "/v1/tasks/task-id", nil)) {
+	if paidCreationRequest(httptest.NewRequest(http.MethodGet, "/v1/images/task-id", nil)) {
 		t.Fatal("task status read was classified as paid creation")
 	}
 }
 
 func TestImageCreationRoutesAreAsynchronous(t *testing.T) {
-	for _, path := range []string{"/v1/images/generations", "/v1/images/edits", "/v1/tasks/images"} {
+	for _, path := range []string{"/v1/images/generations"} {
 		if synchronousCreationRequest(httptest.NewRequest(http.MethodPost, path, nil)) {
 			t.Fatalf("image creation path %s still consumes a synchronous wait slot", path)
 		}

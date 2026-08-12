@@ -62,7 +62,7 @@ while [ "$i" -le "$TOTAL" ]; do
       -H 'Content-Type: application/json' \
       -H "Idempotency-Key: $RUN_ID-$i" \
       -d "{\"model\":\"gpt-image-2\",\"prompt\":\"A simple centered matte ceramic cube on a plain white studio background, request $i, no text\",\"size\":\"1024x1024\",\"quality\":\"low\",\"response_format\":\"url\",\"background\":\"opaque\",\"moderation\":\"auto\",\"n\":1}" \
-      "$BASE_URL/v1/tasks/images" >"$WORK_DIR/meta-$i" || echo '000|30' >"$WORK_DIR/meta-$i"
+      "$BASE_URL/v1/images/generations" >"$WORK_DIR/meta-$i" || echo '000|30' >"$WORK_DIR/meta-$i"
   ) &
   i=$((i + 1))
 done

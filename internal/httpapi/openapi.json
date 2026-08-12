@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AIV2API",
-    "version": "1.7.0",
-    "description": "Asynchronous image, video, and audio generation API. Image compatibility aliases also return durable tasks.",
+    "version": "2.0.0",
+    "description": "AIV2API asynchronous image, video, and audio generation API. Each media type has its own create, poll, and cancel paths.",
     "license": {"name": "All rights reserved", "identifier": "LicenseRef-Proprietary"}
   },
   "x-prompt-limit-by-model": {
@@ -68,30 +68,14 @@
       "post": {
         "tags": ["Images", "Tasks"],
         "operationId": "createImageGenerationTask",
-        "summary": "Create an asynchronous text-to-image task",
-        "deprecated": true,
-        "description": "Asynchronous compatibility alias. New clients should use POST /v1/tasks/images.",
+        "summary": "Create an asynchronous image task",
+        "description": "Use application/json for text-only generation or multipart/form-data with image/image[] for reference-image generation. Both forms return a durable task immediately. Results are URL-only.",
         "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsyncImageRequest"}}}},
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsyncImageRequest"}}, "multipart/form-data": {"schema": {"$ref": "#/components/schemas/ImageReferenceRequest"}}}},
         "responses": {
           "202": {"description": "Task created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}},
-          "200": {"description": "Existing idempotent task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "422": {"$ref": "#/components/responses/CostUnavailable"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+          "200": {"description": "Existing idempotent task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "413": {"description": "Reference image exceeds the configured size limit", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "415": {"description": "Reference image type is not PNG, JPEG, or WebP", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "422": {"$ref": "#/components/responses/CostUnavailable"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}
         }
-      }
-    },
-    "/v1/images/edits": {
-      "post": {
-        "tags": ["Images", "Tasks"], "operationId": "createImageEditTask", "summary": "Create an asynchronous image-reference task", "deprecated": true, "description": "Asynchronous compatibility alias for multipart image-reference requests. New clients should use POST /v1/tasks/images.", "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"$ref": "#/components/schemas/ImageEditRequest"}}}},
-        "responses": {"202": {"description": "Task created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "200": {"description": "Existing idempotent task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "413": {"description": "Reference image exceeds the configured size limit", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "415": {"description": "Reference image type is not PNG, JPEG, or WebP", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "422": {"$ref": "#/components/responses/CostUnavailable"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
-      }
-    },
-    "/v1/tasks/images": {
-      "post": {
-        "tags": ["Images", "Tasks"], "operationId": "createAsyncImageTask", "summary": "Create an asynchronous image task", "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "description": "Use application/json for text-only generation or multipart/form-data with image/image[] for reference-image generation. Both forms return a durable task immediately. Results are URL-only.",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AsyncImageRequest"}}, "multipart/form-data": {"schema": {"$ref": "#/components/schemas/ImageEditRequest"}}}},
-        "responses": {"202": {"description": "Task created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "200": {"description": "Existing idempotent task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "413": {"description": "Reference image exceeds the configured size limit", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "415": {"description": "Reference image type is not PNG, JPEG, or WebP", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}, "422": {"$ref": "#/components/responses/CostUnavailable"}, "429": {"$ref": "#/components/responses/RateLimited"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
       }
     },
     "/v1/videos/generations": {
@@ -190,8 +174,8 @@
         "responses": {"200": {"description": "Chat completion or SSE stream", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ChatCompletion"}}, "text/event-stream": {"schema": {"type": "string"}}}}, "202": {"description": "Synchronous wait expired; continue polling the returned task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "402": {"$ref": "#/components/responses/InsufficientBalance"}, "409": {"$ref": "#/components/responses/IdempotencyConflict"}, "422": {"$ref": "#/components/responses/CostUnavailable"}, "429": {"$ref": "#/components/responses/RateLimited"}, "502": {"$ref": "#/components/responses/UpstreamImageFailure"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
       }
     },
-    "/v1/tasks/{id}": {"get": {"tags": ["Tasks"], "operationId": "getTask", "summary": "Get a task", "parameters": [{"$ref": "#/components/parameters/TaskID"}], "responses": {"200": {"description": "Task state and result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}}}},
-    "/v1/tasks/{id}/cancel": {"post": {"tags": ["Tasks"], "operationId": "cancelTask", "summary": "Cancel a queued task", "parameters": [{"$ref": "#/components/parameters/TaskID"}], "responses": {"200": {"description": "Task cancelled", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CancelResult"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"description": "Only queued tasks can be cancelled", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}}}},
+    "/v1/images/{id}": {"get": {"tags": ["Images", "Tasks"], "operationId": "getImageTask", "summary": "Get an image task", "parameters": [{"$ref": "#/components/parameters/TaskID"}], "responses": {"200": {"description": "Task state and image result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}}}},
+    "/v1/images/{id}/cancel": {"post": {"tags": ["Images", "Tasks"], "operationId": "cancelImageTask", "summary": "Cancel a queued image task", "parameters": [{"$ref": "#/components/parameters/TaskID"}], "responses": {"200": {"description": "Task cancelled", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CancelResult"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"description": "Task is no longer cancellable", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}}}},
     "/v1/videos/{id}": {"get": {"tags": ["Videos", "Tasks"], "operationId": "getVideoTask", "summary": "Get a video task", "parameters": [{"$ref": "#/components/parameters/TaskID"}], "responses": {"200": {"description": "Task state and video result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}}}},
     "/v1/videos/{id}/cancel": {"post": {"tags": ["Videos", "Tasks"], "operationId": "cancelVideoTask", "summary": "Cancel a queued video task", "parameters": [{"$ref": "#/components/parameters/TaskID"}], "responses": {"200": {"description": "Task cancelled", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CancelResult"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}, "409": {"description": "Task is no longer cancellable", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}}}},
     "/v1/audio/{id}": {"get": {"tags": ["Audio", "Tasks"], "operationId": "getAudioTask", "summary": "Get an audio task", "parameters": [{"$ref": "#/components/parameters/TaskID"}], "responses": {"200": {"description": "Task state and audio result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"$ref": "#/components/responses/NotFound"}}}},
@@ -315,7 +299,7 @@
           "moderation": {"const": "auto"}
         }
       },
-      "ImageEditRequest": {
+      "ImageReferenceRequest": {
         "type": "object", "required": ["model", "prompt", "image"], "additionalProperties": false,
         "description": "URL-only asynchronous multipart image-reference request. Leonardo-native seed, prompt_enhance, style_ids, and Nano Banana 2 video references are not exposed.",
         "properties": {
