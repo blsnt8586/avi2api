@@ -601,6 +601,7 @@ func (s *Server) internalFailSessionRefresh(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		LeaseToken string `json:"lease_token"`
 		Error      string `json:"error"`
+		Terminal   bool   `json:"terminal"`
 	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil || decodeJSON(r, &req) != nil {
@@ -615,6 +616,14 @@ func (s *Server) internalFailSessionRefresh(w http.ResponseWriter, r *http.Reque
 	job, err := s.Store.GetSessionRefreshJob(r.Context(), id)
 	if err != nil {
 		writeError(w, 404, "not_found", "session refresh job not found")
+		return
+	}
+	if req.Terminal {
+		if err := s.Store.TerminalFailSessionRefreshJob(r.Context(), id, leaseToken, req.Error); err != nil {
+			writeError(w, 409, "lease_lost", "session refresh lease is no longer owned by this worker")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "terminal": true})
 		return
 	}
 	retrySteps := []time.Duration{2 * time.Minute, 5 * time.Minute, 10 * time.Minute, 20 * time.Minute, 30 * time.Minute}

@@ -51,6 +51,7 @@ func TestCleanupHistoryOnlyDeletesExpiredTerminalRecords(t *testing.T) {
 		{`INSERT INTO task_events(task_id,status,created_at) VALUES($1,'succeeded',$3),($2,'queued',$3)`, []any{terminalTaskID, activeTaskID, old}},
 		{`INSERT INTO task_outbox(task_id,kind,delivered_at,created_at,updated_at) VALUES($1,'image',$2,$2,$2)`, []any{terminalTaskID, old}},
 		{`INSERT INTO session_refresh_jobs(account_id,stage,status,completed_at,created_at,updated_at) VALUES($1,'browser','succeeded',$2,$2,$2)`, []any{accountID, old}},
+		{`INSERT INTO session_refresh_jobs(account_id,stage,status,completed_at,created_at,updated_at) VALUES($1,'browser','failed',$2,$2,$2)`, []any{accountID, old}},
 		{`INSERT INTO audit_logs(actor,action,created_at) VALUES('fixture','expired',$1),('fixture','current',$2)`, []any{old, now}},
 		{`INSERT INTO api_request_logs(request_id,method,path,status,duration_ms,created_at)
 			VALUES('expired','GET','/v1/models',200,1,$1),('current','GET','/v1/models',200,1,$2)`, []any{old, now}},
@@ -71,7 +72,7 @@ func TestCleanupHistoryOnlyDeletesExpiredTerminalRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.TaskEvents != 1 || result.Outbox != 1 || result.SessionJobs != 1 || result.APIRequests != 1 || result.AuditLogs != 1 || result.Reconciliations != 1 {
+	if result.TaskEvents != 1 || result.Outbox != 1 || result.SessionJobs != 2 || result.APIRequests != 1 || result.AuditLogs != 1 || result.Reconciliations != 1 {
 		t.Fatalf("unexpected cleanup result: %+v", result)
 	}
 

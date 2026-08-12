@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -17,6 +18,22 @@ from pathlib import Path
 from typing import Any
 
 import requests
+
+
+EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+DIAGNOSTIC_RETENTION_SECONDS = 24 * 60 * 60
+DIAGNOSTIC_LIMIT = 100
+TERMINAL_FAILURE_CODES = {
+    "canva_account_not_found",
+    "canva_additional_verification_required",
+}
+TERMINAL_FAILURE_MESSAGES = {
+    "canva_account_not_found": "Canva SSO account was not found for the saved login email",
+    "canva_additional_verification_required": (
+        "Canva SSO requires manual email verification; import a fresh authenticated Cookie "
+        "to restore this account"
+    ),
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -74,6 +91,61 @@ def write_private_json(path: Path, value: Any) -> None:
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         json.dump(value, handle)
     os.chmod(path, 0o600)
+
+
+def redact_diagnostic(value: Any, secrets: tuple[str, ...]) -> Any:
+    if isinstance(value, dict):
+        return {str(key): redact_diagnostic(child, secrets) for key, child in value.items()}
+    if isinstance(value, list):
+        return [redact_diagnostic(child, secrets) for child in value]
+    if isinstance(value, str):
+        redacted = value
+        for secret in secrets:
+            if secret:
+                redacted = redacted.replace(secret, "[redacted-secret]")
+        return EMAIL_PATTERN.sub("[redacted-email]", redacted)[:1000]
+    return value
+
+
+def preserve_failure_diagnostic(
+    source: Path,
+    output_root: Path,
+    job_id: str,
+    account_id: str,
+    secrets: tuple[str, ...],
+) -> str:
+    failure_code = "browser_refresh_failed"
+    if not source.is_file():
+        return failure_code
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return failure_code
+    if not isinstance(payload, dict):
+        return failure_code
+    payload = redact_diagnostic(payload, secrets)
+    payload["job_id"] = job_id
+    payload["account_id"] = account_id
+    failure_code = str(payload.get("failure_code") or failure_code)[:100]
+    diagnostic_root = output_root / "diagnostics"
+    destination = diagnostic_root / f"{job_id}.json"
+    write_private_json(destination, payload)
+
+    now = time.time()
+    diagnostics = sorted(
+        diagnostic_root.glob("*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for path in diagnostics:
+        try:
+            expired = now-path.stat().st_mtime > DIAGNOSTIC_RETENTION_SECONDS
+            over_limit = path not in diagnostics[:DIAGNOSTIC_LIMIT]
+            if expired or over_limit:
+                path.unlink(missing_ok=True)
+        except OSError:
+            continue
+    return failure_code
 
 
 def build_sync_command(
@@ -192,6 +264,8 @@ class SessionWorker:
         proxy = str(payload.get("proxy_url") or self.args.proxy)
         started = time.monotonic()
         mode = "headed"
+        terminal_failure = False
+        terminal_failure_message = ""
         try:
             output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             cookie_header = str(payload.get("cookie_header") or "")
@@ -293,7 +367,18 @@ class SessionWorker:
                     headed_env.pop("LEONARDO_EMAIL", None)
                     headed_env.pop("LEONARDO_PASSWORD", None)
                 if return_code != 0:
-                    raise RuntimeError(f"headed browser refresh exited with code {return_code}")
+                    failure_code = preserve_failure_diagnostic(
+                        output_dir / "headed" / "failure-diagnostic.json",
+                        self.args.output_root,
+                        job_id,
+                        account_id,
+                        (login_email, login_password),
+                    )
+                    terminal_failure = failure_code in TERMINAL_FAILURE_CODES
+                    terminal_failure_message = TERMINAL_FAILURE_MESSAGES.get(failure_code, "")
+                    raise RuntimeError(
+                        f"headed browser refresh failed: {failure_code} (exit {return_code})"
+                    )
 
             completed = client.post(
                 self.endpoint(f"/internal/session-refresh/jobs/{job_id}/complete"),
@@ -316,11 +401,15 @@ class SessionWorker:
                 flush=True,
             )
         except Exception as exc:
-            message = f"{type(exc).__name__}: {str(exc)[:700]}"
+            message = terminal_failure_message or f"{type(exc).__name__}: {str(exc)[:700]}"
             try:
                 failed = client.post(
                     self.endpoint(f"/internal/session-refresh/jobs/{job_id}/fail"),
-                    json={"lease_token": lease_token, "error": message},
+                    json={
+                        "lease_token": lease_token,
+                        "error": message,
+                        "terminal": terminal_failure,
+                    },
                     timeout=30,
                 )
                 failed.raise_for_status()

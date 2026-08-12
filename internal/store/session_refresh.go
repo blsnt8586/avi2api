@@ -31,7 +31,7 @@ func (s *Store) EnqueueDueSessionRefreshJobs(ctx context.Context, ahead time.Dur
 		SELECT a.id
 		FROM accounts a
 		WHERE a.session_refresh_enabled=true
-		  AND a.status<>'disabled'
+		  AND a.status NOT IN ('disabled','invalid')
 		  AND (a.session_refresh_not_before IS NULL OR a.session_refresh_not_before<=now())
 		  AND (a.access_token_expires_at IS NULL OR a.access_token_expires_at<=now()+$1::interval-make_interval(secs=>a.session_refresh_jitter_seconds))
 		  AND NOT EXISTS (
@@ -245,6 +245,36 @@ func (s *Store) FailSessionRefreshJob(ctx context.Context, id, leaseToken uuid.U
 		status=CASE WHEN status<>'disabled' AND (access_token_expires_at IS NULL OR access_token_expires_at<=now()) THEN 'cooldown' ELSE status END,
 		cooldown_until=CASE WHEN status<>'disabled' AND (access_token_expires_at IS NULL OR access_token_expires_at<=now()) THEN now()+$2::interval ELSE cooldown_until END,
 		updated_at=now() WHERE id=$1`, accountID, retryAfter.String(), message)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) TerminalFailSessionRefreshJob(ctx context.Context, id, leaseToken uuid.UUID, message string) error {
+	message = truncateRefreshError(message)
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var accountID uuid.UUID
+	err = tx.QueryRow(ctx, `UPDATE session_refresh_jobs SET
+		status='failed',lease_owner='',lease_token=NULL,lease_started_at=NULL,lease_expires_at=NULL,
+		last_error=$3,completed_at=now(),updated_at=now()
+		WHERE id=$1 AND status='leased' AND lease_token=$2
+		RETURNING account_id`, id, leaseToken, message).Scan(&accountID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE accounts SET
+		session_refresh_failures=session_refresh_failures+1,session_refresh_not_before=NULL,
+		last_error=$2,status=CASE WHEN status='disabled' THEN status ELSE 'invalid' END,
+		cooldown_until=NULL,updated_at=now()
+		WHERE id=$1`, accountID, message)
 	if err != nil {
 		return err
 	}

@@ -179,6 +179,69 @@ func TestSessionRefreshLeaseLifecycle(t *testing.T) {
 	}
 }
 
+func TestTerminalSessionRefreshFailureStopsAutomaticRetries(t *testing.T) {
+	databaseURL := os.Getenv("LEO_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("LEO_TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	if err := migrate.Up(ctx, databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	st, err := New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.DB.Exec(ctx, `TRUNCATE session_refresh_jobs,account_reservations,task_events,tasks,api_keys,accounts RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatal(err)
+	}
+	var accountID uuid.UUID
+	if err := st.DB.QueryRow(ctx, `INSERT INTO accounts(name,cookie_ciphertext,status,access_token_expires_at,last_checked_at)
+		VALUES('terminal-refresh','cipher','cooldown',now()-interval '1 hour',now()) RETURNING id`).Scan(&accountID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnqueueSessionRefreshJob(ctx, accountID, 10); err != nil {
+		t.Fatal(err)
+	}
+	cookieJob, ok, err := st.ClaimSessionRefreshJob(ctx, "cookie", "cookie-worker", "", time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("cookie claim ok=%v err=%v", ok, err)
+	}
+	if err := st.RequireBrowserSessionRefresh(ctx, cookieJob.ID, *cookieJob.LeaseToken, "browser required"); err != nil {
+		t.Fatal(err)
+	}
+	browserJob, ok, err := st.ClaimSessionRefreshJob(ctx, "browser", "browser-worker", "default", time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("browser claim ok=%v err=%v", ok, err)
+	}
+	message := "Canva SSO requires email verification"
+	if err := st.TerminalFailSessionRefreshJob(ctx, browserJob.ID, *browserJob.LeaseToken, message); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := st.GetSessionRefreshJob(ctx, browserJob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != "failed" || failed.CompletedAt == nil || failed.LastError != message {
+		t.Fatalf("unexpected terminal job: %+v", failed)
+	}
+	account, err := st.GetAccount(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Status != "invalid" || account.CooldownUntil != nil || account.LastError != message {
+		t.Fatalf("unexpected terminal account: %+v", account)
+	}
+	created, err := st.EnqueueDueSessionRefreshJobs(ctx, 15*time.Minute, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created != 0 {
+		t.Fatalf("created=%d, want 0 for invalid account", created)
+	}
+}
+
 func TestActivateExpiredAccountCooldowns(t *testing.T) {
 	databaseURL := os.Getenv("LEO_TEST_DATABASE_URL")
 	if databaseURL == "" {

@@ -47,7 +47,7 @@ func (s *Store) CleanupHistory(ctx context.Context, now time.Time, retention His
 		) DELETE FROM task_outbox o USING doomed d WHERE o.task_id=d.task_id`, &result.Outbox},
 		{retention.SessionJobs, `WITH doomed AS (
 			SELECT id FROM session_refresh_jobs
-			WHERE status IN ('succeeded','cancelled') AND updated_at<$1
+			WHERE status IN ('succeeded','failed','cancelled') AND updated_at<$1
 			ORDER BY updated_at,id LIMIT $2 FOR UPDATE SKIP LOCKED
 		) DELETE FROM session_refresh_jobs j USING doomed d WHERE j.id=d.id`, &result.SessionJobs},
 		{retention.APIRequests, `WITH doomed AS (

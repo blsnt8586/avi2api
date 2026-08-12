@@ -1,5 +1,6 @@
 import argparse
 import importlib.util
+import json
 import os
 import stat
 import sys
@@ -87,6 +88,38 @@ class SessionWorkerTests(unittest.TestCase):
                 self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
             else:
                 self.assertTrue(path.is_file())
+
+    def test_failure_diagnostic_is_preserved_and_redacted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "job-id" / "headed" / "failure-diagnostic.json"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                json.dumps(
+                    {
+                        "failure_code": "authentication_rejected",
+                        "error_message": "fixture@example.com fixture-password",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            code = worker_module.preserve_failure_diagnostic(
+                source,
+                root,
+                "job-id",
+                "account-id",
+                ("fixture@example.com", "fixture-password"),
+            )
+
+            self.assertEqual(code, "authentication_rejected")
+            preserved = json.loads(
+                (root / "diagnostics" / "job-id.json").read_text(encoding="utf-8")
+            )
+            encoded = json.dumps(preserved)
+            self.assertNotIn("fixture@example.com", encoded)
+            self.assertNotIn("fixture-password", encoded)
+            self.assertEqual(preserved["account_id"], "account-id")
 
     def test_headless_failure_falls_back_to_headed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -198,6 +231,47 @@ class SessionWorkerTests(unittest.TestCase):
             self.assertEqual(len(commands), 1)
             self.assertIn("--headless", commands[0])
             self.assertTrue(client.posts[-1][0].endswith("/complete"))
+
+    def test_additional_verification_is_reported_as_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worker = worker_module.SessionWorker(worker_args(root))
+
+            def run_command(_client, _env, command, _job_id, _lease_token):
+                if "--headless" in command:
+                    return 1
+                output_index = command.index("--output-dir") + 1
+                diagnostic = Path(command[output_index]) / "failure-diagnostic.json"
+                diagnostic.parent.mkdir(parents=True, exist_ok=True)
+                diagnostic.write_text(
+                    json.dumps(
+                        {"failure_code": "canva_additional_verification_required"}
+                    ),
+                    encoding="utf-8",
+                )
+                return 1
+
+            worker.run_command = run_command
+            client = FakeClient()
+            worker.execute_job(
+                client,
+                {},
+                {
+                    "job": {
+                        "id": "job-id",
+                        "account_id": "account-id",
+                        "lease_token": "lease-token",
+                    },
+                    "browser_profile_key": "profile-key",
+                    "cookie_header": "next-auth.session-token=value",
+                    "login_email": "fixture@example.com",
+                    "login_password": "fixture-password",
+                },
+            )
+
+            self.assertTrue(client.posts[-1][0].endswith("/fail"))
+            self.assertIs(client.posts[-1][1]["terminal"], True)
+            self.assertIn("manual email verification", client.posts[-1][1]["error"])
 
 
 if __name__ == "__main__":
