@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, Check, Gauge, RefreshCw, ScrollText, Server } from "lucide-react";
 import { Metric } from "../components/metric";
+import { ProviderBadge } from "../components/provider-switcher";
 import type { SystemCapacity, SystemCapacityResponse } from "../shared/types";
 import { api } from "../shared/api";
 import { formatCapacityWait } from "../shared/status";
@@ -118,6 +119,33 @@ export function SystemCapacityPanel() {
           tone={current.oldest_queued_seconds > 300 ? "warning" : "normal"}
         />
       </div>
+
+      <section className="capacity-provider-panel">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Provider Capacity</span>
+            <h2>平台容量分布</h2>
+          </div>
+          <span className="capacity-revision">全局策略统一保护，各平台槽位独立路由</span>
+        </div>
+        <div className="capacity-provider-grid">
+          {(current.providers || []).map((provider) => (
+            <article key={provider.provider_id} className={`capacity-provider-row provider-${provider.provider_id}`}>
+              <header>
+                <ProviderBadge providerID={provider.provider_id} />
+                <span>{provider.eligible_accounts} 个可用账号</span>
+              </header>
+              <div>
+                <span><small>执行</small><strong>{provider.executing}/{provider.eligible_execution_slots}</strong></span>
+                <span><small>排队</small><strong>{provider.queued}/{provider.eligible_queue_slots}</strong></span>
+                <span><small>图像</small><strong>{provider.executing_images}</strong></span>
+                <span><small>视频</small><strong>{provider.executing_videos}</strong></span>
+                <span><small>音频</small><strong>{provider.executing_audio}</strong></span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
 
       <div className="capacity-columns">
         <section className="capacity-section">

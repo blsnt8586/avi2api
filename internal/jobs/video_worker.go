@@ -2,7 +2,6 @@ package jobs
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,9 +9,9 @@ import (
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 	"github.com/leonardo2api/leonardo2api/internal/metrics"
+	"github.com/leonardo2api/leonardo2api/internal/providers"
 	"github.com/leonardo2api/leonardo2api/internal/videospec"
 	"io"
-	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,8 +19,6 @@ import (
 
 func (w *Worker) processVideo(parent context.Context, id uuid.UUID) error {
 	start := time.Now()
-	metrics.TasksActive.Inc()
-	defer metrics.TasksActive.Dec()
 	ctx, cancel := context.WithTimeout(parent, w.Config.TaskTimeout)
 	defer cancel()
 	task, leaseID, claimed, err := w.Store.ClaimTask(ctx, id, w.taskLease())
@@ -31,6 +28,8 @@ func (w *Worker) processVideo(parent context.Context, id uuid.UUID) error {
 	if !claimed {
 		return nil
 	}
+	metrics.TasksActive.WithLabelValues(task.ProviderID, task.Kind).Inc()
+	defer metrics.TasksActive.WithLabelValues(task.ProviderID, task.Kind).Dec()
 	stopLease := w.startLeaseHeartbeat(ctx, cancel, id, leaseID)
 	defer stopLease()
 	var req domain.VideoRequest
@@ -41,6 +40,13 @@ func (w *Worker) processVideo(parent context.Context, id uuid.UUID) error {
 		return w.fail(ctx, id, leaseID, "invalid_request", err)
 	}
 	defer w.cleanupTerminalVideoAssets(id, req)
+	switch task.ProviderID {
+	case providers.Adobe:
+		return w.processAdobeVideo(ctx, id, leaseID, task, req, start)
+	case providers.Leonardo:
+	default:
+		return w.fail(ctx, id, leaseID, "provider_unavailable", providers.ErrUnsupported)
+	}
 	if isSubmittedGenerationTask(task) {
 		if task.UpstreamDeadlineAt != nil && !task.UpstreamDeadlineAt.After(time.Now()) {
 			return w.markSubmissionUncertain(ctx, id, leaseID, task.AccountID, "upstream_deadline_exceeded", "upstream generation deadline exceeded")
@@ -114,135 +120,15 @@ func (w *Worker) processVideo(parent context.Context, id uuid.UUID) error {
 	if err != nil {
 		return w.fail(ctx, id, leaseID, "client_error", err)
 	}
-	sources := append([]domain.SourceImage(nil), req.SourceImages...)
-	if req.SourceImage != nil {
-		sources = append([]domain.SourceImage{*req.SourceImage}, sources...)
-	}
-	imageReferences := make([]leonardo.ImageReference, 0, len(sources))
-	audioSources := req.AudioReferences()
-	totalUploads := len(sources) + len(req.ReferenceImages) + len(req.ReferenceVideos) + len(audioSources)
-	if req.StartFrame != nil {
-		totalUploads++
-	}
-	if req.EndFrame != nil {
-		totalUploads++
-	}
-	uploadedCount := 0
-	updateUploadProgress := func() error {
-		uploadedCount++
-		progress := 15 + (uploadedCount * 4 / totalUploads)
-		return w.update(ctx, id, leaseID, domain.TaskUploading, progress, &account.ID, "", nil, "", "")
-	}
-	if totalUploads > 0 {
-		if err := w.update(ctx, id, leaseID, domain.TaskUploading, 15, &account.ID, "", nil, "", ""); err != nil {
-			return err
-		}
-	}
-	if len(sources) > 0 {
-		for _, source := range sources {
-			raw, decodeErr := base64.StdEncoding.DecodeString(source.Data)
-			if decodeErr != nil {
-				return w.fail(ctx, id, leaseID, "invalid_source_image", decodeErr)
-			}
-			uploaded, uploadErr := client.UploadInitImage(ctx, token, account.TeamID, source.Filename, source.MediaType, raw)
-			if uploadErr != nil {
-				w.recordAccountFailure(ctx, account, uploadErr)
-				return w.fail(ctx, id, leaseID, "upload_failed", uploadErr)
-			}
-			imageReferences = append(imageReferences, leonardo.ImageReference{ID: uploaded.InitImageID, Type: "UPLOADED", Strength: req.ReferenceStrength})
-			if err := updateUploadProgress(); err != nil {
-				return err
-			}
-		}
-	}
-	for _, source := range req.ReferenceImages {
-		uploaded, uploadErr := w.uploadTaskImage(ctx, client, token, account.TeamID, source)
-		if uploadErr != nil {
-			w.recordAccountFailure(ctx, account, uploadErr)
-			return w.fail(ctx, id, leaseID, "upload_failed", uploadErr)
-		}
-		imageReferences = append(imageReferences, leonardo.ImageReference{ID: uploaded.InitImageID, Type: "UPLOADED", Strength: req.ReferenceStrength})
-		if err := updateUploadProgress(); err != nil {
-			return err
-		}
-	}
-	var startFrame, endFrame *leonardo.ImageReference
-	if req.StartFrame != nil {
-		uploaded, uploadErr := w.uploadTaskImage(ctx, client, token, account.TeamID, *req.StartFrame)
-		if uploadErr != nil {
-			w.recordAccountFailure(ctx, account, uploadErr)
-			return w.fail(ctx, id, leaseID, "upload_failed", uploadErr)
-		}
-		startFrame = &leonardo.ImageReference{ID: uploaded.InitImageID, Type: "UPLOADED"}
-		if err := updateUploadProgress(); err != nil {
-			return err
-		}
-	}
-	if req.EndFrame != nil {
-		uploaded, uploadErr := w.uploadTaskImage(ctx, client, token, account.TeamID, *req.EndFrame)
-		if uploadErr != nil {
-			w.recordAccountFailure(ctx, account, uploadErr)
-			return w.fail(ctx, id, leaseID, "upload_failed", uploadErr)
-		}
-		endFrame = &leonardo.ImageReference{ID: uploaded.InitImageID, Type: "UPLOADED"}
-		if err := updateUploadProgress(); err != nil {
-			return err
-		}
-	}
-	videoReferences := make([]leonardo.MediaReference, 0, len(req.ReferenceVideos))
-	totalReferenceDuration := 0.0
-	for _, source := range req.ReferenceVideos {
-		uploaded, uploadErr := w.uploadTaskMedia(ctx, client, token, account.TeamID, source)
-		if uploadErr != nil {
-			w.recordAccountFailure(ctx, account, uploadErr)
-			return w.fail(ctx, id, leaseID, "upload_failed", uploadErr)
-		}
-		if uploaded.Duration <= 0 || uploaded.Width <= 0 || uploaded.Height <= 0 {
-			return w.fail(ctx, id, leaseID, "invalid_reference_video", errors.New("Leonardo did not return duration and dimensions for the reference video"))
-		}
-		if (spec.MinReferenceVideoDimension > 0 || spec.MaxReferenceVideoDimension > 0) && !spec.SupportsReferenceVideoDimensions(uploaded.Width, uploaded.Height) {
-			return w.fail(ctx, id, leaseID, "invalid_reference_video_dimensions", fmt.Errorf("reference video is %dx%d; %s requires each edge between %d and %d pixels", uploaded.Width, uploaded.Height, req.Model, spec.MinReferenceVideoDimension, spec.MaxReferenceVideoDimension))
-		}
-		totalReferenceDuration += uploaded.Duration
-		videoReferences = append(videoReferences, leonardo.MediaReference{ID: uploaded.ID, Type: "UPLOADED", Duration: uploaded.Duration, Width: uploaded.Width, Height: uploaded.Height, MotionHasAudio: true})
-		if err := updateUploadProgress(); err != nil {
-			return err
-		}
-	}
-	if spec.MaxVideoDuration > 0 && totalReferenceDuration > spec.MaxVideoDuration+0.0001 {
-		return w.fail(ctx, id, leaseID, "reference_video_too_long", fmt.Errorf("reference videos total %.2f seconds; %s allows at most %.1f seconds", totalReferenceDuration, req.Model, spec.MaxVideoDuration))
-	}
-	if spec.MinVideoDuration > 0 && totalReferenceDuration+0.0001 < spec.MinVideoDuration {
-		return w.fail(ctx, id, leaseID, "reference_video_too_short", fmt.Errorf("reference video is %.2f seconds; %s requires at least %.1f seconds", totalReferenceDuration, req.Model, spec.MinVideoDuration))
-	}
-	if len(videoReferences) > 0 && spec.OmitDurationWithVideo && math.Abs(totalReferenceDuration-float64(req.Duration)) > 0.051 {
-		return w.fail(ctx, id, leaseID, "reference_video_duration_mismatch", fmt.Errorf("reference video is %.2f seconds; duration must match it within 0.05 seconds for exact pricing", totalReferenceDuration))
-	}
-	audioReferences := make([]leonardo.MediaReference, 0, len(audioSources))
-	totalAudioDuration := 0.0
-	for _, source := range audioSources {
-		uploaded, uploadErr := w.uploadTaskMedia(ctx, client, token, account.TeamID, source)
-		if uploadErr != nil {
-			w.recordAccountFailure(ctx, account, uploadErr)
-			return w.fail(ctx, id, leaseID, "upload_failed", uploadErr)
-		}
-		if uploaded.Duration <= 0 {
-			return w.fail(ctx, id, leaseID, "invalid_reference_audio", errors.New("Leonardo did not return a duration for the reference audio"))
-		}
-		totalAudioDuration += uploaded.Duration
-		audioReferences = append(audioReferences, leonardo.MediaReference{ID: uploaded.ID, Type: "UPLOADED", Duration: uploaded.Duration})
-		if err := updateUploadProgress(); err != nil {
-			return err
-		}
-	}
-	if spec.MaxAudioDuration > 0 && totalAudioDuration > spec.MaxAudioDuration+0.0001 {
-		return w.fail(ctx, id, leaseID, "reference_audio_too_long", fmt.Errorf("reference audio totals %.2f seconds; %s allows at most %.1f seconds", totalAudioDuration, req.Model, spec.MaxAudioDuration))
+	guidance, err := w.uploadLeonardoVideoGuidance(ctx, id, leaseID, account, token, client, req, spec)
+	if err != nil {
+		return err
 	}
 	account, proceed, err := w.enforceSubmissionFence(ctx, id, leaseID, account.ID)
 	if err != nil || !proceed {
 		return err
 	}
-	if err := w.waitForAccountSubmit(ctx, account.ID); err != nil {
+	if err := w.waitForProviderAccountSubmit(ctx, account.ProviderID, account.ID); err != nil {
 		return w.fail(ctx, id, leaseID, "account_submit_interval", err)
 	}
 	account, proceed, err = w.enforceSubmissionFence(ctx, id, leaseID, account.ID)
@@ -255,14 +141,14 @@ func (w *Worker) processVideo(parent context.Context, id uuid.UUID) error {
 		return w.fail(ctx, id, leaseID, "cost_rule_unavailable", errors.New("price rule was disabled before upstream submission"))
 	}
 	upstreamDuration := req.Duration
-	if len(videoReferences) > 0 && spec.OmitDurationWithVideo {
+	if len(guidance.videoReferences) > 0 && spec.OmitDurationWithVideo {
 		upstreamDuration = 0
 	}
 	upstreamRequest := leonardo.BuildVideoGenerationRequest(leonardo.GenerateVideoRequest{
 		Model: model.UpstreamModel, Prompt: req.Prompt, Width: width, Height: height,
 		Duration: upstreamDuration, ResolutionMode: mode, Resolution: resolution, Public: public,
-		ImageReferences: imageReferences, StartFrame: startFrame, EndFrame: endFrame,
-		VideoReferences: videoReferences, AudioReferences: audioReferences, GenerateAudio: req.GenerateAudio,
+		ImageReferences: guidance.imageReferences, StartFrame: guidance.startFrame, EndFrame: guidance.endFrame,
+		VideoReferences: guidance.videoReferences, AudioReferences: guidance.audioReferences, GenerateAudio: req.GenerateAudio,
 	})
 	upstreamDeadline := time.Now().Add(w.Config.TaskTimeout)
 	if err = w.prepareSubmission(ctx, id, leaseID, account.ID, upstreamRequest, upstreamDeadline); err != nil {

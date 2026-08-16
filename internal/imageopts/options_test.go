@@ -17,6 +17,17 @@ func TestGPTImage2SizeConstraints(t *testing.T) {
 	}
 }
 
+func TestAdobeGPTImage2UsesPublishedProviderTiers(t *testing.T) {
+	for _, size := range []string{"auto", "1024x1024", "2048x2048", "2880x2880"} {
+		if _, _, err := ParseSizeForProvider(AdobeProvider, GPTImage2, size); err != nil {
+			t.Fatalf("expected %s to be valid: %v", size, err)
+		}
+	}
+	if _, _, err := ParseSizeForProvider(AdobeProvider, GPTImage2, "1536x1024"); err == nil {
+		t.Fatal("expected non-tier Adobe size to be rejected")
+	}
+}
+
 func TestNanoBananaSizeConstraints(t *testing.T) {
 	for _, model := range []string{NanoBanana2, NanoBananaPro} {
 		for _, size := range []string{"1024x1024", "2048x2048", "4096x4096", "5504x3072", "768x1344"} {

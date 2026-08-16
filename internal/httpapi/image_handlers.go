@@ -1,24 +1,18 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/leonardo2api/leonardo2api/internal/adobe"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/imageopts"
 	"github.com/leonardo2api/leonardo2api/internal/pricing"
 	"github.com/leonardo2api/leonardo2api/internal/store"
 	"github.com/leonardo2api/leonardo2api/internal/videospec"
-	_ "golang.org/x/image/webp"
-	"image"
-	"image/jpeg"
-	"image/png"
-	"io"
 	"mime/multipart"
 	"net/http"
 	"sort"
@@ -27,13 +21,15 @@ import (
 )
 
 type imageEstimateRequest struct {
-	Model   string `json:"model"`
-	Size    string `json:"size,omitempty"`
-	Quality string `json:"quality,omitempty"`
-	N       int    `json:"n,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model"`
+	Size     string `json:"size,omitempty"`
+	Quality  string `json:"quality,omitempty"`
+	N        int    `json:"n,omitempty"`
 }
 
 type imageEstimateResponse struct {
+	Provider          string   `json:"provider"`
 	Model             string   `json:"model"`
 	Size              string   `json:"size"`
 	Quality           string   `json:"quality,omitempty"`
@@ -51,8 +47,9 @@ type imageEstimateResponse struct {
 }
 
 type imageCostMatrixRequest struct {
-	Model string   `json:"model"`
-	Sizes []string `json:"sizes"`
+	Provider string   `json:"provider,omitempty"`
+	Model    string   `json:"model"`
+	Sizes    []string `json:"sizes"`
 }
 
 type imageCostMatrixRow struct {
@@ -63,6 +60,7 @@ type imageCostMatrixRow struct {
 }
 
 type imageCostMatrixResponse struct {
+	Provider      string               `json:"provider"`
 	Model         string               `json:"model"`
 	Qualities     []string             `json:"qualities"`
 	Rows          []imageCostMatrixRow `json:"rows"`
@@ -71,21 +69,25 @@ type imageCostMatrixResponse struct {
 }
 
 type videoEstimateRequest struct {
+	Provider          string `json:"provider,omitempty"`
 	Model             string `json:"model"`
 	Duration          int    `json:"duration,omitempty"`
 	Size              string `json:"size,omitempty"`
 	Resolution        string `json:"resolution,omitempty"`
 	GenerateAudio     *bool  `json:"generate_audio,omitempty"`
 	HasVideoReference bool   `json:"has_video_reference,omitempty"`
+	ReferenceMode     string `json:"reference_mode,omitempty"`
 }
 
 type videoEstimateResponse struct {
+	Provider          string   `json:"provider"`
 	Model             string   `json:"model"`
 	Duration          int      `json:"duration"`
 	Size              string   `json:"size"`
 	Resolution        string   `json:"resolution"`
 	GenerateAudio     *bool    `json:"generate_audio,omitempty"`
 	HasVideoReference bool     `json:"has_video_reference"`
+	ReferenceMode     string   `json:"reference_mode,omitempty"`
 	BaseTokens        int64    `json:"base_tokens"`
 	EstimatedTokens   int64    `json:"estimated_tokens"`
 	AppliedModifiers  []string `json:"applied_modifiers"`
@@ -118,7 +120,18 @@ func (s *Server) publicImageCostMatrix(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	response, err := estimateImageCostMatrix(r.Context(), s.Store, req)
+	route, err := s.resolveMediaModel("image", req.Provider, req.Model)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	req.Provider, req.Model = route.Provider, route.InternalModel
+	_, estimateStore, err := s.providerModelContext(r.Context(), route.Provider, route.InternalModel)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "model provider is unavailable")
+		return
+	}
+	response, err := estimateImageCostMatrix(r.Context(), estimateStore, req)
 	if err != nil {
 		var requestErr *requestError
 		if errors.As(err, &requestErr) {
@@ -128,6 +141,7 @@ func (s *Server) publicImageCostMatrix(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "estimate_failed", "image cost matrix is temporarily unavailable")
 		return
 	}
+	response.Provider, response.Model = route.Provider, route.PublicModel
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -177,7 +191,7 @@ func estimateImageCostMatrix(ctx context.Context, source imageEstimateStore, req
 		return imageCostMatrixResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "sizes must contain between 1 and 100 entries"}
 	}
 	qualities := []string{"fixed"}
-	if model == imageopts.GPTImage2 {
+	if imageopts.IsGPTImage2(model) {
 		qualities = []string{"low", "medium", "high"}
 	}
 	cached := newCachedImageEstimateStore(source)
@@ -200,7 +214,7 @@ func estimateImageCostMatrix(ctx context.Context, source imageEstimateStore, req
 			if quality == "fixed" {
 				estimateQuality = ""
 			}
-			estimate, err := estimateImageCost(ctx, cached, imageEstimateRequest{Model: model, Size: size, Quality: estimateQuality, N: 1}, nil, false)
+			estimate, err := estimateImageCost(ctx, cached, imageEstimateRequest{Provider: req.Provider, Model: model, Size: size, Quality: estimateQuality, N: 1}, nil, false)
 			if err != nil {
 				return imageCostMatrixResponse{}, err
 			}
@@ -212,7 +226,7 @@ func estimateImageCostMatrix(ctx context.Context, source imageEstimateStore, req
 		}
 		rows = append(rows, row)
 	}
-	response := imageCostMatrixResponse{Model: model, Qualities: qualities, Rows: rows}
+	response := imageCostMatrixResponse{Provider: req.Provider, Model: model, Qualities: qualities, Rows: rows}
 	for version := range versions {
 		response.PriceVersions = append(response.PriceVersions, version)
 	}
@@ -239,7 +253,22 @@ func (s *Server) writeImageEstimate(w http.ResponseWriter, r *http.Request, enfo
 		}
 		allowedModels = key.AllowedModels
 	}
-	estimate, err := estimateImageCost(r.Context(), s.Store, req, allowedModels, enforceAPIKeyModels)
+	route, providerErr := s.resolveMediaModel("image", req.Provider, req.Model)
+	if providerErr != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", providerErr.Error())
+		return
+	}
+	if enforceAPIKeyModels && !allowedMediaModel(allowedModels, route) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "model is not allowed for this API key")
+		return
+	}
+	req.Provider, req.Model = route.Provider, route.InternalModel
+	_, estimateStore, providerErr := s.providerModelContext(r.Context(), route.Provider, route.InternalModel)
+	if providerErr != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "model provider is unavailable")
+		return
+	}
+	estimate, err := estimateImageCost(r.Context(), estimateStore, req, nil, false)
 	if err != nil {
 		var requestErr *requestError
 		if errors.As(err, &requestErr) {
@@ -249,7 +278,8 @@ func (s *Server) writeImageEstimate(w http.ResponseWriter, r *http.Request, enfo
 		writeError(w, http.StatusInternalServerError, "estimate_failed", "image cost estimate is temporarily unavailable")
 		return
 	}
-	noteImageRequest(r, domain.ImageRequest{Model: estimate.Model, Size: estimate.Size, Quality: estimate.Quality, N: estimate.Quantity})
+	estimate.Provider, estimate.Model = route.Provider, route.PublicModel
+	noteImageRequest(r, domain.ImageRequest{Provider: route.Provider, Model: route.InternalModel, Size: estimate.Size, Quality: estimate.Quality, N: estimate.Quantity})
 	noteRequestEstimate(r, estimate.EstimatedTokens)
 	writeJSON(w, http.StatusOK, estimate)
 }
@@ -270,17 +300,19 @@ func normalizeImageEstimateRequest(req imageEstimateRequest) (domain.ImageReques
 	if req.N < 1 || req.N > 4 {
 		return domain.ImageRequest{}, errors.New("n must be between 1 and 4")
 	}
-	if req.Model == imageopts.GPTImage2 {
+	if imageopts.IsGPTImage2(req.Model) || imageopts.IsAdobeImageModel(req.Provider, req.Model) {
 		if req.N != 1 {
-			return domain.ImageRequest{}, errors.New("gpt-image-2 currently supports n=1 on this Leonardo account")
+			return domain.ImageRequest{}, errors.New("selected image route currently supports n=1")
 		}
+	}
+	if imageopts.IsGPTImage2(req.Model) {
 		if req.Quality == "" || req.Quality == "auto" {
 			req.Quality = "low"
 		}
 	} else if req.Quality != "" {
 		return domain.ImageRequest{}, errors.New("quality is supported only by gpt-image-2")
 	}
-	return domain.ImageRequest{Model: req.Model, Size: req.Size, Quality: req.Quality, N: req.N}, nil
+	return domain.ImageRequest{Provider: req.Provider, Model: req.Model, Size: req.Size, Quality: req.Quality, N: req.N}, nil
 }
 
 func estimateImageCost(ctx context.Context, rules imageEstimateStore, req imageEstimateRequest, allowedModels []string, enforceAPIKeyModels bool) (imageEstimateResponse, error) {
@@ -288,7 +320,7 @@ func estimateImageCost(ctx context.Context, rules imageEstimateStore, req imageE
 	if err != nil {
 		return imageEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: err.Error()}
 	}
-	if enforceAPIKeyModels && !allowed(allowedModels, normalized.Model) {
+	if enforceAPIKeyModels && !allowed(allowedModels, mediaModelPermission(normalized.Provider, normalized.Model)) {
 		return imageEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "model is not allowed for this API key"}
 	}
 	model, err := rules.GetModel(ctx, normalized.Model)
@@ -304,7 +336,7 @@ func estimateImageCost(ctx context.Context, rules imageEstimateStore, req imageE
 	if err := validateImageOptions(normalized, model); err != nil {
 		return imageEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: err.Error()}
 	}
-	estimate, err := pricing.Image(ctx, rules, normalized)
+	estimate, err := pricing.ImageForProvider(ctx, rules, normalized.Provider, normalized)
 	if errors.Is(err, pricing.ErrCostUnavailable) {
 		return imageEstimateResponse{}, &requestError{Status: http.StatusUnprocessableEntity, Code: "cost_unavailable", Message: "cost is unavailable for the selected model parameters"}
 	}
@@ -312,11 +344,20 @@ func estimateImageCost(ctx context.Context, rules imageEstimateStore, req imageE
 		return imageEstimateResponse{}, err
 	}
 	response := imageEstimateResponse{
-		Model: normalized.Model, Size: normalized.Size, Quality: normalized.Quality,
+		Provider: normalized.Provider, Model: normalized.Model, Size: normalized.Size, Quality: normalized.Quality,
 		Quantity: normalized.N, UnitTokens: estimate.UnitTokens, EstimatedTokens: estimate.Tokens,
 		PricingAnchor: estimate.RuleSize, PriceVersion: estimate.PriceVersion, Source: estimate.Source,
 	}
-	switch normalized.Model {
+	if imageopts.IsAdobeImageModel(normalized.Provider, normalized.Model) {
+		response.PricingBasis = "provider_rule"
+		response.Formula = "adobe_bks_unit_tokens * n"
+		response.CostParameters = []string{"model", "size", "n"}
+		if imageopts.IsAdobeGPTImage2(normalized.Provider, normalized.Model) {
+			response.CostParameters = []string{"model", "size", "quality", "n"}
+		}
+		return response, nil
+	}
+	switch imageopts.BaseModel(normalized.Model) {
 	case imageopts.GPTImage2:
 		multipliers := map[string]float64{"low": 1, "medium": 8.833, "high": 35.167}
 		multiplier := multipliers[normalized.Quality]
@@ -361,7 +402,22 @@ func (s *Server) writeVideoEstimate(w http.ResponseWriter, r *http.Request, enfo
 		}
 		allowedModels = key.AllowedModels
 	}
-	estimate, err := estimateVideoCost(r.Context(), s.Store, req, allowedModels, enforceAPIKeyModels)
+	route, providerErr := s.resolveMediaModel("video", req.Provider, req.Model)
+	if providerErr != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", providerErr.Error())
+		return
+	}
+	if enforceAPIKeyModels && !allowedMediaModel(allowedModels, route) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "model is not allowed for this API key")
+		return
+	}
+	req.Provider, req.Model = route.Provider, route.InternalModel
+	_, estimateStore, providerErr := s.providerModelContext(r.Context(), route.Provider, route.InternalModel)
+	if providerErr != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "model provider is unavailable")
+		return
+	}
+	estimate, err := estimateVideoCost(r.Context(), estimateStore, req, nil, false)
 	if err != nil {
 		var requestErr *requestError
 		if errors.As(err, &requestErr) {
@@ -371,8 +427,9 @@ func (s *Server) writeVideoEstimate(w http.ResponseWriter, r *http.Request, enfo
 		writeError(w, http.StatusInternalServerError, "estimate_failed", "video cost estimate is temporarily unavailable")
 		return
 	}
+	estimate.Provider, estimate.Model = route.Provider, route.PublicModel
 	noteVideoRequest(r, domain.VideoRequest{
-		Model: estimate.Model, Duration: estimate.Duration, Size: estimate.Size,
+		Provider: estimate.Provider, Model: estimate.Model, Duration: estimate.Duration, Size: estimate.Size,
 		Resolution: estimate.Resolution, GenerateAudio: estimate.GenerateAudio,
 	})
 	noteRequestEstimate(r, estimate.EstimatedTokens)
@@ -384,7 +441,7 @@ func estimateVideoCost(ctx context.Context, rules imageEstimateStore, req videoE
 	if req.Model == "" {
 		return videoEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "model is required"}
 	}
-	if enforceAPIKeyModels && !allowed(allowedModels, req.Model) {
+	if enforceAPIKeyModels && !allowed(allowedModels, mediaModelPermission(req.Provider, req.Model)) {
 		return videoEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "model is not allowed for this API key"}
 	}
 	model, err := rules.GetModel(ctx, req.Model)
@@ -397,13 +454,30 @@ func estimateVideoCost(ctx context.Context, rules imageEstimateStore, req videoE
 	if !supportsVideoGeneration(model) {
 		return videoEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "selected model is not a video model"}
 	}
-	spec, ok := videospec.Get(req.Model)
+	spec, ok := videospec.GetForProvider(req.Provider, req.Model)
 	if !ok {
 		return videoEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "unknown video model"}
 	}
 	request := domain.VideoRequest{
-		Model: req.Model, Duration: req.Duration, Size: strings.ToLower(strings.TrimSpace(req.Size)),
+		Provider: req.Provider, Model: req.Model, Duration: req.Duration, Size: strings.ToLower(strings.TrimSpace(req.Size)),
 		Resolution: strings.ToLower(strings.TrimSpace(req.Resolution)), GenerateAudio: req.GenerateAudio,
+	}
+	referenceMode := strings.ToLower(strings.TrimSpace(req.ReferenceMode))
+	if referenceMode == "" {
+		referenceMode = "text"
+	}
+	if req.Provider == "adobe" && req.Model == adobe.AdobeKling30Omni {
+		switch referenceMode {
+		case "text":
+		case "frame":
+			request.StartFrame = &domain.SourceMedia{Filename: "cost-estimate-frame"}
+		case "image":
+			request.ReferenceImages = []domain.SourceMedia{{Filename: "cost-estimate-image"}}
+		default:
+			return videoEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "reference_mode must be text, frame or image for kling-3.0-omni on provider adobe"}
+		}
+	} else if req.ReferenceMode != "" {
+		return videoEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "reference_mode is supported only by kling-3.0-omni on provider adobe"}
 	}
 	if req.HasVideoReference {
 		if spec.MaxReferenceVideos == 0 {
@@ -414,7 +488,7 @@ func estimateVideoCost(ctx context.Context, rules imageEstimateStore, req videoE
 	if err := normalizeVideoOptions(&request, spec); err != nil {
 		return videoEstimateResponse{}, &requestError{Status: http.StatusBadRequest, Code: "invalid_request", Message: err.Error()}
 	}
-	estimate, err := pricing.Video(ctx, rules, request)
+	estimate, err := pricing.VideoForProvider(ctx, rules, request.Provider, request)
 	if errors.Is(err, pricing.ErrCostUnavailable) {
 		return videoEstimateResponse{}, &requestError{Status: http.StatusUnprocessableEntity, Code: "cost_unavailable", Message: "cost is unavailable for the selected model parameters"}
 	}
@@ -447,10 +521,19 @@ func estimateVideoCost(ctx context.Context, rules imageEstimateStore, req videoE
 			costParameters = append(costParameters, "has_video_reference")
 		}
 	}
+	if request.Provider == "adobe" {
+		formula = "active Adobe BKS price rule selected by normalized duration and size/resolution"
+		costParameters = []string{"model", "duration", "size", "resolution"}
+		if request.Model == adobe.AdobeKling30Omni {
+			formula += ", including the text/frame/image workflow"
+			costParameters = append(costParameters, "reference_mode")
+		}
+	}
 	return videoEstimateResponse{
-		Model: request.Model, Duration: request.Duration, Size: request.Size,
+		Provider: request.Provider, Model: request.Model, Duration: request.Duration, Size: request.Size,
 		Resolution: request.Resolution, GenerateAudio: request.GenerateAudio,
 		HasVideoReference: req.HasVideoReference, BaseTokens: estimate.UnitTokens,
+		ReferenceMode:   referenceMode,
 		EstimatedTokens: estimate.Tokens, AppliedModifiers: modifiers,
 		Formula:        formula,
 		CostParameters: costParameters,
@@ -518,6 +601,11 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	if req.Model == "" {
 		req.Model = "leonardo-auto"
 	}
+	route, err := s.resolveMediaModel("image", req.Provider, req.Model)
+	if err != nil {
+		return domain.Task{}, false, err
+	}
+	req.Provider, req.Model = route.Provider, route.InternalModel
 	if err := validateModelPrompt(req.Model, req.Prompt); err != nil {
 		return domain.Task{}, false, err
 	}
@@ -529,10 +617,12 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	if len(req.StyleIDs) > 0 || len(req.ReferenceIDs) > 0 {
 		return domain.Task{}, false, errors.New("style_ids and reference_ids are not exposed by this API")
 	}
-	if req.Model == imageopts.GPTImage2 {
+	if imageopts.IsGPTImage2(req.Model) || imageopts.IsAdobeImageModel(req.Provider, req.Model) {
 		if req.N > 1 {
-			return domain.Task{}, false, errors.New("gpt-image-2 currently supports n=1 on this Leonardo account")
+			return domain.Task{}, false, errors.New("selected image route currently supports n=1")
 		}
+	}
+	if imageopts.IsGPTImage2(req.Model) {
 		if req.Quality == "" || req.Quality == "auto" {
 			req.Quality = "low"
 		}
@@ -553,20 +643,16 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 		}
 	}
 	if req.ResponseFormat == "" {
-		if req.Model == imageopts.GPTImage2 {
-			req.ResponseFormat = "b64_json"
-		} else {
-			req.ResponseFormat = "url"
-		}
+		req.ResponseFormat = "url"
 	}
-	if req.ResponseFormat != "url" && req.ResponseFormat != "b64_json" {
-		return domain.Task{}, false, errors.New("response_format must be url or b64_json")
+	if req.ResponseFormat != "url" || req.OutputFormat != "" || req.OutputCompression != nil {
+		return domain.Task{}, false, errors.New("asynchronous image tasks only support response_format=url and do not support output_format or output_compression")
 	}
 	key := r.Context().Value(apiKeyContext).(domain.APIKey)
-	if !allowed(key.AllowedModels, req.Model) {
+	if !allowedMediaModel(key.AllowedModels, route) {
 		return domain.Task{}, false, errors.New("model is not allowed for this API key")
 	}
-	model, err := s.Store.GetModel(r.Context(), req.Model)
+	model, err := s.Store.GetModel(r.Context(), route.InternalModel)
 	if err != nil {
 		return domain.Task{}, false, errors.New("unknown model")
 	}
@@ -576,7 +662,6 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	if err := validateImageOptions(req, model); err != nil {
 		return domain.Task{}, false, err
 	}
-	req.OutputFormat = imageopts.NormalizeOutputFormat(req.OutputFormat)
 	noteImageRequest(r, req)
 	idem := r.Header.Get("Idempotency-Key")
 	if idem != "" {
@@ -587,11 +672,18 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 			return domain.Task{}, false, err
 		}
 	}
+	if err := s.admitProviderCircuit(r.Context(), route.Provider); err != nil {
+		return domain.Task{}, false, err
+	}
 	images := req.N
 	if images == 0 {
 		images = 1
 	}
-	estimate, err := pricing.Image(r.Context(), s.Store, req)
+	providerConfig, rules, err := s.providerModelContext(r.Context(), route.Provider, route.InternalModel)
+	if err != nil {
+		return domain.Task{}, false, errors.New("model provider is unavailable")
+	}
+	estimate, err := pricing.ImageForProvider(r.Context(), rules, route.Provider, req)
 	if err != nil {
 		if errors.Is(err, pricing.ErrCostUnavailable) {
 			return domain.Task{}, false, &requestError{Status: http.StatusUnprocessableEntity, Code: "cost_unavailable", Message: "cost is unavailable for the selected model parameters"}
@@ -602,7 +694,7 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	if err := s.admitDailyQuota(r.Context(), key.ID, images); err != nil {
 		return domain.Task{}, false, err
 	}
-	task, created, err := s.Store.CreateReservedTaskWithHashRequest(r.Context(), key.ID, "image", req.Model, req.Prompt, req, imageIdempotencyRequest(req), idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
+	task, created, err := s.Store.CreateReservedTaskForProviderWithHashRequest(r.Context(), key.ID, providerConfig.ProviderID, "image", route.PublicModel, req.Prompt, req, imageIdempotencyRequest(req), idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
 	noteRequestTask(r, task)
 	if err != nil {
 		s.rollbackDailyQuota(r.Context(), key.ID, images)
@@ -634,10 +726,10 @@ func (s *Server) enqueueTask(ctx context.Context, task domain.Task) {
 }
 
 func validateImageOptions(req domain.ImageRequest, model domain.ModelConfig) error {
-	if _, _, err := imageopts.ParseSize(req.Model, req.Size); err != nil {
+	if _, _, err := imageopts.ParseSizeForProvider(req.Provider, req.Model, req.Size); err != nil {
 		return err
 	}
-	if req.Model == imageopts.GPTImage2 {
+	if imageopts.IsGPTImage2(req.Model) {
 		quality := req.Quality
 		if quality == "" {
 			quality = "auto"
@@ -651,26 +743,11 @@ func validateImageOptions(req domain.ImageRequest, model domain.ModelConfig) err
 	} else if req.Quality != "" {
 		return errors.New("quality is supported only by gpt-image-2")
 	}
-	format := imageopts.NormalizeOutputFormat(req.OutputFormat)
-	if format != "png" && format != "jpeg" {
-		return errors.New("output_format must be png or jpeg")
-	}
-	if req.OutputCompression != nil {
-		if *req.OutputCompression < 0 || *req.OutputCompression > 100 {
-			return errors.New("output_compression must be between 0 and 100")
-		}
-		if format != "jpeg" {
-			return errors.New("output_compression is only supported for jpeg")
-		}
-	}
 	if req.Background != "" && req.Background != "auto" && req.Background != "opaque" {
 		return errors.New("background must be auto or opaque; transparent is not supported")
 	}
 	if req.Moderation != "" && req.Moderation != "auto" {
-		return errors.New("Leonardo does not expose adjustable moderation; moderation must be auto")
-	}
-	if req.ResponseFormat == "url" && req.OutputFormat != "" {
-		return errors.New("output_format requires response_format=b64_json")
+		return errors.New("the selected provider does not expose adjustable moderation; moderation must be auto")
 	}
 	return nil
 }
@@ -703,103 +780,6 @@ func (s *Server) writePendingTask(w http.ResponseWriter, task domain.Task) {
 	w.Header().Set("Location", "/v1/images/"+task.ID.String())
 	w.Header().Set("Retry-After", "3")
 	writeJSON(w, http.StatusAccepted, newPublicTaskResponse(task))
-}
-
-func (s *Server) writeImageResult(w http.ResponseWriter, ctx context.Context, task domain.Task) {
-	if task.Status != domain.TaskSucceeded {
-		writeError(w, 502, task.ErrorCode, task.ErrorMessage)
-		return
-	}
-	var result domain.ImageResult
-	if err := json.Unmarshal(task.Result, &result); err != nil {
-		writeError(w, 500, "invalid_result", err.Error())
-		return
-	}
-	var request domain.ImageRequest
-	if err := json.Unmarshal(task.Request, &request); err != nil {
-		writeError(w, 500, "invalid_request_state", err.Error())
-		return
-	}
-	if request.ResponseFormat == "b64_json" {
-		for i := range result.Data {
-			b, err := s.download(ctx, result.Data[i].URL)
-			if err != nil {
-				writeError(w, 502, "image_download_failed", err.Error())
-				return
-			}
-			b, err = transcodeImage(b, request.OutputFormat, request.OutputCompression)
-			if err != nil {
-				writeError(w, 422, "image_conversion_failed", err.Error())
-				return
-			}
-			result.Data[i].B64JSON = base64.StdEncoding.EncodeToString(b)
-			result.Data[i].URL = ""
-		}
-	}
-	writeJSON(w, 200, result)
-}
-
-func transcodeImage(raw []byte, outputFormat string, compression *int) ([]byte, error) {
-	target := imageopts.NormalizeOutputFormat(outputFormat)
-	img, source, err := image.Decode(bytes.NewReader(raw))
-	if err != nil {
-		return nil, fmt.Errorf("decode generated image: %w", err)
-	}
-	if target == "webp" {
-		if source == "webp" && compression == nil {
-			return raw, nil
-		}
-		return nil, errors.New("webp transcoding with compression is not available; request png/jpeg or omit output_compression when Leonardo returns WebP")
-	}
-	if target == "jpeg" && source == "jpeg" && compression == nil {
-		return raw, nil
-	}
-	if target == "png" && source == "png" {
-		return raw, nil
-	}
-	var out bytes.Buffer
-	switch target {
-	case "jpeg":
-		quality := 90
-		if compression != nil {
-			quality = *compression
-			if quality == 0 {
-				quality = 1
-			}
-		}
-		err = jpeg.Encode(&out, img, &jpeg.Options{Quality: quality})
-	case "png":
-		err = png.Encode(&out, img)
-	default:
-		return nil, fmt.Errorf("unsupported output format %q", target)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
-}
-
-func (s *Server) download(ctx context.Context, u string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("CDN returned %d", resp.StatusCode)
-	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, s.Config.MaxImageBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(b)) > s.Config.MaxImageBytes {
-		return nil, errors.New("CDN image exceeds configured response limit")
-	}
-	return b, nil
 }
 
 func (s *Server) getImageTask(w http.ResponseWriter, r *http.Request) {
@@ -909,7 +889,7 @@ func (s *Server) parseAsyncImageMultipart(r *http.Request) (domain.ImageRequest,
 		return domain.ImageRequest{}, errors.New("task asset storage is not configured")
 	}
 	req := domain.ImageRequest{
-		Model: r.FormValue("model"), Prompt: r.FormValue("prompt"), Size: r.FormValue("size"),
+		Provider: r.FormValue("provider"), Model: r.FormValue("model"), Prompt: r.FormValue("prompt"), Size: r.FormValue("size"),
 		ResponseFormat: r.FormValue("response_format"), Quality: r.FormValue("quality"),
 		OutputFormat: r.FormValue("output_format"), Background: r.FormValue("background"),
 		Moderation: r.FormValue("moderation"), ReferenceStrength: r.FormValue("reference_strength"),

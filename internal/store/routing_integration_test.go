@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -156,6 +157,9 @@ func TestSubmittedGenerationRejectsGenericFailureRelease(t *testing.T) {
 
 func TestConfirmSubmissionNotCreatedFailsTaskAndReleasesReservation(t *testing.T) {
 	ctx, st, keyID, ruleID := newRoutingFixture(t)
+	if _, err := st.DB.Exec(ctx, `UPDATE accounts SET subscription_tokens=3000 WHERE name='fixture'`); err != nil {
+		t.Fatal(err)
+	}
 	task, created, err := st.CreateReservedTask(ctx, keyID, "video", "minimax-h3", "uncertain", map[string]any{"model": "minimax-h3"}, "confirm-not-created", 2100, ruleID, time.Minute)
 	if err != nil || !created {
 		t.Fatalf("create: created=%v err=%v", created, err)
@@ -398,6 +402,38 @@ func TestListAdminTasksPageUsesStableOrdering(t *testing.T) {
 	if err != nil || len(detail.Events) == 0 || detail.Events[0].Status != "queued" {
 		t.Fatalf("task events=%+v err=%v", detail.Events, err)
 	}
+	if _, err := st.DB.Exec(ctx, `INSERT INTO tasks(provider_id,status,kind,model,prompt,request,request_hash)
+		VALUES('adobe','queued','image','gpt-image-2','adobe fixture','{}',decode('a1','hex'))`); err != nil {
+		t.Fatal(err)
+	}
+	adobeTasks, total, err := st.ListAdminTasksPageFiltered(ctx, 1, 10, TaskPageFilter{ProviderID: "adobe"})
+	if err != nil || total != 1 || len(adobeTasks) != 1 || adobeTasks[0].ProviderID != "adobe" {
+		t.Fatalf("adobe task filter items=%+v total=%d err=%v", adobeTasks, total, err)
+	}
+	leonardoTasks, total, err := st.ListAdminTasksPageFiltered(ctx, 1, 10, TaskPageFilter{ProviderID: "leonardo"})
+	if err != nil || total != 5 || len(leonardoTasks) != 5 {
+		t.Fatalf("leonardo task filter items=%+v total=%d err=%v", leonardoTasks, total, err)
+	}
+}
+
+func TestProviderPlatformModelCatalogIsolation(t *testing.T) {
+	ctx, st, _, _ := newRoutingFixture(t)
+	leonardoModels := []json.RawMessage{json.RawMessage(`{"id":"leo-model","name":"Leonardo Model"}`)}
+	adobeModels := []json.RawMessage{json.RawMessage(`{"id":"adobe-model","name":"Adobe Model"}`)}
+	if _, err := st.ReplaceProviderPlatformModels(ctx, "leonardo", "image", "leo-schema", leonardoModels); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReplaceProviderPlatformModels(ctx, "adobe", "image", "adapter-config", adobeModels); err != nil {
+		t.Fatal(err)
+	}
+	gotLeonardo, leoSchema, _, err := st.ListProviderPlatformModels(ctx, "leonardo", "image")
+	if err != nil || leoSchema != "leo-schema" || len(gotLeonardo) != 1 || !strings.Contains(string(gotLeonardo[0]), "leo-model") {
+		t.Fatalf("leonardo catalog=%s schema=%q err=%v", gotLeonardo, leoSchema, err)
+	}
+	gotAdobe, adobeSchema, _, err := st.ListProviderPlatformModels(ctx, "adobe", "image")
+	if err != nil || adobeSchema != "adapter-config" || len(gotAdobe) != 1 || !strings.Contains(string(gotAdobe[0]), "adobe-model") {
+		t.Fatalf("adobe catalog=%s schema=%q err=%v", gotAdobe, adobeSchema, err)
+	}
 }
 
 func TestListAuditLogsPageUsesStableOrdering(t *testing.T) {
@@ -467,7 +503,7 @@ func TestListAPIRequestLogsPageFiltersAndUsesStableOrdering(t *testing.T) {
 	}
 	entries := []domain.APIRequestLog{
 		{RequestID: "request-success", APIKeyID: &keyID, APIKeyPrefix: "fixture", AccountID: &accountID, Method: "POST", Path: "/v1/images/generations", Kind: "image", Model: "gpt-image-2", Parameters: []byte(`{"size":"1024x1024"}`), Status: 200, DurationMS: 10},
-		{RequestID: "request-cost", APIKeyID: &keyID, APIKeyPrefix: "fixture", Method: "POST", Path: "/v1/images/generations", Kind: "image", Model: "nano-banana-2", Parameters: []byte(`{"size":"768x1344"}`), Status: 422, ErrorCode: "cost_unavailable", DurationMS: 2},
+		{RequestID: "request-cost", ProviderID: "adobe", APIKeyID: &keyID, APIKeyPrefix: "fixture", Method: "POST", Path: "/v1/images/generations", Kind: "image", Model: "nano-banana-2", Parameters: []byte(`{"size":"768x1344"}`), Status: 422, ErrorCode: "cost_unavailable", DurationMS: 2},
 		{RequestID: "request-poll", APIKeyID: &keyID, APIKeyPrefix: "fixture", AccountID: &accountID, Method: "GET", Path: "/v1/images/fixture", Status: 200, DurationMS: 1},
 	}
 	for _, entry := range entries {
@@ -486,6 +522,10 @@ func TestListAPIRequestLogsPageFiltersAndUsesStableOrdering(t *testing.T) {
 	if err != nil || total != 1 || len(items) != 1 || items[0].ErrorCode != "cost_unavailable" {
 		t.Fatalf("filtered items=%+v total=%d err=%v", items, total, err)
 	}
+	items, total, err = st.ListAPIRequestLogsPageFiltered(ctx, 1, 20, APIRequestLogPageFilter{ProviderID: "adobe"})
+	if err != nil || total != 1 || len(items) != 1 || items[0].ProviderID != "adobe" {
+		t.Fatalf("provider filtered items=%+v total=%d err=%v", items, total, err)
+	}
 	items, total, err = st.ListAPIRequestLogsPage(ctx, 1, 20, "fixture", 200)
 	if err != nil || total != 2 || len(items) != 2 || items[0].AccountName != "fixture" {
 		t.Fatalf("account search items=%+v total=%d err=%v", items, total, err)
@@ -493,10 +533,35 @@ func TestListAPIRequestLogsPageFiltersAndUsesStableOrdering(t *testing.T) {
 	from := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	items, total, err = st.ListAPIRequestLogsPageFiltered(ctx, 1, 20, APIRequestLogPageFilter{
-		Method: "GET", Path: "/v1/tasks", APIKey: "fixture", ClientIP: "", CreatedFrom: &from, CreatedTo: &to,
+		Method: "GET", Path: "/v1/images", APIKey: "fixture", ClientIP: "", CreatedFrom: &from, CreatedTo: &to,
 	})
 	if err != nil || total != 1 || len(items) != 1 || items[0].RequestID != "request-poll" {
 		t.Fatalf("advanced request filter items=%+v total=%d err=%v", items, total, err)
+	}
+}
+
+func TestProviderOverviewsKeepCreditLedgersSeparate(t *testing.T) {
+	ctx, st, _, _ := newRoutingFixture(t)
+	if _, err := st.DB.Exec(ctx, `INSERT INTO accounts(provider_id,name,cookie_ciphertext,subscription_tokens,image_concurrency,queue_capacity,status,access_token_expires_at,last_checked_at)
+		VALUES('adobe','adobe-fixture','cipher',700,12,30,'active',now()+interval '1 hour',now())`); err != nil {
+		t.Fatal(err)
+	}
+	overviews, err := st.GetProviderOverviews(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byProvider := make(map[string]ProviderOverview, len(overviews))
+	for _, overview := range overviews {
+		byProvider[overview.ProviderID] = overview
+	}
+	if byProvider["leonardo"].AvailableCredits != 500 || byProvider["adobe"].AvailableCredits != 700 {
+		t.Fatalf("provider ledgers were not isolated: %+v", byProvider)
+	}
+	if byProvider["leonardo"].ExecutionSlots != 2 || byProvider["adobe"].ExecutionSlots != 12 {
+		t.Fatalf("provider capacity was not isolated: %+v", byProvider)
+	}
+	if byProvider["adobe"].CreditUnit != "bks" {
+		t.Fatalf("adobe credit unit=%q, want bks", byProvider["adobe"].CreditUnit)
 	}
 }
 
@@ -1485,8 +1550,12 @@ func TestUpstreamReportedCostIsObservationalOnly(t *testing.T) {
 		t.Fatalf("balance=%d, want local estimate settlement of 420", balance)
 	}
 	costs, err := st.ListModelCosts(ctx, 10)
-	if err != nil || len(costs) != 1 || costs[0].Average != 80 || costs[0].UpstreamReportedAverage == nil || *costs[0].UpstreamReportedAverage != reported {
+	if err != nil || len(costs) != 1 || costs[0].ProviderID != "leonardo" || costs[0].Average != 80 || costs[0].UpstreamReportedAverage == nil || *costs[0].UpstreamReportedAverage != reported {
 		t.Fatalf("costs=%+v err=%v", costs, err)
+	}
+	filteredCosts, err := st.ListModelCostsFiltered(ctx, "adobe", "image", 10)
+	if err != nil || len(filteredCosts) != 0 {
+		t.Fatalf("adobe costs=%+v err=%v", filteredCosts, err)
 	}
 }
 

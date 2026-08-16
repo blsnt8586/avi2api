@@ -17,6 +17,7 @@ var promptLimits = map[string]int{
 	"veo-3.1":           9999,
 	"veo-3.1-fast":      9999,
 	"kling-o3-omni":     2500,
+	"kling-3.0-omni":    2500,
 	"minimax-h3":        2000,
 	"grok-imagine-1.5":  5000,
 	"dialogue-v3":       5000,

@@ -9,7 +9,6 @@ import {
   BookOpen,
   Box,
   Boxes,
-  Coins,
   Download,
   Eye,
   EyeOff,
@@ -31,11 +30,12 @@ import {
 import "./styles.css";
 import "./ux-polish.css";
 import { OverviewTaskTable } from "./components/overview-task-table";
+import { ProviderBadge } from "./components/provider-switcher";
+import { providerCreditUnit } from "./shared/providers";
 import type {
   Account,
   APIKeyRecord,
   APIKeysPage,
-  ModelCostRecord,
   OverviewResponse,
   SystemCapacityResponse,
   Task,
@@ -363,12 +363,6 @@ function Dashboard() {
     queryFn: () => api<APIKeyRecord[] | APIKeysPage>("/admin/api/api-keys"),
     enabled: tab === "overview",
   });
-  const costs = useQuery({
-    queryKey: ["model-costs"],
-    queryFn: () => api<ModelCostRecord[]>("/admin/api/model-costs"),
-    refetchInterval: false,
-    enabled: tab === "models",
-  });
   const [showAccount, setShowAccount] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [newKey, setNewKey] = useState<string>("");
@@ -383,7 +377,7 @@ function Dashboard() {
     pricing: ["成本与售价", "平台成本、对外报价与毛利核算"],
     docs: ["接口文档", "公开 API 合约与请求示例"],
     security: ["系统设置", "安全与保留策略"],
-    requests: ["请求日志", "追踪 API 参数、路由账号、积分预估与错误码"],
+    requests: ["请求日志", "追踪 API 参数、路由账号、成本预估与错误码"],
     audit: ["审计日志", "查看管理员配置变更记录"],
   };
   const [title, description] = labels[tab];
@@ -428,7 +422,7 @@ function Dashboard() {
     }>;
   }> = [
     {
-      label: "Operations",
+      label: "运营",
       items: [
         { id: "overview", label: "运营概览", icon: LayoutDashboard },
         {
@@ -446,7 +440,7 @@ function Dashboard() {
       ],
     },
     {
-      label: "System",
+      label: "资源与策略",
       items: [
         { id: "capacity", label: "系统容量", icon: Gauge },
         { id: "models", label: "模型与计价", icon: Boxes },
@@ -460,14 +454,14 @@ function Dashboard() {
       ],
     },
     {
-      label: "Observability",
+      label: "可观测性",
       items: [
         { id: "requests", label: "请求日志", icon: ScrollText },
         { id: "audit", label: "审计日志", icon: ShieldCheck },
       ],
     },
     {
-      label: "Developer",
+      label: "开发工具",
       items: [
         { id: "playground", label: "测试中心", icon: FlaskConical },
         { id: "docs", label: "接口文档", icon: BookOpen },
@@ -626,9 +620,12 @@ function Dashboard() {
               keys={keyRows}
               capacity={capacity.data}
               updatedAt={overview.dataUpdatedAt}
-              openTasks={() => openTab("tasks")}
+              openTasks={(providerID) => openTab("tasks", providerID ? { provider: providerID } : undefined)}
               openTask={(id) => openTab("tasks", { search: id })}
-              openAccounts={() => openTab("accounts", { status: "attention" })}
+              openAccounts={(providerID, attention) => openTab("accounts", {
+                ...(providerID ? { provider: providerID } : {}),
+                ...(attention ? { status: "attention" } : {}),
+              })}
               openKeys={() => openTab("keys")}
             />
           )}{" "}
@@ -641,7 +638,7 @@ function Dashboard() {
           {tab === "capacity" && <SystemCapacityPanel />}{" "}
           {tab === "keys" && <Keys setKey={setNewKey} />}{" "}
           {tab === "playground" && <Playground />}{" "}
-          {tab === "models" && <Models costs={costs.data || []} />}{" "}
+          {tab === "models" && <Models />}{" "}
           {tab === "pricing" && <SalePricing />}{" "}
           {tab === "docs" && <APIDocs />} {tab === "security" && <Security />}{" "}
           {tab === "requests" && <RequestLogs />} {" "}
@@ -719,9 +716,9 @@ function Operations({
   tasks: Task[];
   keys: APIKeyRecord[];
   capacity?: SystemCapacityResponse;
-  openTasks: () => void;
+  openTasks: (providerID?: string) => void;
   openTask: (id: string) => void;
-  openAccounts: () => void;
+  openAccounts: (providerID?: string, attention?: boolean) => void;
   openKeys: () => void;
   updatedAt: number;
   tasksLoading: boolean;
@@ -735,8 +732,8 @@ function Operations({
     ),
   );
   const failedLastHour = overview?.failed_last_hour || 0;
-  const availableTokens = overview?.available_tokens || 0;
-  const reservedTokens = overview?.reserved_tokens || 0;
+  const providerSummaries = overview?.provider_summaries || [];
+  const uncertainTasks = providerSummaries.reduce((sum, provider) => sum + provider.submission_uncertain, 0);
   const capacityState = capacity?.capacity;
   const executing = capacityState?.executing || activeTasks.length;
   const executingLimit = capacityState?.effective_execution_limit || 100;
@@ -755,6 +752,7 @@ function Operations({
     },
     { status: "queued", count: statusCounts.queued || 0 },
     { status: "failed", count: statusCounts.failed || 0 },
+    { status: "submission_uncertain", count: statusCounts.submission_uncertain || 0 },
   ];
   const max = Math.max(1, ...queueSegments.map((segment) => segment.count));
   return (
@@ -764,13 +762,6 @@ function Operations({
         <QueryStatus fetching={overviewFetching} updatedAt={updatedAt} />
       </div>
       <div className="ops-metrics">
-        <Metric
-          icon={<Coins />}
-          label="可用积分"
-          value={availableTokens.toLocaleString()}
-          detail={`${reservedTokens.toLocaleString()} 已预留`}
-          tone={availableTokens === 0 ? "warning" : "normal"}
-        />
         <Metric
           icon={<ShieldCheck />}
           label="健康账号"
@@ -790,15 +781,72 @@ function Operations({
           value={`${queued} / ${queuedLimit}`}
           detail={oldestQueued ? `最老等待 ${formatCapacityWait(oldestQueued)}` : "当前无等待"}
         />
+        <Metric
+          icon={<Boxes />}
+          label="接入平台"
+          value={providerSummaries.length}
+          detail={`${providerSummaries.filter((provider) => provider.enabled).length} 个正在接单`}
+        />
       </div>
+      <section className="ops-provider-section">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Provider Operations</span>
+            <h2>平台运行矩阵</h2>
+          </div>
+          <span className="ops-provider-note">余额与预留按平台独立核算</span>
+        </div>
+        <div className="ops-provider-grid">
+          {providerSummaries.map((provider) => {
+			const creditUnit = providerCreditUnit(provider.provider_id, [provider]);
+            const providerHealthy = provider.enabled && provider.active_accounts > 0 && provider.submission_uncertain === 0;
+            return (
+              <article className={`ops-provider-card provider-${provider.provider_id}`} key={provider.provider_id}>
+                <header>
+                  <div>
+                    <ProviderBadge providerID={provider.provider_id} />
+                    <span className={`provider-health ${providerHealthy ? "active" : "warning"}`}>
+                      <i className={`status ${providerHealthy ? "active" : "queued"}`} />
+                      {provider.enabled ? (providerHealthy ? "可调度" : "需要关注") : "已停用"}
+                    </span>
+                  </div>
+                  <strong>{provider.available_credits.toLocaleString()} <small>{creditUnit}</small></strong>
+                </header>
+                <div className="ops-provider-ledger">
+                  <span><small>账面余额</small><strong>{provider.total_credits.toLocaleString()}</strong></span>
+                  <span><small>已预留</small><strong>{provider.reserved_credits.toLocaleString()}</strong></span>
+                  <span><small>健康账号</small><strong>{provider.active_accounts}/{provider.accounts}</strong></span>
+                </div>
+                <div className="ops-provider-flow">
+                  <span><small>执行</small><strong>{provider.executing_tasks}/{provider.execution_slots}</strong></span>
+                  <span><small>排队</small><strong>{provider.queued_tasks}/{provider.queue_slots}</strong></span>
+                  <span><small>近 1 小时失败</small><strong className={provider.failed_last_hour ? "danger" : ""}>{provider.failed_last_hour}</strong></span>
+                  <span><small>待确认提交</small><strong className={provider.submission_uncertain ? "danger" : ""}>{provider.submission_uncertain}</strong></span>
+                </div>
+                {provider.provider_id === "leonardo" && (
+                  <div className="ops-provider-inventory">
+                    <span><strong>{provider.video_ready_720p_15s || 0}</strong><small>720p · 15秒</small></span>
+                    <span><strong>{provider.video_ready_1080p_8s || 0}</strong><small>1080p · 8秒</small></span>
+                    <span><strong>{(provider.video_protected_credits || 0).toLocaleString()}</strong><small>视频保护积分</small></span>
+                  </div>
+                )}
+                <footer>
+                  <button className="secondary" onClick={() => openAccounts(provider.provider_id)}><Server />账号池</button>
+                  <button className="secondary" onClick={() => openTasks(provider.provider_id)}><Activity />任务</button>
+                </footer>
+              </article>
+            );
+          })}
+        </div>
+      </section>
       <div className="ops-grid">
         <section className="ops-panel">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">Queue Health</span>
+              <span className="eyebrow">队列健康</span>
               <h2>任务队列</h2>
             </div>
-            <button className="text-action" onClick={openTasks}>
+            <button className="text-action" onClick={() => openTasks()}>
               查看全部
             </button>
           </div>
@@ -822,15 +870,15 @@ function Operations({
         <section className="ops-panel attention-panel">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">Attention Required</span>
+              <span className="eyebrow">风险聚合</span>
               <h2>需要关注</h2>
             </div>
-            <button className="text-action" onClick={openTasks}>
+            <button className="text-action" onClick={() => openTasks()}>
               全部告警
             </button>
           </div>
           <div className="attention-list">
-            <button className="attention-item" onClick={openAccounts}>
+            <button className="attention-item" onClick={() => openAccounts(undefined, true)}>
               <span className="attention-icon amber"><Activity size={16} /></span>
               <span>
                 <strong>{unavailableAccounts ? `${unavailableAccounts} 个账号需要恢复` : "账号池运行正常"}</strong>
@@ -838,13 +886,21 @@ function Operations({
               </span>
               <b>{unavailableAccounts}</b>
             </button>
-            <button className="attention-item" onClick={openTasks}>
+            <button className="attention-item" onClick={() => openTasks()}>
               <span className="attention-icon red"><AlertTriangle size={16} /></span>
               <span>
                 <strong>{failedLastHour ? `过去 1 小时 ${failedLastHour} 个任务失败` : "过去 1 小时无失败任务"}</strong>
                 <small>查看失败原因和上游响应</small>
               </span>
               <b>{failedLastHour}</b>
+            </button>
+            <button className="attention-item" onClick={() => openTasks()}>
+              <span className="attention-icon red"><ShieldCheck size={16} /></span>
+              <span>
+                <strong>{uncertainTasks ? `${uncertainTasks} 个任务等待提交确认` : "没有待确认的上游提交"}</strong>
+                <small>提交不确定任务会继续保留积分</small>
+              </span>
+              <b>{uncertainTasks}</b>
             </button>
             <button className="attention-item" onClick={openKeys}>
               <span className="attention-icon blue"><KeyRound size={16} /></span>
@@ -859,7 +915,7 @@ function Operations({
         <section className="ops-panel recent-runs">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">Recent Runs</span>
+              <span className="eyebrow">执行记录</span>
               <h2>最近任务</h2>
             </div>
             <span
@@ -868,7 +924,7 @@ function Operations({
               {failedLastHour ? `近 1 小时 ${failedLastHour} 个失败` : "运行稳定"}
             </span>
           </div>
-          <OverviewTaskTable data={tasks.slice(0, 6)} loading={tasksLoading} onOpenTask={(task) => openTask(task.id)} />
+		  <OverviewTaskTable data={tasks.slice(0, 6)} loading={tasksLoading} providers={providerSummaries} onOpenTask={(task) => openTask(task.id)} />
         </section>
       </div>
     </section>

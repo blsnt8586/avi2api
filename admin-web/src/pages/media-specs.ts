@@ -1,5 +1,36 @@
 import type { PublicModel, PublicVideoModel } from "../shared/types";
 
+const adobeVeoSizes = [
+	{ value: "1280x720", label: "横屏 16:9 · 1280x720 · 720p", resolution: "720p" },
+	{ value: "720x1280", label: "竖屏 9:16 · 720x1280 · 720p", resolution: "720p" },
+	{ value: "1920x1080", label: "横屏 16:9 · 1920x1080 · 1080p", resolution: "1080p" },
+	{ value: "1080x1920", label: "竖屏 9:16 · 1080x1920 · 1080p", resolution: "1080p" },
+];
+
+const adobeSeedanceSizes = [
+	{ value: "1680x720", label: "电影 21:9 · 1680x720 · 720p", resolution: "720p" },
+	{ value: "1280x720", label: "横屏 16:9 · 1280x720 · 720p", resolution: "720p" },
+	{ value: "960x720", label: "横屏 4:3 · 960x720 · 720p", resolution: "720p" },
+	{ value: "720x720", label: "方形 1:1 · 720x720 · 720p", resolution: "720p" },
+	{ value: "720x960", label: "竖屏 3:4 · 720x960 · 720p", resolution: "720p" },
+	{ value: "720x1280", label: "竖屏 9:16 · 720x1280 · 720p", resolution: "720p" },
+	{ value: "1120x480", label: "电影 21:9 · 1120x480 · 480p", resolution: "480p" },
+	{ value: "854x480", label: "横屏 16:9 · 854x480 · 480p", resolution: "480p" },
+	{ value: "640x480", label: "横屏 4:3 · 640x480 · 480p", resolution: "480p" },
+	{ value: "480x480", label: "方形 1:1 · 480x480 · 480p", resolution: "480p" },
+	{ value: "480x640", label: "竖屏 3:4 · 480x640 · 480p", resolution: "480p" },
+	{ value: "480x854", label: "竖屏 9:16 · 480x854 · 480p", resolution: "480p" },
+];
+
+const adobeSeedance1080Sizes = [
+	{ value: "2520x1080", label: "电影 21:9 · 2520x1080 · 1080p", resolution: "1080p" },
+	{ value: "1920x1080", label: "横屏 16:9 · 1920x1080 · 1080p", resolution: "1080p" },
+	{ value: "1440x1080", label: "横屏 4:3 · 1440x1080 · 1080p", resolution: "1080p" },
+	{ value: "1080x1080", label: "方形 1:1 · 1080x1080 · 1080p", resolution: "1080p" },
+	{ value: "1080x1440", label: "竖屏 3:4 · 1080x1440 · 1080p", resolution: "1080p" },
+	{ value: "1080x1920", label: "竖屏 9:16 · 1080x1920 · 1080p", resolution: "1080p" },
+];
+
 export const imageModelDocs: Record<
   PublicModel,
   {
@@ -28,6 +59,30 @@ export const imageModelDocs: Record<
     quantity: "固定 1 张",
     promptMax: 9999,
   },
+	"adobe:gpt-image-2": {
+    name: "Adobe · GPT Image 2",
+    role: "Firefly 多供应商路由",
+    use: "通过 Adobe Firefly 的异步接口生成或编辑图片，积分和 Leonardo 账号池完全隔离。",
+    strengths: ["Adobe Firefly 异步任务", "最多 6 张参考图", "BKS 实时价格规则"],
+    limits: ["当前 n 固定为 1", "仅开放 1K / 2K / 4K 方形价格档"],
+    quality: "auto / low / medium / high；auto 按 low 执行",
+    size: "1024x1024、2048x2048 或 2880x2880",
+    sizeNote: "三档分别映射 Adobe 1K、2K、4K outputResolution，并使用账号导入时读取的 BKS 价格。",
+    quantity: "固定 1 张",
+    promptMax: 9999,
+	},
+	"adobe:nano-banana-2": {
+		name: "Adobe · Nano Banana 2",
+		role: "Firefly 文字与编辑",
+		use: "通过 Adobe Firefly 的异步接口生成或编辑图片，适合文字、品牌素材和多参考图组合。",
+		strengths: ["Nano Banana 2 当前 Firefly 版本", "最多 6 张参考图", "BKS 实时价格规则"],
+		limits: ["当前 n 固定为 1", "不接受 quality 参数"],
+		quality: "固定，由 Adobe Firefly 模型决定",
+		size: "1K / 2K / 4K 的十种常用画幅；最大 6336x2688 或 3072x5504",
+		sizeNote: "尺寸表与 Firefly 当前 Nano Banana 2 输出档一致，价格按 1K、2K、4K BKS 档读取。",
+		quantity: "固定 1 张",
+		promptMax: 9999,
+	},
   "nano-banana-2": {
     name: "Nano Banana 2",
     role: "文字与品牌",
@@ -96,6 +151,72 @@ export const videoModelDocs: Record<
     promptMax: number;
   }
 > = {
+	"adobe:kling-3.0-omni": {
+		name: "Adobe · Kling 3.0 Omni",
+		role: "Firefly 全模态视频",
+		use: "通过 Adobe Firefly 异步生成 5、10 或 15 秒视频，支持首尾帧和普通参考图。",
+		duration: "5 / 10 / 15 秒",
+		resolution: "720p / 1080p（尺寸与积分档绑定）",
+		limits: ["普通参考图最多 3 张", "当前公开契约固定关闭原生音频"],
+		durationValues: [5, 10, 15], defaultDuration: 5, resolutions: ["720p", "1080p"],
+		sizes: [
+			{ value: "1280x720", label: "横屏 16:9 · 1280x720 · 720p", resolution: "720p" },
+			{ value: "720x1280", label: "竖屏 9:16 · 720x1280 · 720p", resolution: "720p" },
+			{ value: "720x720", label: "方形 1:1 · 720x720 · 720p", resolution: "720p" },
+			{ value: "1920x1080", label: "横屏 16:9 · 1920x1080 · 1080p", resolution: "1080p" },
+			{ value: "1080x1920", label: "竖屏 9:16 · 1080x1920 · 1080p", resolution: "1080p" },
+			{ value: "1080x1080", label: "方形 1:1 · 1080x1080 · 1080p", resolution: "1080p" },
+		],
+		maxReferenceImages: 3, supportsStartEnd: true, supportsVideoAudioReferences: false, supportsGenerateAudio: false, promptMax: 2500,
+	},
+	"adobe:veo-3.1": {
+		name: "Adobe · Veo 3.1",
+		role: "Firefly Google 旗舰",
+		use: "通过 Adobe Firefly 异步生成 4、6 或 8 秒视频，支持首尾帧和最多 3 张普通参考图。",
+		duration: "4 / 6 / 8 秒", resolution: "720p / 1080p（尺寸与积分档绑定）",
+		limits: ["普通参考图最多 3 张", "当前公开契约固定关闭原生音频"],
+		durationValues: [4, 6, 8], defaultDuration: 8, resolutions: ["720p", "1080p"], sizes: adobeVeoSizes,
+		maxReferenceImages: 3, supportsStartEnd: true, supportsVideoAudioReferences: false, supportsGenerateAudio: false, promptMax: 9999,
+	},
+	"adobe:veo-3.1-fast": {
+    name: "Adobe · Veo 3.1 Fast",
+    role: "Firefly 快速视频",
+    use: "通过 Adobe Firefly 异步视频任务生成 4、6 或 8 秒视频，支持首尾帧控制。",
+    duration: "4 / 6 / 8 秒",
+    resolution: "720p / 1080p（尺寸与积分档绑定）",
+    limits: ["不支持普通参考图", "当前公开契约固定关闭原生音频"],
+    durationValues: [4, 6, 8],
+    defaultDuration: 8,
+    resolutions: ["720p", "1080p"],
+		sizes: adobeVeoSizes,
+    maxReferenceImages: 0,
+    supportsStartEnd: true,
+    supportsVideoAudioReferences: false,
+    supportsGenerateAudio: false,
+		promptMax: 9999,
+	},
+	"adobe:seedance-2.0": {
+		name: "Adobe · Seedance 2.0", role: "Firefly 多模态视频",
+		use: "通过 Adobe Firefly 异步生成 4–15 秒视频，支持多画幅、参考图、首尾帧、视频与音频参考。",
+		duration: "4–15 秒", resolution: "480p / 720p / 1080p（尺寸与积分档绑定）",
+		limits: ["图片、视频和音频合计最多 12 个", "当前公开契约固定关闭原生音频"],
+		durationValues: Array.from({ length: 12 }, (_, index) => index + 4), defaultDuration: 8,
+		resolutions: ["480p", "720p", "1080p"], sizes: [...adobeSeedanceSizes, ...adobeSeedance1080Sizes],
+		maxReferenceImages: 9, supportsStartEnd: true, supportsVideoAudioReferences: true,
+		maxReferenceVideos: 3, maxReferenceAudios: 3, maxReferenceVideoDuration: 15, maxReferenceAudioDuration: 15,
+		supportsGenerateAudio: false, promptMax: 5000,
+	},
+	"adobe:seedance-2.0-fast": {
+		name: "Adobe · Seedance 2.0 Fast", role: "Firefly 快速多模态",
+		use: "通过 Adobe Firefly 快速异步生成 4–15 秒视频，支持参考图、首尾帧、视频与音频参考。",
+		duration: "4–15 秒", resolution: "480p / 720p（尺寸与积分档绑定）",
+		limits: ["图片、视频和音频合计最多 12 个", "当前公开契约固定关闭原生音频"],
+		durationValues: Array.from({ length: 12 }, (_, index) => index + 4), defaultDuration: 8,
+		resolutions: ["480p", "720p"], sizes: adobeSeedanceSizes,
+		maxReferenceImages: 9, supportsStartEnd: true, supportsVideoAudioReferences: true,
+		maxReferenceVideos: 3, maxReferenceAudios: 3, maxReferenceVideoDuration: 15, maxReferenceAudioDuration: 15,
+		supportsGenerateAudio: false, promptMax: 5000,
+	},
   "flux-3-video": {
     name: "FLUX 3 Video",
     role: "原生音频长视频",

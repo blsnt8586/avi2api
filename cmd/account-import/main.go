@@ -30,7 +30,7 @@ type importRequest struct {
 	ProtectedTokens    int64  `json:"protected_tokens"`
 	VideoReservedSlots int    `json:"video_reserved_slots"`
 	SessionTokenPath   string `json:"session_token_path"`
-	CookieHeaderPath   string `json:"cookie_header_path"`
+	CookieJSONPath     string `json:"cookie_json_path"`
 }
 
 func main() {
@@ -64,8 +64,8 @@ func run() error {
 	if req.RoutingRole == "" {
 		req.RoutingRole = "general"
 	}
-	if req.SessionTokenPath == "" || req.CookieHeaderPath == "" {
-		return errors.New("session_token_path and cookie_header_path are required")
+	if req.SessionTokenPath == "" || req.CookieJSONPath == "" {
+		return errors.New("session_token_path and cookie_json_path are required")
 	}
 
 	sessionData, err := os.ReadFile(req.SessionTokenPath)
@@ -76,11 +76,20 @@ func run() error {
 	if err := json.Unmarshal(sessionData, &session); err != nil {
 		return fmt.Errorf("decode browser session: %w", err)
 	}
-	cookie, err := os.ReadFile(req.CookieHeaderPath)
+	cookie, err := os.ReadFile(req.CookieJSONPath)
 	if err != nil {
-		return fmt.Errorf("read cookie header: %w", err)
+		return fmt.Errorf("read cookie json: %w", err)
 	}
-	session.CookieHeader = strings.TrimSpace(string(cookie))
+	session.CookieJSON = cookie
+	normalizedCookieJSON, err := accounts.NormalizeBrowserCookieJSON(session.CookieJSON)
+	if err != nil {
+		return err
+	}
+	session.CookieHeader, err = accounts.CookieHeaderFromJSON(normalizedCookieJSON)
+	if err != nil {
+		return err
+	}
+	session.CookieJSON = json.RawMessage(normalizedCookieJSON)
 	if session.AccessToken == "" || session.AccessTokenExpiry <= time.Now().Unix() || session.CookieHeader == "" {
 		return errors.New("browser session is incomplete or expired")
 	}

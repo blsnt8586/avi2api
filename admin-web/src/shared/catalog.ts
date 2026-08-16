@@ -6,6 +6,7 @@ import type {
   PlatformModel,
   PublicModel,
 } from "./types";
+import { providerModelGroups, providerRegistry } from "./providers";
 
 function currentCostRules(rules: CostRule[], kind: MediaKind) {
   const seen = new Set<string>();
@@ -35,6 +36,16 @@ export function audioRuleLabel(model: string, duration: number) {
   return `${duration} ${model === "music-v1" ? "分钟" : "秒"}`;
 }
 
+export function videoWorkflowLabel(workflow: string) {
+  return (
+    {
+      t2v: "文生视频",
+      i2v: "首帧 / 首尾帧",
+      rtv: "参考图",
+    }[workflow] || workflow
+  );
+}
+
 export function costEstimates(rules: CostRule[], kind: MediaKind) {
   const active = currentCostRules(rules, kind);
   return [...new Set(active.map((rule) => rule.model))].map((model) => {
@@ -57,28 +68,42 @@ export function costEstimates(rules: CostRule[], kind: MediaKind) {
               modelRules.find(
                 (rule) =>
                   rule.size === size && (rule.quality || "固定质量") === label,
-              )?.unit_tokens ?? 0,
+              )?.unit_tokens ?? null,
           ),
         })),
         note: `${modelRules[0]?.price_version || "未定价"} · 单张，n 按数量乘算`,
       };
     }
     if (kind === "video") {
-      const columns = [...new Set(modelRules.map((rule) => rule.resolution))];
+      const columns = [...new Set(modelRules.map((rule) => rule.resolution))]
+        .sort((a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10));
       const durations = [
         ...new Set(modelRules.map((rule) => rule.duration)),
       ].sort((a, b) => a - b);
+      const workflows = [
+        ...new Set(modelRules.map((rule) => rule.quality).filter(Boolean)),
+      ].sort(
+        (a, b) =>
+          ["t2v", "i2v", "rtv"].indexOf(a) - ["t2v", "i2v", "rtv"].indexOf(b),
+      );
+      const rowDimensions = workflows.length
+        ? workflows.flatMap((workflow) =>
+            durations.map((duration) => ({ workflow, duration })),
+          )
+        : durations.map((duration) => ({ workflow: "", duration }));
       return {
         model,
         columns,
-        rows: durations.map((duration) => ({
-          label: `${duration} 秒`,
+        rows: rowDimensions.map(({ workflow, duration }) => ({
+          label: `${workflow ? `${videoWorkflowLabel(workflow)} · ` : ""}${duration} 秒`,
           values: columns.map(
             (resolution) =>
               modelRules.find(
                 (rule) =>
-                  rule.duration === duration && rule.resolution === resolution,
-              )?.unit_tokens ?? 0,
+                  rule.duration === duration &&
+                  rule.resolution === resolution &&
+                  rule.quality === workflow,
+              )?.unit_tokens ?? null,
           ),
         })),
         note: `${modelRules[0]?.price_version || "未定价"} · 单个视频`,
@@ -99,10 +124,8 @@ export function costEstimates(rules: CostRule[], kind: MediaKind) {
 }
 
 export const imageModels = [
-  "gpt-image-2",
-  "nano-banana-2",
-  "nano-banana-pro",
-  "seedream-5.0-pro",
+	...providerRegistry.leonardo.models.image,
+	...providerRegistry.adobe.models.image,
 ] as const;
 
 export type PlaygroundImageModel = (typeof imageModels)[number];
@@ -197,34 +220,12 @@ const seedream50ProSizeGroups: ImageSizeGroup[] = [
 ];
 
 export const imageSizeGroups: Record<PublicModel, ImageSizeGroup[]> = {
-  "gpt-image-2": gptImage2SizeGroups,
+	"gpt-image-2": gptImage2SizeGroups,
+	"adobe:gpt-image-2": [{ ratio: "1:1", small: "1024x1024", medium: "2048x2048", large: "2880x2880" }],
+	"adobe:nano-banana-2": nanoBananaSizeGroups,
   "nano-banana-2": nanoBananaSizeGroups,
   "nano-banana-pro": nanoBananaSizeGroups,
   "seedream-5.0-pro": seedream50ProSizeGroups,
 };
 
-export const keyModelGroups = [
-  {
-    label: "图像模型",
-    models: ["gpt-image-2", "nano-banana-2", "nano-banana-pro", "seedream-5.0-pro"],
-  },
-  {
-    label: "视频模型",
-    models: [
-      "flux-3-video",
-      "seedance-2.0",
-      "seedance-2.0-fast",
-      "seedance-2.0-mini",
-      "seedance-2.5",
-      "veo-3.1",
-      "veo-3.1-fast",
-      "kling-o3-omni",
-      "minimax-h3",
-      "grok-imagine-1.5",
-    ],
-  },
-  {
-    label: "音频模型",
-    models: ["dialogue-v3", "music-v1", "sound-effects-v2"],
-  },
-];
+export const keyModelGroups = providerModelGroups();

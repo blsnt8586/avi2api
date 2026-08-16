@@ -14,12 +14,20 @@ import (
 )
 
 type chatRequest struct {
+	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model"`
 	Stream   bool   `json:"stream"`
 	Messages []struct {
 		Role    string `json:"role"`
 		Content any    `json:"content"`
 	} `json:"messages"`
+}
+
+func (request chatRequest) imageRequest(prompt string, source *domain.SourceImage) domain.ImageRequest {
+	return domain.ImageRequest{
+		Provider: request.Provider, Model: request.Model, Prompt: prompt,
+		ResponseFormat: "url", SourceImage: source,
+	}
 }
 
 func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
@@ -42,11 +50,13 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if model == "" {
 		model = "gpt-image-2"
 	}
-	task, _, err := s.createTask(r, domain.ImageRequest{Model: model, Prompt: prompt, ResponseFormat: "url", SourceImage: source})
+	cr.Model = model
+	task, _, err := s.createTask(r, cr.imageRequest(prompt, source))
 	if err != nil {
 		writeCreateTaskError(w, err)
 		return
 	}
+	noteChatRequest(r)
 	if cr.Stream {
 		s.streamChat(w, r, task.ID)
 		return

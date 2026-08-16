@@ -103,8 +103,8 @@ func main() {
 	redisOpt := asynq.RedisClientOpt{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB}
 	queue := jobs.NewClient(redisOpt)
 	defer queue.Close()
-	metrics.Register()
 	providerRegistry := providers.NewRegistry()
+	metrics.Register(providerRegistry.List())
 	assets, err := taskassets.New(cfg.TaskAssetDir)
 	if err != nil {
 		log.Error("task asset store initialization failed", "error", err)
@@ -128,7 +128,7 @@ func main() {
 	}
 	var server *http.Server
 	if cfg.Mode == "api" || cfg.Mode == "all" {
-		api := httpapi.New(apiStore, rdb, queue, apiAccountService, assets, cfg, log, web.Handler())
+		api := httpapi.New(apiStore, rdb, queue, apiAccountService, assets, cfg, log, web.Handler(), providerRegistry)
 		server = &http.Server{Addr: cfg.HTTPAddr, Handler: otelhttp.NewHandler(api.Router(), "http.server"), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 4 * time.Minute, WriteTimeout: 4*time.Minute + 30*time.Second, IdleTimeout: 90 * time.Second}
 		go func() {
 			log.Info("HTTP server listening", "addr", cfg.HTTPAddr, "mode", cfg.Mode)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -13,11 +14,13 @@ import (
 
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/metrics"
+	"github.com/leonardo2api/leonardo2api/internal/providers"
 )
 
 const apiRequestLogContext contextKey = "api_request_log"
 
 type apiRequestMetadata struct {
+	ProviderID      string
 	APIKeyID        *uuid.UUID
 	APIKeyPrefix    string
 	Kind            string
@@ -46,7 +49,7 @@ func (buffer *cappedResponseBuffer) Write(value []byte) (int, error) {
 
 func (s *Server) apiRequestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		metadata := &apiRequestMetadata{Parameters: map[string]any{}}
+		metadata := &apiRequestMetadata{ProviderID: providers.Leonardo, Parameters: map[string]any{}}
 		if key, ok := r.Context().Value(apiKeyContext).(domain.APIKey); ok {
 			noteAPIKeyMetadata(metadata, key)
 		}
@@ -65,7 +68,7 @@ func (s *Server) apiRequestLog(next http.Handler) http.Handler {
 			parameters = []byte(`{}`)
 		}
 		entry := domain.APIRequestLog{
-			RequestID: middleware.GetReqID(r.Context()), APIKeyID: metadata.APIKeyID, APIKeyPrefix: metadata.APIKeyPrefix,
+			RequestID: middleware.GetReqID(r.Context()), ProviderID: metadata.ProviderID, APIKeyID: metadata.APIKeyID, APIKeyPrefix: metadata.APIKeyPrefix,
 			AccountID: metadata.AccountID, TaskID: metadata.TaskID, Method: r.Method, Path: r.URL.Path,
 			Kind: metadata.Kind, Model: metadata.Model, Parameters: parameters,
 			PromptChars: metadata.PromptChars, EstimatedTokens: metadata.EstimatedTokens,
@@ -158,10 +161,12 @@ func noteImageRequest(r *http.Request, request domain.ImageRequest) {
 		return
 	}
 	metadata.Kind = "image"
+	metadata.ProviderID = requestProvider(request.Provider)
 	metadata.Model = request.Model
 	metadata.PromptChars = utf8.RuneCountInString(request.Prompt)
 	metadata.Parameters = map[string]any{
-		"size": request.Size, "quality": request.Quality, "n": request.N,
+		"provider": metadata.ProviderID,
+		"size":     request.Size, "quality": request.Quality, "n": request.N,
 		"response_format": request.ResponseFormat, "output_format": request.OutputFormat,
 		"reference_images": len(request.ReferenceImages) + len(request.SourceImages) + boolInt(request.SourceImage != nil),
 	}
@@ -180,10 +185,12 @@ func noteVideoRequest(r *http.Request, request domain.VideoRequest) {
 		return
 	}
 	metadata.Kind = "video"
+	metadata.ProviderID = requestProvider(request.Provider)
 	metadata.Model = request.Model
 	metadata.PromptChars = utf8.RuneCountInString(request.Prompt)
 	metadata.Parameters = map[string]any{
-		"size": request.Size, "resolution": request.Resolution, "duration": request.Duration,
+		"provider": metadata.ProviderID,
+		"size":     request.Size, "resolution": request.Resolution, "duration": request.Duration,
 		"generate_audio": request.GenerateAudio, "reference_images": len(request.ReferenceImages) + len(request.SourceImages),
 		"reference_videos": len(request.ReferenceVideos), "start_frame": request.StartFrame != nil,
 		"end_frame": request.EndFrame != nil, "reference_audios": len(request.AudioReferences()),
@@ -196,12 +203,20 @@ func noteAudioRequest(r *http.Request, request domain.AudioRequest) {
 		return
 	}
 	metadata.Kind = "audio"
+	metadata.ProviderID = requestProvider(request.Provider)
 	metadata.Model = request.Model
 	metadata.PromptChars = utf8.RuneCountInString(request.Prompt)
 	metadata.Parameters = map[string]any{
-		"n": request.N, "duration": request.Duration, "duration_minutes": request.DurationMinutes,
+		"provider": metadata.ProviderID,
+		"n":        request.N, "duration": request.Duration, "duration_minutes": request.DurationMinutes,
 		"voice": request.Voice, "language": request.Language, "loop": request.Loop,
 		"force_instrumental": request.ForceInstrumental,
+	}
+}
+
+func noteChatRequest(r *http.Request) {
+	if metadata := requestMetadata(r); metadata != nil {
+		metadata.Kind = "chat"
 	}
 }
 
@@ -219,8 +234,17 @@ func noteRequestTask(r *http.Request, task domain.Task) {
 	}
 	taskID := task.ID
 	metadata.TaskID = &taskID
+	metadata.ProviderID = requestProvider(task.ProviderID)
 	if task.AccountID != nil {
 		accountID := *task.AccountID
 		metadata.AccountID = &accountID
 	}
+}
+
+func requestProvider(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return providers.Leonardo
+	}
+	return value
 }

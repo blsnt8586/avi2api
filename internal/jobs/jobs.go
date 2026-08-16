@@ -8,11 +8,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/leonardo2api/leonardo2api/internal/accounts"
+	"github.com/leonardo2api/leonardo2api/internal/adobe"
 	"github.com/leonardo2api/leonardo2api/internal/circuit"
 	"github.com/leonardo2api/leonardo2api/internal/config"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
-	"github.com/leonardo2api/leonardo2api/internal/metrics"
 	"github.com/leonardo2api/leonardo2api/internal/providers"
 	"github.com/leonardo2api/leonardo2api/internal/store"
 	"github.com/leonardo2api/leonardo2api/internal/taskassets"
@@ -118,8 +118,19 @@ func (w *Worker) updateTokens(ctx context.Context, id, leaseID uuid.UUID, before
 	return nil
 }
 
-func (w *Worker) prepareSubmission(ctx context.Context, id, leaseID, accountID uuid.UUID, request leonardo.CreateGenerationRequest, upstreamDeadline time.Time) error {
+func (w *Worker) prepareSubmission(ctx context.Context, id, leaseID, accountID uuid.UUID, request any, upstreamDeadline time.Time) error {
 	ok, err := w.Store.PrepareTaskSubmissionWithDeadlineOwned(ctx, id, leaseID, accountID, request, upstreamDeadline)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("task execution lease is no longer owned")
+	}
+	return nil
+}
+
+func (w *Worker) recordAdobeSubmission(ctx context.Context, id, leaseID, accountID uuid.UUID, response adobe.Job) error {
+	ok, err := w.Store.RecordTaskSubmissionOwned(ctx, id, leaseID, accountID, response.PollURL, nil)
 	if err != nil {
 		return err
 	}
@@ -198,7 +209,7 @@ func (w *Worker) markSubmissionUncertain(ctx context.Context, id, leaseID uuid.U
 		return err
 	}
 	_ = w.Store.ClearTerminalTaskSourceImage(context.Background(), id)
-	metrics.TasksTotal.WithLabelValues(domain.TaskSubmissionUncertain).Inc()
+	w.recordTerminalTaskMetrics(id, domain.TaskSubmissionUncertain, 0)
 	_ = w.Redis.Publish(context.Background(), "leo:task:"+id.String(), "done").Err()
 	return nil
 }

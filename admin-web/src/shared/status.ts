@@ -1,4 +1,5 @@
-import type { Task } from "./types";
+import type { Provider, ProviderOverview, Task } from "./types";
+import { providerCreditUnit } from "./providers";
 
 export function statusText(status: string) {
   return (
@@ -25,10 +26,14 @@ export function statusText(status: string) {
 }
 
 export function tokenCost(task: Task) {
-	if (task.settled_tokens != null) return task.settled_tokens.toLocaleString();
-	if (task.reservation_state === "held" && task.estimated_tokens != null)
-		return `${task.estimated_tokens.toLocaleString()} 预留`;
-	return "—";
+  if (task.settled_tokens != null) return task.settled_tokens.toLocaleString();
+  if (task.reservation_state === "held" && task.estimated_tokens != null)
+    return `${task.estimated_tokens.toLocaleString()} 预留`;
+  return "—";
+}
+
+export function taskCreditUnit(task: Task, providers: Array<Provider | ProviderOverview> = []) {
+	return providerCreditUnit(task.provider_id, providers);
 }
 
 export function reservationText(state?: string, reason?: string) {

@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
+import { useSearchParams } from "react-router-dom";
 import { BadgeDollarSign, Calculator, Coins, Save, TrendingUp } from "lucide-react";
 import { Metric } from "../components/metric";
+import { ProviderBadge, ProviderSwitcher } from "../components/provider-switcher";
 import { Badge, DataTable, Pagination } from "../components/ui";
 import { api } from "../shared/api";
 import type {
@@ -15,6 +17,7 @@ import type {
   SalePricingSettings,
   SalePricingVideoRateQuote,
 } from "../shared/types";
+import { providerDefinition, providerSupports } from "../shared/providers";
 
 type PricingForm = {
   provider_id: string;
@@ -184,19 +187,24 @@ const pricingModifierLabels: Record<string, string> = {
 
 export function SalePricing() {
   const client = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const providers = useQuery({
     queryKey: ["providers"],
     queryFn: () => api<Provider[]>("/admin/api/providers"),
   });
+  const requestedProviderID = searchParams.get("provider")?.trim().toLowerCase() || "";
+  const providerID = providers.data?.find((provider) => provider.enabled && provider.id === requestedProviderID)?.id
+    || (providers.data?.find((provider) => provider.enabled) || providers.data?.[0])?.id
+    || requestedProviderID;
   const rules = useQuery({
-    queryKey: ["cost-rules"],
-    queryFn: () => api<CostRule[]>("/admin/api/cost-rules"),
+    queryKey: ["cost-rules", providerID],
+    queryFn: () => api<CostRule[]>(`/admin/api/cost-rules?provider=${encodeURIComponent(providerID)}`),
+    enabled: Boolean(providerID),
   });
   const settings = useQuery({
     queryKey: ["sale-pricing"],
     queryFn: () => api<SalePricingSettings>("/admin/api/sale-pricing"),
   });
-  const [providerID, setProviderID] = useState("");
   const [form, setForm] = useState<PricingForm>(() => formForProvider(""));
   const [manualCredits, setManualCredits] = useState(1000);
   const [kind, setKind] = useState<MediaKind>("image");
@@ -207,11 +215,14 @@ export function SalePricing() {
   const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
-    if (providerID || !providers.data?.length) return;
-    setProviderID((providers.data.find((provider) => provider.enabled) || providers.data[0]).id);
-  }, [providerID, providers.data]);
+    if (!providerID || requestedProviderID === providerID) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("provider", providerID);
+    setSearchParams(nextParams, { replace: true });
+  }, [providerID, requestedProviderID, searchParams, setSearchParams]);
 
   const persistedProfile = settings.data?.profiles.find((profile) => profile.provider_id === providerID);
+  const currentProvider = providers.data?.find((provider) => provider.id === providerID);
   useEffect(() => {
     if (!providerID || settings.isPending) return;
     setForm(formForProvider(providerID, persistedProfile));
@@ -289,6 +300,12 @@ export function SalePricing() {
     setHasVideoReference(false);
   }, [providerID, kind]);
 
+  useEffect(() => {
+    if (!currentProvider || providerSupports(currentProvider, kind)) return;
+    const nextKind = (["image", "video", "audio"] as MediaKind[]).find((item) => providerSupports(currentProvider, item));
+    if (nextKind) setKind(nextKind);
+  }, [currentProvider, kind]);
+
   useEffect(() => setPage(1), [model, pageSize]);
 
   const columns = useMemo<ColumnDef<QuoteRow>[]>(() => [
@@ -339,7 +356,9 @@ export function SalePricing() {
 
   const switchProvider = (next: string) => {
     if (dirty && !window.confirm("当前平台有未保存修改，确认切换？")) return;
-    setProviderID(next);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("provider", next);
+    setSearchParams(nextParams);
   };
 
   if (providers.isPending || rules.isPending || settings.isPending) {
@@ -354,6 +373,10 @@ export function SalePricing() {
 
   return (
     <section className="pricing-workspace">
+      <div className="provider-business-header">
+        <div><span className="eyebrow">Provider Economics</span><h2>平台售价工作区</h2><p>{providerDefinition(providerID, currentProvider).description}</p></div>
+        <ProviderSwitcher providers={providers.data} value={providerID} onChange={switchProvider} />
+      </div>
       <div className="pricing-summary">
         <Metric icon={<Coins />} label="可售积分" value={calculated ? Math.round(calculated.usable_credits).toLocaleString() : "待配置"} detail={`名义积分 ${form.included_credits.toLocaleString()}`} />
         <Metric icon={<Calculator />} label="每千积分成本" value={calculated ? money(calculated.cost_per_credit * 1000, currency) : "待配置"} detail="含账号损耗与运营成本" />
@@ -364,10 +387,8 @@ export function SalePricing() {
       <div className="pricing-columns">
         <section className="pricing-section pricing-profile">
           <div className="section-heading">
-            <div><span className="eyebrow">Provider Economics</span><h2>平台成本画像</h2></div>
-            <select aria-label="选择平台" value={providerID} onChange={(event) => switchProvider(event.target.value)}>
-              {providers.data.map((provider) => <option key={provider.id} value={provider.id}>{provider.display_name}</option>)}
-            </select>
+            <div><span className="eyebrow">Cost Profile</span><h2>平台成本画像</h2></div>
+            <ProviderBadge providerID={providerID} providers={providers.data} />
           </div>
           <div className="pricing-form-grid">
             <NumberField label="账号采购价" value={form.account_cost} min={0} step={0.01} onChange={(account_cost) => setForm({ ...form, account_cost })} />
@@ -408,7 +429,9 @@ export function SalePricing() {
           <div><span className="eyebrow">Model Quotes</span><h2>模型对外报价</h2></div>
           <div className="pricing-filters">
             <select aria-label="媒体类型" value={kind} onChange={(event) => setKind(event.target.value as MediaKind)}>
-              <option value="image">图片</option><option value="video">视频</option><option value="audio">音频</option>
+              <option value="image" disabled={currentProvider ? !providerSupports(currentProvider, "image") : false}>图片</option>
+              <option value="video" disabled={currentProvider ? !providerSupports(currentProvider, "video") : false}>视频</option>
+              <option value="audio" disabled={currentProvider ? !providerSupports(currentProvider, "audio") : false}>音频</option>
             </select>
             <select aria-label="筛选模型" value={model} onChange={(event) => setModel(event.target.value)}>
               <option value="">全部模型</option>{models.map((item) => <option key={item} value={item}>{item}</option>)}

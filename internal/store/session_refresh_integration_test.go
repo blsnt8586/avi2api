@@ -216,7 +216,7 @@ func TestTerminalSessionRefreshFailureStopsAutomaticRetries(t *testing.T) {
 		t.Fatalf("browser claim ok=%v err=%v", ok, err)
 	}
 	message := "Canva SSO requires email verification"
-	if err := st.TerminalFailSessionRefreshJob(ctx, browserJob.ID, *browserJob.LeaseToken, message); err != nil {
+	if err := st.TerminalFailSessionRefreshJob(ctx, browserJob.ID, *browserJob.LeaseToken, message, ""); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := st.GetSessionRefreshJob(ctx, browserJob.ID)
@@ -323,7 +323,7 @@ func TestSessionImportPreservesGenerationRateLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []uuid.UUID{generationID, sessionID} {
-		if err := st.UpdateAccountSessionCredentials(ctx, id, "fresh-token", "fresh-cookie", time.Now().Add(time.Hour), "hasura", "sub", "user@example.com", "ua"); err != nil {
+		if _, err := st.UpdateAccountSessionCredentials(ctx, id, "fresh-token", "fresh-cookie", "", false, false, "", time.Now().Add(time.Hour), "hasura", "sub", "user@example.com", "ua"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -380,7 +380,7 @@ func TestBrowserSessionCompletionDefersOnlyBalanceRefresh(t *testing.T) {
 		t.Fatalf("browser claim ok=%v err=%v", ok, err)
 	}
 	expiry := time.Now().Add(time.Hour)
-	if err := st.UpdateAccountSessionCredentials(ctx, accountID, "fresh-token", "fresh-cookie", expiry, "hasura", "sub", "user@example.com", "ua"); err != nil {
+	if _, err := st.UpdateAccountSessionCredentials(ctx, accountID, "fresh-token", "fresh-cookie", "", false, false, "", expiry, "hasura", "sub", "user@example.com", "ua"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.CompleteSessionRefreshJob(ctx, browserJob.ID, *browserJob.LeaseToken, "browser", time.Second, 20*time.Minute); err != nil {

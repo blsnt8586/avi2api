@@ -16,6 +16,7 @@ import (
 )
 
 type publicVideoJSONRequest struct {
+	Provider      string `json:"provider,omitempty"`
 	Model         string `json:"model"`
 	Prompt        string `json:"prompt"`
 	Duration      int    `json:"duration,omitempty"`
@@ -26,7 +27,7 @@ type publicVideoJSONRequest struct {
 
 func (req publicVideoJSONRequest) domainRequest() domain.VideoRequest {
 	return domain.VideoRequest{
-		Model: req.Model, Prompt: req.Prompt, Duration: req.Duration,
+		Provider: req.Provider, Model: req.Model, Prompt: req.Prompt, Duration: req.Duration,
 		Size: req.Size, Resolution: req.Resolution, GenerateAudio: req.GenerateAudio,
 	}
 }
@@ -73,9 +74,9 @@ func (s *Server) parseVideoMultipart(r *http.Request) (domain.VideoRequest, erro
 	if s.Assets == nil {
 		return domain.VideoRequest{}, errors.New("task asset storage is not configured")
 	}
-	req := domain.VideoRequest{Model: r.FormValue("model"), Prompt: r.FormValue("prompt"), Size: r.FormValue("size"), Resolution: r.FormValue("resolution"), ReferenceStrength: r.FormValue("reference_strength")}
+	req := domain.VideoRequest{Provider: r.FormValue("provider"), Model: r.FormValue("model"), Prompt: r.FormValue("prompt"), Size: r.FormValue("size"), Resolution: r.FormValue("resolution"), ReferenceStrength: r.FormValue("reference_strength")}
 	maxReferenceVideoBytes := s.Config.MaxVideoBytes
-	if spec, ok := videospec.Get(req.Model); ok && spec.MaxReferenceVideoBytes > 0 && spec.MaxReferenceVideoBytes < maxReferenceVideoBytes {
+	if spec, ok := videospec.GetForProvider(req.Provider, req.Model); ok && spec.MaxReferenceVideoBytes > 0 && spec.MaxReferenceVideoBytes < maxReferenceVideoBytes {
 		maxReferenceVideoBytes = spec.MaxReferenceVideoBytes
 	}
 	cleanup := true
@@ -200,14 +201,19 @@ func (s *Server) createVideoTask(r *http.Request, req domain.VideoRequest) (doma
 	if req.Model == "" {
 		req.Model = "seedance-2.0-fast"
 	}
-	spec, ok := videospec.Get(req.Model)
+	route, err := s.resolveMediaModel("video", req.Provider, req.Model)
+	if err != nil {
+		return domain.Task{}, false, err
+	}
+	req.Provider, req.Model = route.Provider, route.InternalModel
+	spec, ok := videospec.GetForProvider(route.Provider, route.InternalModel)
 	if !ok {
 		return domain.Task{}, false, errors.New("unknown video model")
 	}
 	if err := validateModelPrompt(req.Model, req.Prompt); err != nil {
 		return domain.Task{}, false, err
 	}
-	model, err := s.Store.GetModel(r.Context(), req.Model)
+	model, err := s.Store.GetModel(r.Context(), route.InternalModel)
 	if err != nil || !supportsVideoGeneration(model) {
 		return domain.Task{}, false, errors.New("unknown video model")
 	}
@@ -258,6 +264,9 @@ func (s *Server) createVideoTask(r *http.Request, req domain.VideoRequest) (doma
 	if len(audioReferences) > spec.MaxReferenceAudios {
 		return domain.Task{}, false, fmt.Errorf("%s supports at most %d audio references", req.Model, spec.MaxReferenceAudios)
 	}
+	if spec.MaxReferenceItems > 0 && referenceImages+len(req.ReferenceVideos)+len(audioReferences) > spec.MaxReferenceItems {
+		return domain.Task{}, false, fmt.Errorf("%s supports at most %d combined image, video and audio references", req.Model, spec.MaxReferenceItems)
+	}
 	if len(audioReferences) > 0 && referenceImages == 0 && len(req.ReferenceVideos) == 0 {
 		return domain.Task{}, false, errors.New("an audio reference requires a reference image or video")
 	}
@@ -265,7 +274,7 @@ func (s *Server) createVideoTask(r *http.Request, req domain.VideoRequest) (doma
 		return domain.Task{}, false, err
 	}
 	key := r.Context().Value(apiKeyContext).(domain.APIKey)
-	if !allowed(key.AllowedModels, req.Model) {
+	if !allowedMediaModel(key.AllowedModels, route) {
 		return domain.Task{}, false, errors.New("model is not allowed for this API key")
 	}
 	noteVideoRequest(r, req)
@@ -278,7 +287,14 @@ func (s *Server) createVideoTask(r *http.Request, req domain.VideoRequest) (doma
 			return domain.Task{}, false, err
 		}
 	}
-	estimate, err := pricing.Video(r.Context(), s.Store, req)
+	if err := s.admitProviderCircuit(r.Context(), route.Provider); err != nil {
+		return domain.Task{}, false, err
+	}
+	providerConfig, rules, err := s.providerModelContext(r.Context(), route.Provider, route.InternalModel)
+	if err != nil {
+		return domain.Task{}, false, errors.New("model provider is unavailable")
+	}
+	estimate, err := pricing.VideoForProvider(r.Context(), rules, route.Provider, req)
 	if err != nil {
 		if errors.Is(err, pricing.ErrCostUnavailable) {
 			return domain.Task{}, false, &requestError{Status: http.StatusUnprocessableEntity, Code: "cost_unavailable", Message: "cost is unavailable for the selected model parameters"}
@@ -289,7 +305,7 @@ func (s *Server) createVideoTask(r *http.Request, req domain.VideoRequest) (doma
 	if err := s.admitDailyQuota(r.Context(), key.ID, 1); err != nil {
 		return domain.Task{}, false, err
 	}
-	task, created, err := s.Store.CreateReservedTaskWithHashRequest(r.Context(), key.ID, "video", req.Model, req.Prompt, req, videoIdempotencyRequest(req), idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
+	task, created, err := s.Store.CreateReservedTaskForProviderWithHashRequest(r.Context(), key.ID, providerConfig.ProviderID, "video", route.PublicModel, req.Prompt, req, videoIdempotencyRequest(req), idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
 	noteRequestTask(r, task)
 	if err != nil {
 		s.rollbackDailyQuota(r.Context(), key.ID, 1)

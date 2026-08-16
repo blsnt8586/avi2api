@@ -9,6 +9,7 @@ import (
 
 	"github.com/leonardo2api/leonardo2api/internal/accounts"
 	"github.com/leonardo2api/leonardo2api/internal/config"
+	"github.com/leonardo2api/leonardo2api/internal/providers"
 	"github.com/leonardo2api/leonardo2api/internal/store"
 )
 
@@ -94,6 +95,22 @@ func (m *Manager) runCookieWorker(ctx context.Context, owner string) {
 		refreshCtx, cancel := context.WithTimeout(ctx, m.Config.SyncTimeout)
 		account, refreshErr := m.Accounts.RefreshForScheduler(refreshCtx, job.AccountID)
 		cancel()
+		if refreshErr != nil && account.ProviderID == providers.Adobe {
+			if accounts.IsAdobeAuthenticationRejected(refreshErr) {
+				if err := m.Store.TerminalFailSessionRefreshJob(ctx, job.ID, *job.LeaseToken, accounts.SanitizedUpstreamError(refreshErr), ""); err != nil {
+					m.Log.Warn("Adobe session refresh terminal failure update failed", "job_id", job.ID, "account_id", job.AccountID, "error", err)
+				}
+				continue
+			}
+			retryAfter := 5 * time.Minute
+			if accounts.IsUpstreamRateLimited(refreshErr) {
+				retryAfter = m.Config.Upstream429Cooldown
+			}
+			if err := m.Store.DeferSessionRefreshJob(ctx, job.ID, *job.LeaseToken, jitteredRetry(job.ID, retryAfter), accounts.SanitizedUpstreamError(refreshErr)); err != nil {
+				m.Log.Warn("Adobe session refresh defer failed", "job_id", job.ID, "account_id", job.AccountID, "error", err)
+			}
+			continue
+		}
 		if accounts.IsBrowserSessionRequired(refreshErr) {
 			if err := m.Store.RequireBrowserSessionRefresh(ctx, job.ID, *job.LeaseToken, refreshErr.Error()); err != nil {
 				m.Log.Warn("browser session refresh handoff failed", "job_id", job.ID, "account_id", job.AccountID, "error", err)

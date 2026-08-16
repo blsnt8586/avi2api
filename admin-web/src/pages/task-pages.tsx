@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Activity, AlertTriangle, Coins, Eye, Gauge, Search, X } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Coins, Eye, Gauge, RefreshCw, Search, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -17,17 +17,19 @@ import {
 } from "../components/ui";
 import { CopyCode } from "../components/copy-code";
 import { Metric } from "../components/metric";
-import type { Task, TasksPage } from "../shared/types";
+import { ProviderBadge, ProviderSwitcher } from "../components/provider-switcher";
+import type { Provider, Task, TasksPage } from "../shared/types";
 import { api } from "../shared/api";
 import {
   appendLocalDateRange,
   formatTokens,
   reservationText,
   statusText,
+  taskCreditUnit,
   tokenCost,
 } from "../shared/status";
-import { keyModelGroups } from "../shared/catalog";
 import { useDebouncedValue, useMediaQuery } from "../shared/cache";
+import { providerCreditUnit, providerDisplayName, providerModelGroups } from "../shared/providers";
 
 function TaskRow({
   task,
@@ -35,12 +37,14 @@ function TaskRow({
   style,
   rowRef,
   virtualIndex,
+  providers,
 }: {
   task: Task;
   onSelect?: (task: Task) => void;
   style?: React.CSSProperties;
   rowRef?: (node: HTMLDivElement | null) => void;
   virtualIndex?: number;
+  providers: Provider[];
 }) {
   const t = task;
   return (
@@ -55,6 +59,7 @@ function TaskRow({
             <small>{new Date(t.created_at).toLocaleString("zh-CN")}</small>
           </span>
           <span>
+            <ProviderBadge providerID={t.provider_id} providers={providers} />
             <b className="kind-badge">
               {t.kind === "video"
                 ? "VIDEO"
@@ -64,7 +69,7 @@ function TaskRow({
             </b>
             <small>{t.model}</small>
           </span>
-          <span>{tokenCost(t)}</span>
+          <span>{taskCreditUnit(t, providers)} {tokenCost(t)}</span>
           <span>
             <i className={`status ${t.status}`}></i>
             {statusText(t.status)}
@@ -100,10 +105,12 @@ function TaskTable({
   data,
   onSelect,
   loading = false,
+  providers,
 }: {
   data: Task[];
   onSelect?: (task: Task) => void;
   loading?: boolean;
+  providers: Provider[];
 }) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const compact = useMediaQuery("(max-width: 640px)");
@@ -118,7 +125,7 @@ function TaskTable({
     <div className={`task-table${virtualized ? " task-table-virtualized" : ""}`}>
       <div className="task-line task-head">
         <span>任务</span>
-        <span>模型 / 类型</span>
+        <span>平台 / 模型</span>
         <span>结算 / 预留</span>
         <span>状态</span>
         <span>结果说明</span>
@@ -135,13 +142,14 @@ function TaskTable({
                 onSelect={onSelect}
                 rowRef={rowVirtualizer.measureElement}
                 virtualIndex={item.index}
+                providers={providers}
                 style={{ transform: `translateY(${item.start}px)` }}
               />
             ))}
           </div>
         </div>
       ) : (
-        data.map((task) => <TaskRow key={task.id} task={task} onSelect={onSelect} />)
+        data.map((task) => <TaskRow key={task.id} task={task} onSelect={onSelect} providers={providers} />)
       )}
     </div>
   );
@@ -165,12 +173,44 @@ const taskStatusFilters = [
   ["submission_uncertain", "提交不确定"],
 ] as const;
 
+type UncertainTaskCleanupResponse = {
+  resolved: number;
+  skipped: number;
+  results: Array<{
+    id: string;
+    resolved: boolean;
+    error_code?: string;
+    error_message?: string;
+  }>;
+};
+
+type UncertainTaskCleanupBatch = UncertainTaskCleanupResponse & {
+  requestFailed: number;
+};
+
+const TASK_CLEANUP_BATCH_SIZE = 100;
+
+function taskIDChunks(ids: string[]) {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += TASK_CLEANUP_BATCH_SIZE) {
+    chunks.push(ids.slice(index, index + TASK_CLEANUP_BATCH_SIZE));
+  }
+  return chunks;
+}
+
 export function Tasks() {
+  const client = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [selectedID, setSelectedID] = useState<string | null>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupScanning, setCleanupScanning] = useState(false);
+  const [cleanupTasks, setCleanupTasks] = useState<Task[]>([]);
+  const [cleanupFeedback, setCleanupFeedback] = useState("");
+  const [cleanupError, setCleanupError] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const statusFilter = searchParams.get("status") || "all";
+  const providerFilter = searchParams.get("provider") || "all";
   const kindFilter = searchParams.get("kind") || "all";
   const modelFilter = searchParams.get("model") || "all";
   const dateFrom = searchParams.get("from") || "";
@@ -188,10 +228,11 @@ export function Tasks() {
     setSelectedID(null);
   };
   const tasks = useQuery({
-    queryKey: ["tasks-page", page, pageSize, statusFilter, kindFilter, modelFilter, dateFrom, dateTo, deferredSearch],
+    queryKey: ["tasks-page", page, pageSize, providerFilter, statusFilter, kindFilter, modelFilter, dateFrom, dateTo, deferredSearch],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (providerFilter !== "all") params.set("provider", providerFilter);
       if (kindFilter !== "all") params.set("kind", kindFilter);
       if (modelFilter !== "all") params.set("model", modelFilter);
       if (deferredSearch) params.set("search", deferredSearch);
@@ -206,19 +247,97 @@ export function Tasks() {
         : false;
     },
   });
+  const providers = useQuery({
+    queryKey: ["providers"],
+    queryFn: () => api<Provider[]>("/admin/api/providers"),
+  });
   const data = tasks.data?.data || [];
-  const modelOptions = [...new Set(keyModelGroups.flatMap((group) => group.models))].sort();
+	const keyModelGroups = providerModelGroups(providers.data || []);
+	const modelOptions = [...new Set(keyModelGroups
+    .filter((group) => providerFilter === "all" || group.provider_id === providerFilter)
+    .flatMap((group) => group.models))].sort();
   const filteredData = data;
   const total = tasks.data?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const selected = data.find((task) => task.id === selectedID) || null;
+  const cleanup = useMutation({
+    mutationFn: async (ids: string[]): Promise<UncertainTaskCleanupBatch> => {
+      const combined: UncertainTaskCleanupBatch = {
+        resolved: 0,
+        skipped: 0,
+        requestFailed: 0,
+        results: [],
+      };
+      for (const batch of taskIDChunks(ids)) {
+        try {
+          const result = await api<UncertainTaskCleanupResponse>(
+            "/admin/api/tasks/submission-uncertain/fail",
+            { method: "POST", body: JSON.stringify({ ids: batch }) },
+          );
+          combined.resolved += result.resolved;
+          combined.skipped += result.skipped;
+          combined.results.push(...result.results);
+        } catch {
+          combined.skipped += batch.length;
+          combined.requestFailed += batch.length;
+        }
+      }
+      return combined;
+    },
+    onSuccess: (result) => {
+      setCleanupOpen(false);
+      setCleanupTasks([]);
+      setSelectedID(null);
+      setCleanupFeedback(
+        result.requestFailed
+          ? `已将 ${result.resolved} 个异常任务标记为失败；${result.requestFailed} 个请求失败，可重新扫描后重试。`
+          : result.skipped
+            ? `已将 ${result.resolved} 个异常任务标记为失败；${result.skipped} 个任务状态已变化，已跳过。`
+            : `已将 ${result.resolved} 个异常任务标记为失败，并释放仍持有的平台余额预留。`,
+      );
+      void client.invalidateQueries({ queryKey: ["tasks-page"] });
+      void client.invalidateQueries({ queryKey: ["overview"] });
+      void client.invalidateQueries({ queryKey: ["accounts-page"] });
+      void client.invalidateQueries({ queryKey: ["system-capacity"] });
+    },
+  });
+  const scanUncertainTasks = async () => {
+    setCleanupScanning(true);
+    setCleanupError("");
+    setCleanupFeedback("");
+    try {
+      const found = new Map<string, Task>();
+      let currentPage = 1;
+      let expectedTotal = 0;
+      do {
+        const result = await api<TasksPage>(
+          `/admin/api/tasks?page=${currentPage}&page_size=${TASK_CLEANUP_BATCH_SIZE}&status=submission_uncertain${providerFilter === "all" ? "" : `&provider=${encodeURIComponent(providerFilter)}`}`,
+        );
+        expectedTotal = result.total;
+        result.data.forEach((task) => found.set(task.id, task));
+        if (result.data.length === 0) break;
+        currentPage += 1;
+      } while (found.size < expectedTotal);
+      const tasksToClean = [...found.values()];
+      if (tasksToClean.length === 0) {
+        setCleanupFeedback("当前没有提交状态不确定的异常任务。");
+        return;
+      }
+      setCleanupTasks(tasksToClean);
+      setCleanupOpen(true);
+    } catch (error) {
+      setCleanupError(error instanceof Error ? error.message : "扫描异常任务失败");
+    } finally {
+      setCleanupScanning(false);
+    }
+  };
   React.useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
   return (
     <section>
       <div className="stats">
-        <Metric icon={<Activity />} label="任务总数" value={total} />
+        <Metric icon={<Activity />} label={providerFilter === "all" ? "任务总数" : `${providerDisplayName(providerFilter, providers.data)}任务`} value={total} />
         <Metric
           icon={<Gauge />}
           label="本页进行中"
@@ -238,14 +357,34 @@ export function Tasks() {
             <span className="eyebrow">Execution Log</span>
             <h2>生成任务</h2>
           </div>
-          <QueryStatus
-            fetching={tasks.isFetching}
-            error={tasks.error}
-            updatedAt={tasks.dataUpdatedAt}
-            label={`第 ${Math.min(page, totalPages)} / ${totalPages} 页`}
-          />
+          <div className="task-panel-actions">
+            <button
+              type="button"
+              className="secondary task-cleanup-button"
+              disabled={cleanupScanning}
+              onClick={() => void scanUncertainTasks()}
+            >
+              {cleanupScanning ? <RefreshCw className="spin" /> : <AlertTriangle />}
+              {cleanupScanning ? "正在扫描" : "清理异常任务"}
+            </button>
+            <QueryStatus
+              fetching={tasks.isFetching}
+              error={tasks.error}
+              updatedAt={tasks.dataUpdatedAt}
+              label={`第 ${Math.min(page, totalPages)} / ${totalPages} 页`}
+            />
+          </div>
         </div>
+        {cleanupFeedback && (
+          <div className="task-cleanup-feedback">
+            <CheckCircle2 />
+            <span>{cleanupFeedback}</span>
+            <button type="button" className="icon" aria-label="关闭提示" onClick={() => setCleanupFeedback("")}><X /></button>
+          </div>
+        )}
+        {cleanupError && <p className="error task-cleanup-error">扫描失败：{cleanupError}</p>}
         <div className="task-filter-workspace">
+          <ProviderSwitcher providers={providers.data || []} value={providerFilter} includeAll includeDisabled compact onChange={(value) => setFilter("provider", value)} />
           <Tabs value={statusFilter} onValueChange={(value) => setFilter("status", value)}>
             <TabsList className="task-status-tabs">
               {taskStatusFilters.map(([value, label]) => (
@@ -282,7 +421,7 @@ export function Tasks() {
           </div>
         </div>
         {tasks.error && <p className="error task-list-error">{tasks.error.message}</p>}
-        <TaskTable data={filteredData} loading={tasks.isLoading} onSelect={(task) => setSelectedID(task.id)} />
+        <TaskTable data={filteredData} loading={tasks.isLoading} providers={providers.data || []} onSelect={(task) => setSelectedID(task.id)} />
         {!tasks.isLoading && filteredData.length === 0 && (
           <div className="empty-state compact-empty">
             <Activity />
@@ -309,8 +448,35 @@ export function Tasks() {
         />
       </div>
       {selected && (
-        <TaskDetailDialog task={selected} close={() => setSelectedID(null)} />
+        <TaskDetailDialog task={selected} providers={providers.data || []} close={() => setSelectedID(null)} />
       )}
+      <Dialog open={cleanupOpen} onOpenChange={(open) => { if (!cleanup.isPending) setCleanupOpen(open); }}>
+        <DialogContent className="task-cleanup-dialog" showClose={false}>
+          <span className="task-cleanup-dialog-icon"><AlertTriangle /></span>
+          <DialogTitle>将 {cleanupTasks.length} 个异常任务标记为失败？</DialogTitle>
+          <DialogDescription>
+            仅处理“提交不确定”任务。确认后任务会立即变为失败并返回 submission_not_created，仍处于 held 的平台余额预留会同步释放。
+          </DialogDescription>
+          <div className="task-cleanup-list">
+            {cleanupTasks.map((task) => (
+              <span key={task.id}>
+                <strong><ProviderBadge providerID={task.provider_id} providers={providers.data || []} /> {task.kind === "video" ? "视频" : task.kind === "audio" ? "音频" : "图像"} · {task.model}</strong>
+                <small title={task.id}>{task.id}</small>
+                <small>{new Date(task.created_at).toLocaleString("zh-CN")}</small>
+                <small>{reservationText(task.reservation_state, task.reservation_release_reason)}</small>
+              </span>
+            ))}
+          </div>
+          {cleanup.error && <p className="error">处理失败：{cleanup.error.message}</p>}
+          <footer>
+            <button type="button" className="secondary" disabled={cleanup.isPending} onClick={() => setCleanupOpen(false)}>取消</button>
+            <button type="button" className="danger-button" disabled={cleanup.isPending || cleanupTasks.length === 0} onClick={() => cleanup.mutate(cleanupTasks.map((task) => task.id))}>
+              {cleanup.isPending ? <RefreshCw className="spin" /> : <AlertTriangle />}
+              {cleanup.isPending ? "正在处理" : "确认标记失败"}
+            </button>
+          </footer>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -389,7 +555,7 @@ function TaskDetailItem({
   );
 }
 
-function TaskDetailDialog({ task: initialTask, close }: { task: Task; close: () => void }) {
+function TaskDetailDialog({ task: initialTask, providers, close }: { task: Task; providers: Provider[]; close: () => void }) {
   const client = useQueryClient();
   const taskDetail = useQuery({
     queryKey: ["task-detail", initialTask.id],
@@ -466,6 +632,7 @@ function TaskDetailDialog({ task: initialTask, close }: { task: Task; close: () 
         </div>
         <div className="task-detail-grid">
           <TaskDetailItem label="任务 ID" value={task.id} mono />
+          <TaskDetailItem label="业务平台" value={providerDisplayName(task.provider_id, providers)} />
           <TaskDetailItem
             label="上游 Generation ID"
             value={task.generation_id}
@@ -492,11 +659,11 @@ function TaskDetailDialog({ task: initialTask, close }: { task: Task; close: () 
             value={task.queue_position ? `第 ${task.queue_position} 位` : "—"}
           />
           <TaskDetailItem
-            label="预计积分"
+			label={`预计 ${providerCreditUnit(task.provider_id, providers)}`}
             value={task.estimated_tokens?.toLocaleString() || "—"}
           />
           <TaskDetailItem
-            label="本地结算积分"
+			label={`本地结算 ${providerCreditUnit(task.provider_id, providers)}`}
             value={tokenCost(task)}
           />
           <TaskDetailItem
@@ -593,14 +760,14 @@ function TaskDetailDialog({ task: initialTask, close }: { task: Task; close: () 
               </div>
               <div>
                 <dt>错误来源</dt>
-                <dd>{details?.source || "Leonardo"}</dd>
+                <dd>{details?.source || providerDisplayName(task.provider_id, providers)}</dd>
               </div>
               <div>
                 <dt>上游状态</dt>
                 <dd>{details?.upstream_status || "FAILED"}</dd>
               </div>
               <div>
-                <dt>Leonardo 审核</dt>
+                <dt>{providerDisplayName(task.provider_id, providers)} 审核</dt>
                 <dd>
                   {details
                     ? `${details.nsfw ? "标记为 NSFW" : "未标记 NSFW"} · ${details.prompt_moderations?.length || 0} 条审核记录`
@@ -632,7 +799,7 @@ function TaskDetailDialog({ task: initialTask, close }: { task: Task; close: () 
               <small>
                 {moderationLabels.length
                   ? moderationLabels.join(" · ")
-                  : "Leonardo 内容安全标记"}
+                  : "上游内容安全标记"}
               </small>
             </span>
           </section>
@@ -680,7 +847,7 @@ function TaskDetailDialog({ task: initialTask, close }: { task: Task; close: () 
                 <button
                   disabled={release.isPending || confirmNotCreated.isPending}
                   onClick={() => {
-                    if (window.confirm("仅释放积分预留，任务仍保留为提交状态未知。确认继续？")) {
+                    if (window.confirm("仅释放平台余额预留，任务仍保留为提交状态未知。确认继续？")) {
                       release.mutate();
                     }
                   }}
@@ -693,7 +860,7 @@ function TaskDetailDialog({ task: initialTask, close }: { task: Task; close: () 
                 className="danger-button"
                 disabled={release.isPending || confirmNotCreated.isPending}
                 onClick={() => {
-                  if (window.confirm("请先确认 Leonardo 官网没有对应任务。此操作会把任务标记为失败并释放积分预留，确认继续？")) {
+                  if (window.confirm(`请先确认 ${providerDisplayName(task.provider_id, providers)} 上游没有对应任务。此操作会把任务标记为失败并释放平台余额预留，确认继续？`)) {
                     confirmNotCreated.mutate();
                   }
                 }}

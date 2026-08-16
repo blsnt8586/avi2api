@@ -85,6 +85,52 @@ def cookie_header_to_patchright(cookie_header: str) -> list[dict[str, str]]:
     return cookies
 
 
+def cookie_json_to_patchright(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    cookies: list[dict[str, Any]] = []
+    for cookie in value:
+        if not isinstance(cookie, dict):
+            return []
+        name = str(cookie.get("name") or "").strip()
+        raw_value = cookie.get("value")
+        domain = str(cookie.get("domain") or "").lstrip(".").lower()
+        raw_url = str(cookie.get("url") or "")
+        valid_domain = domain == "leonardo.ai" or domain.endswith(".leonardo.ai")
+        valid_url = raw_url.startswith("https://app.leonardo.ai") or raw_url.startswith(
+            "https://api.leonardo.ai"
+        )
+        if not name or not isinstance(raw_value, str) or not (valid_domain or valid_url):
+            return []
+        patch_cookie: dict[str, Any] = {"name": name, "value": raw_value}
+        # Cookie-Editor and Chrome exports use expirationDate and include
+        # metadata that Patchright's add_cookies API does not accept. The
+        # encrypted stored document remains untouched; only this injection copy
+        # is adapted.
+        if domain:
+            patch_cookie["domain"] = str(cookie.get("domain"))
+            patch_cookie["path"] = str(cookie.get("path") or "/")
+        else:
+            patch_cookie["url"] = raw_url
+        expires = cookie.get("expires", cookie.get("expirationDate"))
+        if isinstance(expires, (int, float)) and not isinstance(expires, bool):
+            patch_cookie["expires"] = expires
+        for field in ("httpOnly", "secure"):
+            if isinstance(cookie.get(field), bool):
+                patch_cookie[field] = cookie[field]
+        same_site = str(cookie.get("sameSite") or "").strip().lower()
+        normalized_same_site = {
+            "strict": "Strict",
+            "lax": "Lax",
+            "none": "None",
+            "no_restriction": "None",
+        }.get(same_site)
+        if normalized_same_site:
+            patch_cookie["sameSite"] = normalized_same_site
+        cookies.append(patch_cookie)
+    return cookies
+
+
 def write_private_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -159,6 +205,8 @@ def build_sync_command(
     headless: bool,
     solve_captcha: bool,
     import_cookies: Path | None,
+    cookie_json_source: str,
+    cookie_json_fingerprint: str,
     login_timeout: int,
     process_timeout: int,
 ) -> list[str]:
@@ -194,6 +242,10 @@ def build_sync_command(
         command.append("--solve-captcha")
     if import_cookies is not None:
         command.extend(["--import-cookies", str(import_cookies)])
+    if cookie_json_source:
+        command.extend(["--cookie-json-source", cookie_json_source])
+    if cookie_json_fingerprint:
+        command.extend(["--cookie-json-fingerprint", cookie_json_fingerprint])
     return command
 
 
@@ -266,10 +318,17 @@ class SessionWorker:
         mode = "headed"
         terminal_failure = False
         terminal_failure_message = ""
+        cookie_json_fingerprint = ""
         try:
             output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            cookie_header = str(payload.get("cookie_header") or "")
-            cookies = cookie_header_to_patchright(cookie_header)
+            cookies = cookie_json_to_patchright(payload.get("cookie_json"))
+            cookie_json_source = str(payload.get("cookie_json_source") or "")
+            cookie_json_fingerprint = str(payload.get("cookie_json_fingerprint") or "")
+            if not cookies:
+                cookie_header = str(payload.get("cookie_header") or "")
+                cookies = cookie_header_to_patchright(cookie_header)
+                cookie_json_source = ""
+                cookie_json_fingerprint = ""
             if self.args.headless_refresh and cookies:
                 cookie_path = output_dir / "headless-cookies.json"
                 headless_output = output_dir / "headless"
@@ -285,6 +344,8 @@ class SessionWorker:
                     headless=True,
                     solve_captcha=False,
                     import_cookies=cookie_path,
+                    cookie_json_source=cookie_json_source,
+                    cookie_json_fingerprint=cookie_json_fingerprint,
                     login_timeout=self.args.headless_login_timeout,
                     process_timeout=self.args.headless_process_timeout,
                 )
@@ -348,6 +409,14 @@ class SessionWorker:
                     headless=False,
                     solve_captcha=self.args.solve_captcha,
                     import_cookies=None,
+                    cookie_json_source=(
+                        "pending" if cookie_json_source == "pending" else "browser"
+                    ),
+                    cookie_json_fingerprint=(
+                        cookie_json_fingerprint
+                        if cookie_json_source == "pending"
+                        else ""
+                    ),
                     login_timeout=120,
                     process_timeout=300,
                 )
@@ -408,7 +477,8 @@ class SessionWorker:
                     json={
                         "lease_token": lease_token,
                         "error": message,
-                        "terminal": terminal_failure,
+                    "terminal": terminal_failure,
+                    "cookie_json_fingerprint": cookie_json_fingerprint,
                     },
                     timeout=30,
                 )

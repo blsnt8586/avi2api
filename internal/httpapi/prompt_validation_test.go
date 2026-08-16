@@ -36,12 +36,13 @@ func TestPromptLimitsRunBeforeTaskAdmission(t *testing.T) {
 	server := &Server{}
 	request := httptest.NewRequest(http.MethodPost, "/", nil)
 	for _, test := range []struct {
-		model string
-		kind  string
+		provider string
+		model    string
+		kind     string
 	}{
-		{"gpt-image-2", "image"}, {"nano-banana-2", "image"}, {"nano-banana-pro", "image"}, {"seedream-5.0-pro", "image"},
-		{"flux-3-video", "video"}, {"seedance-2.0", "video"}, {"seedance-2.0-fast", "video"}, {"seedance-2.0-mini", "video"}, {"seedance-2.5", "video"}, {"veo-3.1", "video"}, {"veo-3.1-fast", "video"}, {"kling-o3-omni", "video"}, {"minimax-h3", "video"}, {"grok-imagine-1.5", "video"},
-		{"dialogue-v3", "audio"}, {"music-v1", "audio"}, {"sound-effects-v2", "audio"},
+		{model: "gpt-image-2", kind: "image"}, {model: "nano-banana-2", kind: "image"}, {model: "nano-banana-pro", kind: "image"}, {model: "seedream-5.0-pro", kind: "image"},
+		{model: "flux-3-video", kind: "video"}, {model: "seedance-2.0", kind: "video"}, {model: "seedance-2.0-fast", kind: "video"}, {model: "seedance-2.0-mini", kind: "video"}, {model: "seedance-2.5", kind: "video"}, {model: "veo-3.1", kind: "video"}, {model: "veo-3.1-fast", kind: "video"}, {provider: "adobe", model: "kling-3.0-omni", kind: "video"}, {model: "kling-o3-omni", kind: "video"}, {model: "minimax-h3", kind: "video"}, {model: "grok-imagine-1.5", kind: "video"},
+		{model: "dialogue-v3", kind: "audio"}, {model: "music-v1", kind: "audio"}, {model: "sound-effects-v2", kind: "audio"},
 	} {
 		t.Run(test.model, func(t *testing.T) {
 			limit, _ := modelconstraints.PromptLimit(test.model)
@@ -49,9 +50,9 @@ func TestPromptLimitsRunBeforeTaskAdmission(t *testing.T) {
 			var err error
 			switch test.kind {
 			case "image":
-				_, _, err = server.createTask(request, domain.ImageRequest{Model: test.model, Prompt: prompt})
+				_, _, err = server.createTask(request, domain.ImageRequest{Provider: test.provider, Model: test.model, Prompt: prompt})
 			case "video":
-				_, _, err = server.createVideoTask(request, domain.VideoRequest{Model: test.model, Prompt: prompt})
+				_, _, err = server.createVideoTask(request, domain.VideoRequest{Provider: test.provider, Model: test.model, Prompt: prompt})
 			case "audio":
 				_, _, err = server.createAudioTask(request, domain.AudioRequest{Model: test.model, Prompt: prompt})
 			}

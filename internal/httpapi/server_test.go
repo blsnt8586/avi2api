@@ -1,13 +1,9 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"image"
-	"image/color"
-	"image/png"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -59,7 +55,7 @@ func TestNormalizeAccountConcurrency(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := normalizeAccountConcurrency(tt.input)
+			got, err := normalizeAccountConcurrency("leonardo", tt.input)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("normalizeAccountConcurrency(%d) error = %v", tt.input, err)
 			}
@@ -67,6 +63,105 @@ func TestNormalizeAccountConcurrency(t *testing.T) {
 				t.Fatalf("normalizeAccountConcurrency(%d) = %d, want %d", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeAdobeAccountConcurrency(t *testing.T) {
+	for _, tt := range []struct {
+		value   int
+		want    int
+		wantErr bool
+	}{{0, 5, false}, {1, 1, false}, {50, 50, false}, {100, 100, false}, {101, 0, true}} {
+		got, err := normalizeAccountConcurrency("adobe", tt.value)
+		if (err != nil) != tt.wantErr || got != tt.want {
+			t.Fatalf("normalizeAccountConcurrency(adobe, %d) = %d, %v; want %d, error=%v", tt.value, got, err, tt.want, tt.wantErr)
+		}
+	}
+}
+
+func TestResolveMediaModel(t *testing.T) {
+	tests := []struct {
+		kind, provider, model                  string
+		wantProvider, wantPublic, wantInternal string
+		wantErr                                bool
+	}{
+		{kind: "image", model: "gpt-image-2", wantProvider: "leonardo", wantPublic: "gpt-image-2", wantInternal: "gpt-image-2"},
+		{kind: "image", provider: "adobe", model: "gpt-image-2", wantProvider: "adobe", wantPublic: "gpt-image-2", wantInternal: "gpt-image-2"},
+		{kind: "video", provider: "adobe", model: "veo-3.1-fast", wantProvider: "adobe", wantPublic: "veo-3.1-fast", wantInternal: "veo-3.1-fast"},
+		{kind: "video", provider: "adobe", model: "kling-3.0-omni", wantProvider: "adobe", wantPublic: "kling-3.0-omni", wantInternal: "kling-3.0-omni"},
+		{kind: "image", model: "adobe-gpt-image-2", wantErr: true},
+		{kind: "audio", provider: "adobe", model: "music-v1", wantErr: true},
+		{kind: "image", provider: "unknown", model: "gpt-image-2", wantErr: true},
+	}
+	for _, tt := range tests {
+		route, err := (&Server{}).resolveMediaModel(tt.kind, tt.provider, tt.model)
+		if (err != nil) != tt.wantErr {
+			t.Fatalf("resolveMediaModel(%q, %q, %q) error = %v", tt.kind, tt.provider, tt.model, err)
+		}
+		if tt.wantErr {
+			continue
+		}
+		if route.Provider != tt.wantProvider || route.PublicModel != tt.wantPublic || route.InternalModel != tt.wantInternal {
+			t.Fatalf("resolveMediaModel(%q, %q, %q) = %#v", tt.kind, tt.provider, tt.model, route)
+		}
+	}
+}
+
+func TestProviderBusinessCapabilities(t *testing.T) {
+	provider := domain.Provider{
+		ID: "fixture", DisplayName: "Fixture Provider", Enabled: true,
+		AuthType: "token", CreditUnit: "credits", Capabilities: []string{"image", "video"}, CatalogSync: true,
+	}
+	if !providerHasCapability(provider, "image") || !providerHasCapability(provider, "video") {
+		t.Fatal("configured capabilities were not recognized")
+	}
+	if providerHasCapability(provider, "audio") {
+		t.Fatal("unsupported audio capability was accepted")
+	}
+	view := newProviderBusinessView(provider, true)
+	if view.ID != provider.ID || view.DisplayName != provider.DisplayName || !view.AdapterRegistered || !view.CatalogSync || len(view.Capabilities) != 2 {
+		t.Fatalf("provider business view = %+v", view)
+	}
+}
+
+func TestValidateAdobeKlingWorkflowCostRule(t *testing.T) {
+	valid := domain.ModelCostRule{
+		ProviderID: " Adobe ", Kind: "video", Model: "kling-3.0-omni",
+		Quality: " RTV ", Resolution: "1080P", Duration: 5,
+		UnitTokens: 200, PriceVersion: "adobe-bks-test",
+	}
+	if err := validateCostRule(&valid); err != nil {
+		t.Fatalf("valid Adobe Kling workflow rule rejected: %v", err)
+	}
+	if valid.ProviderID != "adobe" || valid.Quality != "rtv" || valid.Resolution != "1080p" {
+		t.Fatalf("workflow rule was not normalized: %+v", valid)
+	}
+
+	invalid := valid
+	invalid.Quality = "unsupported"
+	if err := validateCostRule(&invalid); err == nil {
+		t.Fatal("unsupported Adobe Kling workflow was accepted")
+	}
+
+	leonardo := valid
+	leonardo.ProviderID = "leonardo"
+	if err := validateCostRule(&leonardo); err == nil {
+		t.Fatal("Leonardo video rule accepted an Adobe workflow discriminator")
+	}
+}
+
+func TestModelSupportsMedia(t *testing.T) {
+	capabilities := []string{"image-generation", "video-generation", "text-to-speech"}
+	for _, kind := range []string{"image", "video", "audio"} {
+		if !modelSupportsMedia(capabilities, kind) {
+			t.Fatalf("expected %q capability", kind)
+		}
+	}
+	if modelSupportsMedia([]string{"image-generation"}, "video") {
+		t.Fatal("image-only model was exposed as video")
+	}
+	if modelSupportsMedia([]string{"image-to-video"}, "image") {
+		t.Fatal("image-to-video capability was exposed as image generation")
 	}
 }
 
@@ -282,20 +377,14 @@ func TestLastChatInputDataImage(t *testing.T) {
 }
 
 func TestValidateGPTImage2Options(t *testing.T) {
-	compression := 80
 	model := domain.ModelConfig{Capabilities: []string{"quality"}}
-	req := domain.ImageRequest{Model: "gpt-image-2", Size: "1536x1024", Quality: "high", ResponseFormat: "b64_json", OutputFormat: "jpeg", OutputCompression: &compression, Background: "opaque", Moderation: "auto"}
+	req := domain.ImageRequest{Model: "gpt-image-2", Size: "1536x1024", Quality: "high", ResponseFormat: "url", Background: "opaque", Moderation: "auto"}
 	if err := validateImageOptions(req, model); err != nil {
 		t.Fatal(err)
 	}
 	req.Background = "transparent"
 	if err := validateImageOptions(req, model); err == nil {
 		t.Fatal("expected transparent background to be rejected")
-	}
-	req.Background = "opaque"
-	req.OutputFormat = "webp"
-	if err := validateImageOptions(req, model); err == nil {
-		t.Fatal("expected unsupported WebP encoding to be rejected before generation")
 	}
 }
 
@@ -365,7 +454,7 @@ func TestEstimateImageCostReturnsExactBreakdown(t *testing.T) {
 	if err != nil || seedream.UnitTokens != 90 || seedream.EstimatedTokens != 180 || seedream.PricingBasis != "size_threshold" || seedream.PricingTier != "2k" {
 		t.Fatalf("Seedream estimate=%+v err=%v", seedream, err)
 	}
-	if _, err := estimateImageCost(context.Background(), fake, imageEstimateRequest{Model: "gpt-image-2", Size: "1024x1024"}, []string{"nano-banana-2"}, true); err == nil {
+	if _, err := estimateImageCost(context.Background(), fake, imageEstimateRequest{Provider: "leonardo", Model: "gpt-image-2", Size: "1024x1024"}, []string{"leonardo:nano-banana-2"}, true); err == nil {
 		t.Fatal("expected API key model restriction to be enforced")
 	}
 }
@@ -545,23 +634,6 @@ func TestApplyAndValidateAudioPromptLimitsMatchSchema(t *testing.T) {
 	}
 }
 
-func TestTranscodePNGToJPEG(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	img.Set(0, 0, color.RGBA{R: 255, A: 255})
-	var source bytes.Buffer
-	if err := png.Encode(&source, img); err != nil {
-		t.Fatal(err)
-	}
-	quality := 80
-	out, err := transcodeImage(source.Bytes(), "jpeg", &quality)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, format, err := image.Decode(bytes.NewReader(out)); err != nil || format != "jpeg" {
-		t.Fatalf("unexpected output format %q: %v", format, err)
-	}
-}
-
 func TestLastChatInputRejectsRemoteImage(t *testing.T) {
 	messages := []struct {
 		Role    string `json:"role"`
@@ -637,6 +709,20 @@ func TestNormalizeAsyncImageRequest(t *testing.T) {
 	}
 }
 
+func TestMediaModelPermissionScopesCanonicalModelByProvider(t *testing.T) {
+	if got := mediaModelPermission("adobe", "gpt-image-2"); got != "adobe:gpt-image-2" {
+		t.Fatalf("mediaModelPermission() = %q", got)
+	}
+}
+
+func TestChatRequestPreservesProvider(t *testing.T) {
+	request := chatRequest{Provider: "adobe", Model: "gpt-image-2"}
+	image := request.imageRequest("fixture", nil)
+	if image.Provider != "adobe" || image.Model != "gpt-image-2" || image.ResponseFormat != "url" {
+		t.Fatalf("chat image request = %+v", image)
+	}
+}
+
 func TestImageIdempotencyRequestIgnoresAssetPath(t *testing.T) {
 	request := domain.ImageRequest{ReferenceImages: []domain.SourceMedia{{Filename: "reference.png", Path: "asset-random", SHA256: "digest"}}}
 	canonical := imageIdempotencyRequest(request)
@@ -646,15 +732,18 @@ func TestImageIdempotencyRequestIgnoresAssetPath(t *testing.T) {
 }
 
 func TestModelListForKeyFiltersDisallowedModels(t *testing.T) {
-	models := []domain.ModelConfig{{ID: "gpt-image-2"}, {ID: "seedance-2.0-fast"}}
-	filtered := modelListForKey(models, []string{"gpt-image-2"})
+	models := []store.ProviderModelConfig{{Model: domain.ModelConfig{ID: "gpt-image-2"}}, {Model: domain.ModelConfig{ID: "seedance-2.0-fast"}}}
+	filtered := modelListForKey("adobe", models, []string{"adobe:gpt-image-2"})
 	if len(filtered) != 1 || filtered[0]["id"] != "gpt-image-2" {
 		t.Fatalf("unexpected filtered models: %+v", filtered)
 	}
 	if filtered[0]["owned_by"] != "aiv2api" {
 		t.Fatalf("public model owner leaked provider identity: %+v", filtered[0])
 	}
-	if all := modelListForKey(models, []string{"*"}); len(all) != len(models) {
+	if filtered[0]["provider"] != "adobe" {
+		t.Fatalf("public model must identify its provider: %+v", filtered[0])
+	}
+	if all := modelListForKey("adobe", models, []string{"*"}); len(all) != len(models) {
 		t.Fatalf("wildcard should expose all models: %+v", all)
 	}
 }

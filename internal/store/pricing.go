@@ -39,7 +39,13 @@ func (s *Store) IsTaskPricingRuleActive(ctx context.Context, taskID uuid.UUID) (
 }
 
 func (s *Store) ListModelCostRules(ctx context.Context) ([]domain.ModelCostRule, error) {
-	rows, err := s.DB.Query(ctx, `SELECT `+costRuleColumns+` FROM model_cost_rules ORDER BY kind,model,size,quality,resolution,duration,price_version DESC`)
+	return s.ListModelCostRulesFiltered(ctx, "", "")
+}
+
+func (s *Store) ListModelCostRulesFiltered(ctx context.Context, providerID, kind string) ([]domain.ModelCostRule, error) {
+	rows, err := s.DB.Query(ctx, `SELECT `+costRuleColumns+` FROM model_cost_rules
+		WHERE ($1='' OR provider_id=$1) AND ($2='' OR kind=$2)
+		ORDER BY provider_id,kind,model,size,quality,resolution,duration,price_version DESC`, providerID, kind)
 	if err != nil {
 		return nil, err
 	}

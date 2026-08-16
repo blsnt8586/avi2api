@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/go-chi/chi/v5"
@@ -156,13 +157,20 @@ func (s *Server) adminRequestLogs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_kind", "kind must be image, video, audio or chat")
 		return
 	}
+	providerID := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
+	if providerID != "" {
+		if _, err := s.configuredProvider(r.Context(), providerID, ""); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_provider", "provider is not configured")
+			return
+		}
+	}
 	createdFrom, createdTo, err := parseAdminTimeRange(r.URL.Query().Get("from"), r.URL.Query().Get("to"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_time_range", err.Error())
 		return
 	}
 	logs, total, err := s.Store.ListAPIRequestLogsPageFiltered(r.Context(), page, pageSize, store.APIRequestLogPageFilter{
-		Search: r.URL.Query().Get("search"), Status: status, Method: method, Kind: kind,
+		Search: r.URL.Query().Get("search"), ProviderID: providerID, Status: status, Method: method, Kind: kind,
 		Path: r.URL.Query().Get("path"), Model: r.URL.Query().Get("model"), APIKey: r.URL.Query().Get("api_key"),
 		ClientIP: r.URL.Query().Get("ip"), CreatedFrom: createdFrom, CreatedTo: createdTo,
 	})
@@ -297,7 +305,11 @@ func (s *Server) adminCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", "concurrency_limit must be 1..1000 and expires_in_days must be 0..3650")
 		return
 	}
-	allowed := map[string]bool{"gpt-image-2": true, "nano-banana-2": true, "nano-banana-pro": true, "seedream-5.0-pro": true, "seedance-2.0": true, "seedance-2.0-fast": true, "seedance-2.0-mini": true, "seedance-2.5": true, "flux-3-video": true, "veo-3.1": true, "veo-3.1-fast": true, "kling-o3-omni": true, "minimax-h3": true, "grok-imagine-1.5": true, "dialogue-v3": true, "music-v1": true, "sound-effects-v2": true}
+	allowed, err := s.supportedAPIKeyModels(r.Context())
+	if err != nil {
+		writeError(w, 500, "database_error", "provider model permissions are temporarily unavailable")
+		return
+	}
 	if len(req.AllowedModels) == 0 {
 		for model := range allowed {
 			req.AllowedModels = append(req.AllowedModels, model)
@@ -333,4 +345,28 @@ func (s *Server) adminCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeAudit(r.Context(), s.Config.AdminUsername, "api_key.create", id.String(), map[string]any{"name": req.Name, "concurrency_limit": req.ConcurrencyLimit, "expires_in_days": req.ExpiresInDays, "allowed_models": models})
 	writeJSON(w, 201, map[string]any{"id": id, "key": raw, "warning": "This key is shown once."})
+}
+
+func (s *Server) supportedAPIKeyModels(ctx context.Context) (map[string]bool, error) {
+	configured, err := s.Store.ListProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[string]bool)
+	for _, provider := range configured {
+		if !provider.Enabled {
+			continue
+		}
+		if _, adapterErr := s.providerRegistry().Get(provider.ID); adapterErr != nil {
+			continue
+		}
+		models, listErr := s.Store.ListProviderModelConfigs(ctx, provider.ID)
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, model := range models {
+			allowed[mediaModelPermission(provider.ID, model.Model.ID)] = true
+		}
+	}
+	return allowed, nil
 }

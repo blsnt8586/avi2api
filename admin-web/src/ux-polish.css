@@ -137,7 +137,7 @@ table tr[tabindex]:focus-visible {
   }
 
   .task-line:not(.task-head) > span:nth-child(3)::before {
-    content: "积分 ";
+    content: "";
     color: var(--text-muted);
     font-size: 10px;
   }

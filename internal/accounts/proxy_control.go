@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/leonardo2api/leonardo2api/internal/adobe"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 )
 
@@ -46,13 +47,21 @@ func ProxyControlRetryAfter(err error) time.Duration {
 
 func IsUpstreamRateLimited(err error) bool {
 	var upstream *leonardo.HTTPError
-	return errors.As(err, &upstream) && upstream.Status == 429
+	if errors.As(err, &upstream) {
+		return upstream.Status == 429
+	}
+	var adobeError *adobe.HTTPError
+	return errors.As(err, &adobeError) && (adobeError.Status == 429 || adobeError.Status == 451)
 }
 
 func SanitizedUpstreamError(err error) string {
 	var upstream *leonardo.HTTPError
 	if errors.As(err, &upstream) {
 		return fmt.Sprintf("Leonardo upstream HTTP %d", upstream.Status)
+	}
+	var adobeError *adobe.HTTPError
+	if errors.As(err, &adobeError) {
+		return fmt.Sprintf("Adobe upstream HTTP %d", adobeError.Status)
 	}
 	if IsProxyControlUnavailable(err) {
 		return err.Error()

@@ -42,7 +42,7 @@ func TestAPIRequestLogMiddlewarePersistsFailureContext(t *testing.T) {
 	}
 	server := &Server{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	handler := middleware.RequestID(server.apiRequestLog(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		noteImageRequest(r, domain.ImageRequest{Model: "gpt-image-2", Prompt: "fixture", Size: "1536x1024", Quality: "high", N: 1})
+		noteImageRequest(r, domain.ImageRequest{Provider: "adobe", Model: "gpt-image-2", Prompt: "fixture", Size: "1536x1024", Quality: "high", N: 1})
 		noteRequestEstimate(r, 1033)
 		writeError(w, http.StatusUnprocessableEntity, "cost_unavailable", "fixture")
 	})))
@@ -58,7 +58,7 @@ func TestAPIRequestLogMiddlewarePersistsFailureContext(t *testing.T) {
 		t.Fatalf("entries=%+v total=%d err=%v", entries, total, err)
 	}
 	entry := entries[0]
-	if entry.APIKeyPrefix != "fixture" || entry.Model != "gpt-image-2" || entry.EstimatedTokens == nil || *entry.EstimatedTokens != 1033 || entry.ErrorCode != "cost_unavailable" {
+	if entry.ProviderID != "adobe" || entry.APIKeyPrefix != "fixture" || entry.Model != "gpt-image-2" || entry.EstimatedTokens == nil || *entry.EstimatedTokens != 1033 || entry.ErrorCode != "cost_unavailable" {
 		t.Fatalf("entry=%+v", entry)
 	}
 	unauthenticated := middleware.RequestID(server.apiRequestLog(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -68,6 +68,32 @@ func TestAPIRequestLogMiddlewarePersistsFailureContext(t *testing.T) {
 	entries, total, err = st.ListAPIRequestLogsPage(ctx, 1, 20, "invalid_api_key", 401)
 	if err != nil || total != 1 || len(entries) != 1 || entries[0].APIKeyPrefix != "" {
 		t.Fatalf("unauthenticated entries=%+v total=%d err=%v", entries, total, err)
+	}
+}
+
+func TestSupportedAPIKeyModelsReadEnabledProviderCatalog(t *testing.T) {
+	databaseURL := os.Getenv("LEO_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("LEO_TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	if err := migrate.Up(ctx, databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	server := &Server{Store: st}
+	models, err := server.supportedAPIKeyModels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, permission := range []string{"leonardo:gpt-image-2", "adobe:gpt-image-2", "adobe:veo-3.1-fast"} {
+		if !models[permission] {
+			t.Fatalf("provider model permission %q is missing", permission)
+		}
 	}
 }
 

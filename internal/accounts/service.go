@@ -2,8 +2,10 @@ package accounts
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/leonardo2api/leonardo2api/internal/cryptox"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
+	"github.com/leonardo2api/leonardo2api/internal/providers"
 	"github.com/leonardo2api/leonardo2api/internal/store"
 )
 
@@ -26,20 +29,24 @@ type Service struct {
 
 var ErrStaleBalanceRefresh = errors.New("account balance refresh superseded by a newer request")
 var ErrBrowserSessionRequired = errors.New("browser session refresh required")
+var ErrCookieImportSuperseded = errors.New("complete cookie import was superseded by a newer upload")
 
 func IsBrowserSessionRequired(err error) bool {
 	return errors.Is(err, ErrBrowserSessionRequired)
 }
 
 type BrowserSession struct {
-	Verified          bool   `json:"verified"`
-	AccessToken       string `json:"access_token"`
-	AccessTokenExpiry int64  `json:"access_token_expiry"`
-	CookieHeader      string `json:"cookie_header,omitempty"`
-	HasuraUserID      string `json:"hasura_user_id"`
-	CognitoSub        string `json:"cognito_sub"`
-	Email             string `json:"email"`
-	UserAgent         string `json:"user_agent"`
+	Verified              bool            `json:"verified"`
+	AccessToken           string          `json:"access_token"`
+	AccessTokenExpiry     int64           `json:"access_token_expiry"`
+	CookieHeader          string          `json:"cookie_header,omitempty"`
+	CookieJSON            json.RawMessage `json:"cookie_json,omitempty"`
+	CookieJSONSource      string          `json:"cookie_json_source,omitempty"`
+	CookieJSONFingerprint string          `json:"cookie_json_fingerprint,omitempty"`
+	HasuraUserID          string          `json:"hasura_user_id"`
+	CognitoSub            string          `json:"cognito_sub"`
+	Email                 string          `json:"email"`
+	UserAgent             string          `json:"user_agent"`
 }
 
 type BalanceRefreshResult struct {
@@ -87,6 +94,49 @@ func (s *Service) Create(ctx context.Context, name, email, password, cookie, pro
 		if deleteErr := s.Store.DeleteAccount(ctx, a.ID); deleteErr != nil {
 			return a, errors.Join(err, deleteErr)
 		}
+		return domain.Account{}, err
+	}
+	return s.Store.GetAccount(ctx, a.ID)
+}
+
+// CreateWithCompleteCookieJSON creates an account whose first browser refresh
+// validates the supplied JSON. It stores no synthesized JSON and retains every
+// browser cookie attribute required for later restores.
+func (s *Service) CreateWithCompleteCookieJSON(ctx context.Context, name, email, password string, raw json.RawMessage, proxy, browserWorkerGroup string, concurrency, queueCapacity int, routingRole string, protectedTokens int64, videoReservedSlots int) (domain.Account, error) {
+	cookieJSON, err := NormalizeBrowserCookieJSON(raw)
+	if err != nil {
+		return domain.Account{}, err
+	}
+	cookieHeader, err := CookieHeaderFromJSON(cookieJSON)
+	if err != nil {
+		return domain.Account{}, err
+	}
+	cookieCipher, err := s.Cipher.Encrypt(cookieHeader)
+	if err != nil {
+		return domain.Account{}, err
+	}
+	cookieJSONCipher, err := s.Cipher.Encrypt(string(cookieJSON))
+	if err != nil {
+		return domain.Account{}, err
+	}
+	credentialCipher := ""
+	hasLoginCredentials := strings.TrimSpace(password) != ""
+	if hasLoginCredentials {
+		credentialCipher, err = s.encryptLoginCredential(LoginCredential{Email: strings.TrimSpace(email), Password: password})
+		if err != nil {
+			return domain.Account{}, err
+		}
+	}
+	a, err := s.Store.CreateAccount(ctx, name, email, cookieCipher, credentialCipher, hasLoginCredentials, proxy, "", concurrency, queueCapacity, routingRole, protectedTokens, videoReservedSlots)
+	if err != nil {
+		return a, err
+	}
+	if err := s.Store.SetAccountBrowserWorkerGroup(ctx, a.ID, browserWorkerGroup); err != nil {
+		_ = s.Store.DeleteAccount(ctx, a.ID)
+		return domain.Account{}, err
+	}
+	if err := s.Store.SetPendingAccountCookieJSON(ctx, a.ID, cookieJSONCipher, cookieJSONFingerprint(cookieJSON)); err != nil {
+		_ = s.Store.DeleteAccount(ctx, a.ID)
 		return domain.Account{}, err
 	}
 	return s.Store.GetAccount(ctx, a.ID)
@@ -154,16 +204,44 @@ func (s *Service) ImportBrowserSession(ctx context.Context, id uuid.UUID, sessio
 	if err != nil {
 		return a, err
 	}
+	cookieHeader := strings.TrimSpace(session.CookieHeader)
+	cookieJSONCipher := ""
+	if len(session.CookieJSON) > 0 {
+		if session.CookieJSONSource == "" {
+			session.CookieJSONSource = "browser"
+		}
+		cookieJSON, normalizeErr := NormalizeBrowserCookieJSON(session.CookieJSON)
+		if normalizeErr != nil {
+			return a, normalizeErr
+		}
+		cookieHeader, err = CookieHeaderFromJSON(cookieJSON)
+		if err != nil {
+			return a, err
+		}
+		cookieJSONCipher, err = s.Cipher.Encrypt(string(cookieJSON))
+		if err != nil {
+			return a, err
+		}
+	}
 	cookieCipher := ""
-	if session.CookieHeader != "" {
-		cookieCipher, err = s.Cipher.Encrypt(session.CookieHeader)
+	if cookieHeader != "" {
+		cookieCipher, err = s.Cipher.Encrypt(cookieHeader)
 		if err != nil {
 			return a, err
 		}
 	}
 	expiry := time.Unix(session.AccessTokenExpiry, 0)
-	if err := s.Store.UpdateAccountSessionCredentials(ctx, id, tokenCipher, cookieCipher, expiry, session.HasuraUserID, session.CognitoSub, session.Email, session.UserAgent); err != nil {
+	promoteCookieJSON := session.CookieJSONSource == "pending"
+	persistCookieJSON := session.CookieJSONSource == "pending" || session.CookieJSONSource == "active" || session.CookieJSONSource == "browser"
+	if promoteCookieJSON && session.CookieJSONFingerprint == "" {
+		return a, errors.New("pending complete cookie validation is missing its fingerprint")
+	}
+	updated, err := s.Store.UpdateAccountSessionCredentials(ctx, id, tokenCipher, cookieCipher, cookieJSONCipher, persistCookieJSON, promoteCookieJSON, session.CookieJSONFingerprint, expiry, session.HasuraUserID, session.CognitoSub, session.Email, session.UserAgent)
+	if err != nil {
 		return a, err
+	}
+	if !updated {
+		return a, ErrCookieImportSuperseded
 	}
 	a, err = s.Store.GetAccount(ctx, id)
 	if err != nil {
@@ -191,6 +269,25 @@ func (s *Service) ImportBrowserSession(ctx context.Context, id uuid.UUID, sessio
 	return result.Account, nil
 }
 
+// ImportCompleteCookieJSON stages a complete Chrome or Patchright Cookie JSON
+// document. It intentionally does not replace the current live session until
+// the browser worker has obtained a valid fresh access token from Leonardo.
+func (s *Service) ImportCompleteCookieJSON(ctx context.Context, id uuid.UUID, raw json.RawMessage) (domain.Account, error) {
+	cookieJSON, err := NormalizeBrowserCookieJSON(raw)
+	if err != nil {
+		return domain.Account{}, err
+	}
+	ciphertext, err := s.Cipher.Encrypt(string(cookieJSON))
+	if err != nil {
+		return domain.Account{}, err
+	}
+	fingerprint := cookieJSONFingerprint(cookieJSON)
+	if err := s.Store.SetPendingAccountCookieJSON(ctx, id, ciphertext, fingerprint); err != nil {
+		return domain.Account{}, err
+	}
+	return s.Store.GetAccount(ctx, id)
+}
+
 // SessionCookie returns the decrypted browser cookie for a leased internal
 // session worker. Callers must keep it in memory or short-lived private files.
 func (s *Service) SessionCookie(ctx context.Context, id uuid.UUID) (string, error) {
@@ -198,7 +295,49 @@ func (s *Service) SessionCookie(ctx context.Context, id uuid.UUID) (string, erro
 	if err != nil {
 		return "", err
 	}
+	if a.CookieJSONCiphertext != "" {
+		cookieJSON, err := s.Cipher.Decrypt(a.CookieJSONCiphertext)
+		if err != nil {
+			return "", err
+		}
+		return CookieHeaderFromJSON(BrowserCookieJSON(cookieJSON))
+	}
 	return s.Cipher.Decrypt(a.CookieCiphertext)
+}
+
+// SessionBrowserCookieJSON returns a complete browser-importable Cookie JSON.
+// A staged import wins over the active value so that a retry can verify it
+// without replacing the known-good session first.
+func (s *Service) SessionBrowserCookieJSON(ctx context.Context, id uuid.UUID) (BrowserCookieJSON, string, string, error) {
+	a, err := s.Store.GetAccount(ctx, id)
+	if err != nil {
+		return nil, "", "", err
+	}
+	ciphertext := a.PendingCookieJSONCiphertext
+	source := "pending"
+	fingerprint := a.PendingCookieJSONFingerprint
+	if ciphertext == "" {
+		ciphertext = a.CookieJSONCiphertext
+		source = "active"
+		fingerprint = ""
+	}
+	if ciphertext == "" {
+		return nil, "", "", nil
+	}
+	plaintext, err := s.Cipher.Decrypt(ciphertext)
+	if err != nil {
+		return nil, "", "", err
+	}
+	normalized, err := NormalizeBrowserCookieJSON(json.RawMessage(plaintext))
+	if err != nil {
+		return nil, "", "", err
+	}
+	return normalized, source, fingerprint, nil
+}
+
+func cookieJSONFingerprint(value BrowserCookieJSON) string {
+	digest := sha256.Sum256(value)
+	return fmt.Sprintf("%x", digest[:])
 }
 
 func (s *Service) RefreshTokens(ctx context.Context, a domain.Account, token string) (domain.Account, error) {
@@ -306,6 +445,13 @@ func (s *Service) RefreshForScheduler(ctx context.Context, id uuid.UUID) (domain
 	a, err := s.Store.GetAccount(ctx, id)
 	if err != nil {
 		return a, err
+	}
+	if a.ProviderID == providers.Adobe {
+		refreshed, refreshErr := s.refreshAdobe(ctx, a, false)
+		if IsAdobeAuthenticationRejected(refreshErr) {
+			_ = s.Store.SetAccountError(ctx, a.ID, "invalid", "Adobe Cookie or access token was rejected", nil)
+		}
+		return refreshed, refreshErr
 	}
 	if a.AccessTokenCiphertext == "" || a.AccessTokenExpiresAt == nil || !a.AccessTokenExpiresAt.After(time.Now().Add(s.Config.SessionRefreshMinFresh)) {
 		return a, ErrBrowserSessionRequired

@@ -10,6 +10,7 @@ import (
 	"github.com/leonardo2api/leonardo2api/internal/config"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/jobs"
+	"github.com/leonardo2api/leonardo2api/internal/providers"
 	"github.com/leonardo2api/leonardo2api/internal/store"
 	"github.com/leonardo2api/leonardo2api/internal/taskassets"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -29,6 +30,7 @@ type Server struct {
 	Assets          *taskassets.Store
 	Config          config.Config
 	Log             *slog.Logger
+	Providers       *providers.Registry
 	adminHash       []byte
 	adminSalt       []byte
 	static          http.Handler
@@ -43,10 +45,13 @@ type contextKey string
 
 const apiKeyContext contextKey = "api_key"
 
-func New(s *store.Store, r *redis.Client, q *jobs.Client, a *accounts.Service, assets *taskassets.Store, c config.Config, log *slog.Logger, static http.Handler) *Server {
+func New(s *store.Store, r *redis.Client, q *jobs.Client, a *accounts.Service, assets *taskassets.Store, c config.Config, log *slog.Logger, static http.Handler, providerRegistry *providers.Registry) *Server {
+	if providerRegistry == nil {
+		providerRegistry = providers.NewRegistry()
+	}
 	salt := sha256.Sum256([]byte("leonardo2api:" + c.AdminUsername))
 	server := &Server{
-		Store: s, Redis: r, Queue: q, Accounts: a, Assets: assets, Config: c, Log: log,
+		Store: s, Redis: r, Queue: q, Accounts: a, Assets: assets, Config: c, Log: log, Providers: providerRegistry,
 		adminSalt: salt[:], adminHash: argon2.IDKey([]byte(c.AdminPassword), salt[:], 1, 64*1024, 4, 32), static: static,
 		Circuit:         circuit.Breaker{Redis: r, Window: c.SharedCircuitWindow, Cooldown: c.SharedCircuitCooldown, ProviderFailures: c.ProviderCircuitFailures, ProxyFailures: c.ProxyCircuitFailures},
 		generationSlots: make(chan struct{}, maxInt(1, c.GenerationInFlight)),
@@ -75,6 +80,7 @@ func (s *Server) Router() http.Handler {
 	r.Get("/readyz", s.ready)
 	r.Get("/openapi.json", openAPISpec)
 	r.Get("/api-docs/cost-rules", s.publicCostRules)
+	r.Get("/api-docs/providers", s.publicProviders)
 	r.Post("/api-docs/image-estimate", s.publicImageEstimate)
 	r.Post("/api-docs/image-cost-matrix", s.publicImageCostMatrix)
 	r.Post("/api-docs/video-estimate", s.publicVideoEstimate)
@@ -107,13 +113,18 @@ func (s *Server) Router() http.Handler {
 		r.Get("/providers", s.adminProviders)
 		r.Get("/accounts", s.adminAccounts)
 		r.Post("/accounts", s.adminCreateAccount)
+		r.Post("/accounts/archive", s.adminArchiveAccounts)
 		r.Patch("/accounts/{id}", s.adminUpdateAccount)
+		r.Delete("/accounts/{id}", s.adminArchiveAccount)
 		r.Post("/accounts/{id}/refresh", s.adminRefreshAccount)
+		r.Post("/accounts/{id}/pricing-sync", s.adminSyncAdobeAccountPricing)
 		r.Post("/accounts/{id}/session-refresh", s.adminEnqueueSessionRefresh)
+		r.Put("/accounts/{id}/cookie-json", s.adminImportAccountCookieJSON)
 		r.Put("/accounts/{id}/session", s.adminImportAccountSession)
 		r.Patch("/accounts/{id}/status", s.adminSetAccountStatus)
 		r.Patch("/accounts/{id}/session-worker-group", s.adminSetAccountSessionWorkerGroup)
 		r.Get("/tasks", s.adminTasks)
+		r.Post("/tasks/submission-uncertain/fail", s.adminFailSubmissionUncertainTasks)
 		r.Get("/tasks/{id}", s.adminTask)
 		r.Post("/tasks/{id}/reservation/release", s.adminReleaseTaskReservation)
 		r.Post("/tasks/{id}/submission/not-created", s.adminConfirmTaskNotSubmitted)
@@ -147,15 +158,6 @@ func (s *Server) Router() http.Handler {
 		r.NotFound(s.static.ServeHTTP)
 	}
 	return r
-}
-
-func (s *Server) adminProviders(w http.ResponseWriter, r *http.Request) {
-	providers, err := s.Store.ListProviders(r.Context())
-	if err != nil {
-		writeError(w, 500, "database_error", err.Error())
-		return
-	}
-	writeJSON(w, 200, providers)
 }
 
 func (s *Server) accessLog(next http.Handler) http.Handler {
@@ -234,23 +236,28 @@ func (s *Server) apiAuth(next http.Handler) http.Handler {
 }
 
 func (s *Server) models(w http.ResponseWriter, r *http.Request) {
-	models, err := s.Store.ListModels(r.Context())
+	provider, err := s.businessProvider(r.Context(), r.URL.Query().Get("provider"), providers.Leonardo, "")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_provider", "provider is not configured")
+		return
+	}
+	models, err := s.Store.ListProviderModelConfigs(r.Context(), provider.ID)
 	if err != nil {
 		writeError(w, 500, "database_error", err.Error())
 		return
 	}
 	key := r.Context().Value(apiKeyContext).(domain.APIKey)
-	data := modelListForKey(models, key.AllowedModels)
+	data := modelListForKey(provider.ID, models, key.AllowedModels)
 	writeJSON(w, 200, map[string]any{"object": "list", "data": data})
 }
 
-func modelListForKey(models []domain.ModelConfig, allowedModels []string) []map[string]any {
+func modelListForKey(providerID string, models []store.ProviderModelConfig, allowedModels []string) []map[string]any {
 	data := make([]map[string]any, 0, len(models))
 	for _, model := range models {
-		if !allowed(allowedModels, model.ID) {
+		if !allowed(allowedModels, mediaModelPermission(providerID, model.Model.ID)) {
 			continue
 		}
-		data = append(data, map[string]any{"id": model.ID, "object": "model", "created": 0, "owned_by": "aiv2api"})
+		data = append(data, map[string]any{"id": model.Model.ID, "provider": providerID, "object": "model", "created": 0, "owned_by": "aiv2api"})
 	}
 	return data
 }

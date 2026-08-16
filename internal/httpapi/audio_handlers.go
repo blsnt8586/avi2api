@@ -14,6 +14,7 @@ import (
 )
 
 type publicAudioJSONRequest struct {
+	Provider          string   `json:"provider,omitempty"`
 	Model             string   `json:"model"`
 	Prompt            string   `json:"prompt"`
 	N                 int      `json:"n,omitempty"`
@@ -28,7 +29,7 @@ type publicAudioJSONRequest struct {
 
 func (req publicAudioJSONRequest) domainRequest() domain.AudioRequest {
 	return domain.AudioRequest{
-		Model: req.Model, Prompt: req.Prompt, N: req.N, Duration: req.Duration,
+		Provider: req.Provider, Model: req.Model, Prompt: req.Prompt, N: req.N, Duration: req.Duration,
 		DurationMinutes: req.DurationMinutes, ForceInstrumental: req.ForceInstrumental,
 		Loop: req.Loop, Voice: req.Voice, Language: req.Language,
 		PromptInfluence: req.PromptInfluence,
@@ -58,14 +59,19 @@ func (s *Server) createAudioTask(r *http.Request, req domain.AudioRequest) (doma
 	if req.Model == "" {
 		req.Model = "sound-effects-v2"
 	}
+	route, err := s.resolveMediaModel("audio", req.Provider, req.Model)
+	if err != nil {
+		return domain.Task{}, false, err
+	}
+	req.Provider, req.Model = route.Provider, route.InternalModel
 	if err := validateModelPrompt(req.Model, req.Prompt); err != nil {
 		return domain.Task{}, false, err
 	}
 	key := r.Context().Value(apiKeyContext).(domain.APIKey)
-	if !allowed(key.AllowedModels, req.Model) {
+	if !allowedMediaModel(key.AllowedModels, route) {
 		return domain.Task{}, false, errors.New("model is not allowed for this API key")
 	}
-	model, err := s.Store.GetModel(r.Context(), req.Model)
+	model, err := s.Store.GetModel(r.Context(), route.InternalModel)
 	if err != nil {
 		return domain.Task{}, false, errors.New("unknown audio model")
 	}
@@ -84,7 +90,14 @@ func (s *Server) createAudioTask(r *http.Request, req domain.AudioRequest) (doma
 			return domain.Task{}, false, err
 		}
 	}
-	estimate, err := pricing.Audio(r.Context(), s.Store, req)
+	if err := s.admitProviderCircuit(r.Context(), route.Provider); err != nil {
+		return domain.Task{}, false, err
+	}
+	providerConfig, rules, err := s.providerModelContext(r.Context(), route.Provider, route.InternalModel)
+	if err != nil {
+		return domain.Task{}, false, errors.New("model provider is unavailable")
+	}
+	estimate, err := pricing.Audio(r.Context(), rules, req)
 	if err != nil {
 		if errors.Is(err, pricing.ErrCostUnavailable) {
 			return domain.Task{}, false, &requestError{Status: http.StatusUnprocessableEntity, Code: "cost_unavailable", Message: "cost is unavailable for the selected model parameters"}
@@ -95,7 +108,7 @@ func (s *Server) createAudioTask(r *http.Request, req domain.AudioRequest) (doma
 	if err := s.admitDailyQuota(r.Context(), key.ID, req.N); err != nil {
 		return domain.Task{}, false, err
 	}
-	task, created, err := s.Store.CreateReservedTask(r.Context(), key.ID, "audio", req.Model, req.Prompt, req, idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
+	task, created, err := s.Store.CreateReservedTaskForProviderWithHashRequest(r.Context(), key.ID, providerConfig.ProviderID, "audio", route.PublicModel, req.Prompt, req, req, idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
 	noteRequestTask(r, task)
 	if err != nil {
 		s.rollbackDailyQuota(r.Context(), key.ID, req.N)

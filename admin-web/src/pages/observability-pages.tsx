@@ -15,7 +15,10 @@ import {
   TableSkeleton,
 } from "../components/ui";
 import type { APIRequestLog, APIRequestLogsPage, AuditLog, AuditLogsPage } from "../shared/types";
+import type { Provider } from "../shared/types";
 import { CopyCode } from "../components/copy-code";
+import { ProviderBadge, ProviderSwitcher } from "../components/provider-switcher";
+import { providerCreditUnit } from "../shared/providers";
 import { api } from "../shared/api";
 import { appendLocalDateRange } from "../shared/status";
 import { useDebouncedValue } from "../shared/cache";
@@ -28,11 +31,12 @@ function requestParameterSummary(parameters: Record<string, unknown>) {
 }
 
 export function RequestLogs() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState(() => searchParams.get("search") || "");
   const [status, setStatus] = useState(0);
+  const providerID = searchParams.get("provider") || "all";
   const [method, setMethod] = useState("all");
   const [kind, setKind] = useState("all");
   const [pathFilter, setPathFilter] = useState("");
@@ -42,16 +46,21 @@ export function RequestLogs() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selected, setSelected] = useState<APIRequestLog | null>(null);
+  const providers = useQuery({
+    queryKey: ["providers"],
+    queryFn: () => api<Provider[]>("/admin/api/providers"),
+  });
   const deferredSearch = useDebouncedValue(search.trim());
   const deferredPath = useDebouncedValue(pathFilter.trim());
   const deferredModel = useDebouncedValue(modelFilter.trim());
   const deferredAPIKey = useDebouncedValue(apiKeyFilter.trim());
   const deferredIP = useDebouncedValue(ipFilter.trim());
   const logs = useQuery({
-    queryKey: ["request-logs", page, pageSize, deferredSearch, status, method, kind, deferredPath, deferredModel, deferredAPIKey, deferredIP, dateFrom, dateTo],
+    queryKey: ["request-logs", page, pageSize, providerID, deferredSearch, status, method, kind, deferredPath, deferredModel, deferredAPIKey, deferredIP, dateFrom, dateTo],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
       if (deferredSearch) params.set("search", deferredSearch);
+      if (providerID !== "all") params.set("provider", providerID);
       if (status) params.set("status", String(status));
       if (method !== "all") params.set("method", method);
       if (kind !== "all") params.set("kind", kind);
@@ -86,6 +95,21 @@ export function RequestLogs() {
           <h2>全部 API 请求</h2>
         </div>
         <QueryStatus fetching={logs.isFetching} error={logs.error} updatedAt={logs.dataUpdatedAt} label={`共 ${total} 条`} />
+      </div>
+      <div className="request-provider-switcher">
+        <ProviderSwitcher
+          providers={providers.data || []}
+          value={providerID}
+          includeAll
+          compact
+          onChange={(next) => {
+            const nextParams = new URLSearchParams(searchParams);
+            if (next === "all") nextParams.delete("provider");
+            else nextParams.set("provider", next);
+            setSearchParams(nextParams);
+            setPage(1);
+          }}
+        />
       </div>
       <div className="accounts-toolbar request-log-toolbar">
         <label className="search-box">
@@ -146,7 +170,7 @@ export function RequestLogs() {
           <span>时间 / Request ID</span>
           <span>接口 / API Key</span>
           <span>模型参数</span>
-          <span>路由账号 / 积分</span>
+          <span>路由账号 / 成本</span>
           <span>结果 / 耗时</span>
         </div>
         {logs.isLoading && <TableSkeleton rows={6} columns={5} />}
@@ -159,7 +183,7 @@ export function RequestLogs() {
                 <small title={entry.request_id}>{entry.request_id}</small>
               </span>
               <span>
-                <strong>{entry.method} {entry.path}</strong>
+                <strong><ProviderBadge providerID={entry.provider_id} providers={providers.data || []} /> {entry.method} {entry.path}</strong>
                 <small>{entry.api_key_prefix || "未认证"} · {entry.client_ip || "未知 IP"}</small>
               </span>
               <span>
@@ -168,7 +192,7 @@ export function RequestLogs() {
               </span>
               <span>
                 <strong>{entry.account_name || "未分配账号"}</strong>
-                <small>{entry.estimated_tokens === undefined ? "未进入定价" : `预估 ${entry.estimated_tokens.toLocaleString()} 积分`}</small>
+				<small>{entry.estimated_tokens === undefined ? "未进入定价" : `预估 ${entry.estimated_tokens.toLocaleString()} ${providerCreditUnit(entry.provider_id, providers.data || [])}`}</small>
               </span>
               <span>
                 <strong className={entry.status >= 400 ? "request-failed" : "request-succeeded"}>
@@ -208,12 +232,13 @@ export function RequestLogs() {
                 <span><small>Request ID</small><strong>{selected.request_id}</strong></span>
                 <span><small>时间</small><strong>{new Date(selected.created_at).toLocaleString("zh-CN")}</strong></span>
                 <span><small>接口</small><strong>{selected.method} {selected.path}</strong></span>
+                <span><small>平台</small><strong><ProviderBadge providerID={selected.provider_id} providers={providers.data || []} /></strong></span>
                 <span><small>HTTP</small><Badge tone={selected.status >= 400 ? "danger" : "success"}>{selected.status}</Badge></span>
                 <span><small>API Key</small><strong>{selected.api_key_prefix || "未认证"}</strong></span>
                 <span><small>客户端 IP</small><strong>{selected.client_ip || "未知"}</strong></span>
                 <span><small>模型</small><strong>{selected.model || selected.kind || "无"}</strong></span>
                 <span><small>路由账号</small><strong>{selected.account_name || "未分配"}</strong></span>
-                <span><small>预估积分</small><strong>{selected.estimated_tokens?.toLocaleString() || "未进入定价"}</strong></span>
+				<span><small>预估{providerCreditUnit(selected.provider_id, providers.data || [])}</small><strong>{selected.estimated_tokens?.toLocaleString() || "未进入定价"}</strong></span>
                 <span><small>耗时</small><strong>{selected.duration_ms.toLocaleString()} ms</strong></span>
               </div>
               <section>

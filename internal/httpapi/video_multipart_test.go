@@ -18,7 +18,7 @@ func TestParseVideoMultipartMediaReferences(t *testing.T) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	fields := map[string]string{
-		"model": "seedance-2.0-fast", "prompt": "test", "duration": "8",
+		"provider": "adobe", "model": "seedance-2.0-fast", "prompt": "test", "duration": "8",
 		"size": "1280x720", "resolution": "720p", "reference_strength": "HIGH", "generate_audio": "false",
 	}
 	for key, value := range fields {
@@ -58,6 +58,9 @@ func TestParseVideoMultipartMediaReferences(t *testing.T) {
 	}
 	if parsed.GenerateAudio == nil || *parsed.GenerateAudio {
 		t.Fatalf("unexpected generate_audio: %+v", parsed.GenerateAudio)
+	}
+	if parsed.Provider != "adobe" {
+		t.Fatalf("provider = %q, want adobe", parsed.Provider)
 	}
 	for _, asset := range append(parsed.ReferenceImages, parsed.ReferenceVideos...) {
 		if asset.Path == "" || asset.SHA256 == "" {

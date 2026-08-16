@@ -14,6 +14,7 @@ type Spec struct {
 	RequiresStartFrame          bool
 	MaxReferenceVideos          int
 	MaxReferenceAudios          int
+	MaxReferenceItems           int
 	MinVideoDuration            float64
 	MaxVideoDuration            float64
 	MinReferenceVideoDimension  int
@@ -32,6 +33,37 @@ type Spec struct {
 var standardSizes = []string{"1280x720", "720x1280"}
 
 var specs = map[string]Spec{
+	"adobe:veo-3.1": {
+		DefaultDuration: 8, Durations: []int{4, 6, 8}, DefaultSize: "1280x720", Sizes: []string{"1280x720", "720x1280", "1920x1080", "1080x1920"},
+		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p"}, MaxReferenceImages: 3,
+		SupportsStartEndFrame: true, SupportsEndFrame: true, UsesResolutionMode: true, UsesExactDimensions: true,
+		ResolutionBySize: map[string]string{"1280x720": "720p", "720x1280": "720p", "1920x1080": "1080p", "1080x1920": "1080p"},
+	},
+	"adobe:veo-3.1-fast": {
+		DefaultDuration: 8, Durations: []int{4, 6, 8}, DefaultSize: "1280x720", Sizes: []string{"1280x720", "720x1280", "1920x1080", "1080x1920"},
+		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p"},
+		SupportsStartEndFrame: true, SupportsEndFrame: true, UsesResolutionMode: true, UsesExactDimensions: true,
+		ResolutionBySize: map[string]string{"1280x720": "720p", "720x1280": "720p", "1920x1080": "1080p", "1080x1920": "1080p"},
+	},
+	"adobe:seedance-2.0": {
+		DefaultDuration: 8, Durations: integerRange(4, 15), DefaultSize: "1280x720", Sizes: adobeSeedanceSizes("480p", "720p", "1080p"),
+		DefaultResolution: "720p", Resolutions: []string{"480p", "720p", "1080p"},
+		MaxReferenceImages: 9, SupportsStartEndFrame: true, SupportsEndFrame: true, MaxReferenceVideos: 3, MaxReferenceAudios: 3, MaxReferenceItems: 12,
+		MaxVideoDuration: 15, MaxAudioDuration: 15, UsesExactDimensions: true, ResolutionBySize: adobeSeedanceResolutionBySize("480p", "720p", "1080p"),
+	},
+	"adobe:seedance-2.0-fast": {
+		DefaultDuration: 8, Durations: integerRange(4, 15), DefaultSize: "1280x720", Sizes: adobeSeedanceSizes("480p", "720p"),
+		DefaultResolution: "720p", Resolutions: []string{"480p", "720p"},
+		MaxReferenceImages: 9, SupportsStartEndFrame: true, SupportsEndFrame: true, MaxReferenceVideos: 3, MaxReferenceAudios: 3, MaxReferenceItems: 12,
+		MaxVideoDuration: 15, MaxAudioDuration: 15, UsesExactDimensions: true, ResolutionBySize: adobeSeedanceResolutionBySize("480p", "720p"),
+	},
+	"adobe:kling-3.0-omni": {
+		DefaultDuration: 5, Durations: []int{5, 10, 15}, DefaultSize: "1280x720",
+		Sizes:             []string{"1280x720", "720x1280", "720x720", "1920x1080", "1080x1920", "1080x1080"},
+		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p"}, MaxReferenceImages: 3,
+		SupportsStartEndFrame: true, SupportsEndFrame: true, UsesExactDimensions: true,
+		ResolutionBySize: map[string]string{"1280x720": "720p", "720x1280": "720p", "720x720": "720p", "1920x1080": "1080p", "1080x1920": "1080p", "1080x1080": "1080p"},
+	},
 	"seedance-2.0": {
 		DefaultDuration: 8, Durations: integerRange(4, 15), DefaultSize: "1280x720", Sizes: standardSizes,
 		DefaultResolution: "720p", Resolutions: []string{"480p", "720p", "1080p", "2160p"},
@@ -137,7 +169,15 @@ var specs = map[string]Spec{
 }
 
 func Get(model string) (Spec, bool) {
-	spec, ok := specs[model]
+	return GetForProvider("leonardo", model)
+}
+
+func GetForProvider(provider, model string) (Spec, bool) {
+	key := model
+	if provider == "adobe" {
+		key = provider + ":" + model
+	}
+	spec, ok := specs[key]
 	return spec, ok
 }
 
@@ -193,6 +233,37 @@ func integerRange(minimum, maximum int) []int {
 		values = append(values, value)
 	}
 	return values
+}
+
+func adobeSeedanceSizes(resolutions ...string) []string {
+	result := make([]string, 0, len(resolutions)*6)
+	for _, resolution := range resolutions {
+		result = append(result, adobeSeedanceTierSizes(resolution)...)
+	}
+	return result
+}
+
+func adobeSeedanceResolutionBySize(resolutions ...string) map[string]string {
+	result := make(map[string]string)
+	for _, resolution := range resolutions {
+		for _, size := range adobeSeedanceTierSizes(resolution) {
+			result[size] = resolution
+		}
+	}
+	return result
+}
+
+func adobeSeedanceTierSizes(resolution string) []string {
+	switch resolution {
+	case "480p":
+		return []string{"1120x480", "854x480", "640x480", "480x480", "480x640", "480x854"}
+	case "720p":
+		return []string{"1680x720", "1280x720", "960x720", "720x720", "720x960", "720x1280"}
+	case "1080p":
+		return []string{"2520x1080", "1920x1080", "1440x1080", "1080x1080", "1080x1440", "1080x1920"}
+	default:
+		return nil
+	}
 }
 
 func contains[T comparable](values []T, target T) bool {

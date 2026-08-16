@@ -1,12 +1,15 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/leonardo2api/leonardo2api/internal/accounts"
+	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/providers"
 	"github.com/leonardo2api/leonardo2api/internal/store"
 	"net"
@@ -23,7 +26,7 @@ func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "database_error", err.Error())
 		return
 	}
-	topAccounts, err := s.Store.ListAccountsPage(r.Context(), 1, 4, "")
+	providerOverviews, err := s.Store.GetProviderOverviews(r.Context())
 	if err != nil {
 		writeError(w, 500, "database_error", err.Error())
 		return
@@ -36,13 +39,8 @@ func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"accounts": overview.TotalAccounts, "active_accounts": overview.ActiveAccounts,
 		"task_counts": taskOverview.Counts, "task_total": taskOverview.Total,
-		"failed_last_hour": taskOverview.FailedLastHour, "total_tokens": overview.TotalTokens,
-		"reserved_tokens": overview.ReservedTokens, "available_tokens": overview.AvailableTokens,
-		"video_protected_tokens": overview.VideoProtectedTokens,
-		"video_ready_720p_15s":   overview.VideoReady720P15,
-		"video_ready_1080p_8s":   overview.VideoReady1080P8,
-		"video_ready_1080p_10s":  overview.VideoReady1080P10,
-		"top_accounts":           topAccounts.Data,
+		"failed_last_hour":   taskOverview.FailedLastHour,
+		"provider_summaries": providerOverviews,
 	})
 }
 
@@ -85,6 +83,95 @@ func (s *Server) adminAccounts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, a)
 }
 
+type accountArchiveResult struct {
+	ID               uuid.UUID `json:"id"`
+	Archived         bool      `json:"archived"`
+	ErrorCode        string    `json:"error_code,omitempty"`
+	ErrorMessage     string    `json:"error_message,omitempty"`
+	ActiveTasks      int       `json:"active_tasks,omitempty"`
+	HeldReservations int       `json:"held_reservations,omitempty"`
+}
+
+func (s *Server) archiveAccount(ctx context.Context, id uuid.UUID) accountArchiveResult {
+	result := accountArchiveResult{ID: id}
+	err := s.Store.ArchiveAccount(ctx, id)
+	if err == nil {
+		result.Archived = true
+		return result
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		result.ErrorCode = "not_found"
+		result.ErrorMessage = "account not found"
+		return result
+	}
+	var inUse *store.AccountInUseError
+	if errors.As(err, &inUse) {
+		result.ErrorCode = "account_in_use"
+		result.ErrorMessage = "账号仍有未完成任务或积分预留，请等待任务结算后再归档"
+		result.ActiveTasks = inUse.ActiveTasks
+		result.HeldReservations = inUse.HeldReservations
+		return result
+	}
+	result.ErrorCode = "database_error"
+	result.ErrorMessage = err.Error()
+	return result
+}
+
+func (s *Server) adminArchiveAccount(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, 400, "invalid_id", "invalid account id")
+		return
+	}
+	result := s.archiveAccount(r.Context(), id)
+	if result.Archived {
+		s.writeAudit(r.Context(), s.Config.AdminUsername, "account.archive", id.String(), nil)
+		writeJSON(w, 200, result)
+		return
+	}
+	if result.ErrorCode == "not_found" {
+		writeError(w, 404, result.ErrorCode, result.ErrorMessage)
+		return
+	}
+	if result.ErrorCode == "account_in_use" {
+		writeErrorDetails(w, http.StatusConflict, result.ErrorCode, result.ErrorMessage, map[string]any{
+			"active_tasks": result.ActiveTasks, "held_reservations": result.HeldReservations,
+		})
+		return
+	}
+	writeError(w, 500, result.ErrorCode, result.ErrorMessage)
+}
+
+func (s *Server) adminArchiveAccounts(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []uuid.UUID `json:"ids"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	if len(req.IDs) < 1 || len(req.IDs) > 100 {
+		writeError(w, 400, "invalid_request", "ids must contain between 1 and 100 account ids")
+		return
+	}
+	seen := make(map[uuid.UUID]struct{}, len(req.IDs))
+	results := make([]accountArchiveResult, 0, len(req.IDs))
+	archived := 0
+	for _, id := range req.IDs {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result := s.archiveAccount(r.Context(), id)
+		if result.Archived {
+			archived++
+			s.writeAudit(r.Context(), s.Config.AdminUsername, "account.archive", id.String(), map[string]any{"batch": true})
+		}
+		results = append(results, result)
+	}
+	writeJSON(w, 200, map[string]any{"archived": archived, "failed": len(results) - archived, "results": results})
+}
+
 func parsePage(pageText, pageSizeText string, defaultPageSize, maximumPageSize int) (int, int, error) {
 	page := 1
 	if pageText != "" {
@@ -105,12 +192,16 @@ func parsePage(pageText, pageSizeText string, defaultPageSize, maximumPageSize i
 	return page, pageSize, nil
 }
 
-func normalizeAccountConcurrency(value int) (int, error) {
+func normalizeAccountConcurrency(providerID string, value int) (int, error) {
+	maximum := 5
+	if providerID == providers.Adobe {
+		maximum = 100
+	}
 	if value == 0 {
 		return 5, nil
 	}
-	if value < 1 || value > 5 {
-		return 0, errors.New("image_concurrency must be between 1 and 5")
+	if value < 1 || value > maximum {
+		return 0, fmt.Errorf("image_concurrency must be between 1 and %d for provider %s", maximum, providerID)
 	}
 	return value, nil
 }
@@ -148,7 +239,8 @@ func (s *Server) adminCreateAccount(w http.ResponseWriter, r *http.Request) {
 		Name               string                   `json:"name"`
 		Email              string                   `json:"email"`
 		Password           string                   `json:"password"`
-		Cookie             string                   `json:"cookie"`
+		AccessToken        string                   `json:"access_token"`
+		CookieJSON         json.RawMessage          `json:"cookie_json"`
 		ProxyURL           string                   `json:"proxy_url"`
 		ImageConcurrency   int                      `json:"image_concurrency"`
 		QueueCapacity      int                      `json:"queue_capacity"`
@@ -164,8 +256,19 @@ func (s *Server) adminCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.Email = strings.TrimSpace(req.Email)
-	req.Cookie = strings.TrimSpace(req.Cookie)
 	req.ProxyURL = strings.TrimSpace(req.ProxyURL)
+	req.ProviderID = strings.ToLower(strings.TrimSpace(req.ProviderID))
+	if req.ProviderID == "" {
+		req.ProviderID = providers.Leonardo
+	}
+	registry := s.Providers
+	if registry == nil {
+		registry = providers.NewRegistry()
+	}
+	if _, registryErr := registry.Get(req.ProviderID); registryErr != nil {
+		writeError(w, 422, "provider_unavailable", "provider authentication adapter is not registered")
+		return
+	}
 	req.BrowserWorkerGroup = strings.TrimSpace(req.BrowserWorkerGroup)
 	if req.BrowserWorkerGroup == "" {
 		req.BrowserWorkerGroup = "default"
@@ -174,19 +277,15 @@ func (s *Server) adminCreateAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", "browser_worker_group must use 1 to 100 letters, digits, dots, underscores or hyphens")
 		return
 	}
-	if req.Name == "" || req.Cookie == "" {
-		writeError(w, 400, "invalid_request", "name and cookie are required")
+	if req.Name == "" {
+		writeError(w, 400, "invalid_request", "name is required")
 		return
 	}
 	if req.Password != "" && req.Email == "" {
 		writeError(w, 400, "invalid_request", "email is required when password is configured")
 		return
 	}
-	if !strings.Contains(req.Cookie, "=") {
-		writeError(w, 400, "invalid_request", "cookie must use the name=value header format")
-		return
-	}
-	concurrency, err := normalizeAccountConcurrency(req.ImageConcurrency)
+	concurrency, err := normalizeAccountConcurrency(req.ProviderID, req.ImageConcurrency)
 	if err != nil {
 		writeError(w, 400, "invalid_request", err.Error())
 		return
@@ -203,20 +302,60 @@ func (s *Server) adminCreateAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", err.Error())
 		return
 	}
-	if req.ProviderID == "" {
-		req.ProviderID = providers.Leonardo
+	if req.Session != nil {
+		writeError(w, 400, "invalid_request", "new accounts must use cookie_json; browser session import is only for internal refresh")
+		return
 	}
-	if req.ProviderID != providers.Leonardo {
+	if req.ProviderID == providers.Leonardo && len(req.CookieJSON) == 0 {
+		writeError(w, 400, "invalid_request", "cookie_json is required for Leonardo accounts")
+		return
+	}
+	if req.ProviderID == providers.Adobe && strings.TrimSpace(req.AccessToken) == "" && len(req.CookieJSON) == 0 {
+		writeError(w, 400, "invalid_request", "access_token or cookie_json is required for Adobe accounts")
+		return
+	}
+	var a domain.Account
+	switch req.ProviderID {
+	case providers.Adobe:
+		if len(req.CookieJSON) > 0 {
+			a, err = s.Accounts.CreateAdobeWithCookieJSON(r.Context(), req.Name, req.Email, req.CookieJSON, req.ProxyURL, req.ImageConcurrency, req.QueueCapacity, req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots)
+		} else {
+			a, err = s.Accounts.CreateAdobeWithAccessToken(r.Context(), req.Name, req.Email, req.AccessToken, req.ProxyURL, req.ImageConcurrency, req.QueueCapacity, req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots)
+		}
+	case providers.Leonardo:
+		a, err = s.Accounts.CreateWithCompleteCookieJSON(r.Context(), req.Name, req.Email, req.Password, req.CookieJSON, req.ProxyURL, req.BrowserWorkerGroup, req.ImageConcurrency, req.QueueCapacity, req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots)
+	default:
 		writeError(w, 422, "provider_unavailable", "provider authentication adapter is not registered")
 		return
 	}
-	a, err := s.Accounts.Create(r.Context(), req.Name, req.Email, req.Password, req.Cookie, req.ProxyURL, req.BrowserWorkerGroup, req.ImageConcurrency, req.QueueCapacity, req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots, req.Session)
 	if err != nil {
 		writeError(w, 400, "account_invalid", err.Error())
 		return
 	}
+	if req.ProviderID == providers.Adobe {
+		account, token, tokenErr := s.Accounts.AdobeToken(r.Context(), a)
+		pricingRules := 0
+		pricingError := ""
+		if tokenErr == nil {
+			pricingRules, err = s.Accounts.SyncAdobePricing(r.Context(), account, token)
+		}
+		if tokenErr != nil {
+			pricingError = tokenErr.Error()
+		} else if err != nil {
+			pricingError = err.Error()
+		}
+		s.writeAudit(r.Context(), s.Config.AdminUsername, "account.create", a.ID.String(), map[string]any{"name": a.Name, "provider_id": a.ProviderID, "image_concurrency": a.ImageConcurrency, "queue_capacity": a.QueueCapacity, "pricing_rules_synced": pricingRules})
+		writeJSON(w, http.StatusCreated, map[string]any{"account": a, "status": "active", "pricing_rules_synced": pricingRules, "pricing_sync_error": pricingError})
+		return
+	}
+	job, err := s.Store.EnqueueBrowserSessionRefreshJob(r.Context(), a.ID, 1000)
+	if err != nil {
+		_ = s.Store.DeleteAccount(r.Context(), a.ID)
+		writeError(w, 500, "session_refresh_enqueue_failed", err.Error())
+		return
+	}
 	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.create", a.ID.String(), map[string]any{"name": a.Name, "provider_id": a.ProviderID, "image_concurrency": a.ImageConcurrency, "queue_capacity": a.QueueCapacity, "routing_role": a.RoutingRole, "protected_tokens": a.ProtectedTokens, "video_reserved_slots": a.VideoReservedSlots, "browser_worker_group": a.BrowserWorkerGroup, "automatic_login_configured": a.HasLoginCredentials})
-	writeJSON(w, 201, a)
+	writeJSON(w, http.StatusAccepted, map[string]any{"account": a, "job": job, "status": "pending_browser_validation"})
 }
 
 func (s *Server) adminUpdateAccount(w http.ResponseWriter, r *http.Request) {
@@ -273,10 +412,6 @@ func (s *Server) adminUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		value := strings.TrimSpace(*req.ProxyURL)
 		req.ProxyURL = &value
 	}
-	if req.ImageConcurrency != nil && (*req.ImageConcurrency < 1 || *req.ImageConcurrency > 5) {
-		writeError(w, 400, "invalid_request", "image_concurrency must be between 1 and 5")
-		return
-	}
 	if req.QueueCapacity != nil && (*req.QueueCapacity < 1 || *req.QueueCapacity > 1000) {
 		writeError(w, 400, "invalid_request", "queue_capacity must be between 1 and 1000")
 		return
@@ -289,6 +424,12 @@ func (s *Server) adminUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, 500, "database_error", currentErr.Error())
 		return
+	}
+	if req.ImageConcurrency != nil {
+		if _, concurrencyErr := normalizeAccountConcurrency(current.ProviderID, *req.ImageConcurrency); concurrencyErr != nil {
+			writeError(w, 400, "invalid_request", concurrencyErr.Error())
+			return
+		}
 	}
 	role := current.RoutingRole
 	protectedTokens := current.ProtectedTokens
@@ -401,11 +542,7 @@ func (s *Server) adminRefreshAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err == nil {
-		var token string
-		a, token, err = s.Accounts.Token(r.Context(), a)
-		if err == nil {
-			a, err = s.Accounts.RefreshTokens(r.Context(), a, token)
-		}
+		a, err = s.Accounts.RefreshAccount(r.Context(), id, true)
 	}
 	if err != nil {
 		writeError(w, 400, "refresh_failed", err.Error())
@@ -413,6 +550,51 @@ func (s *Server) adminRefreshAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.refresh", id.String(), nil)
 	writeJSON(w, 200, a)
+}
+
+func (s *Server) adminSyncAdobeAccountPricing(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "invalid account id")
+		return
+	}
+	account, err := s.Store.GetAccount(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "account not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database_error", err.Error())
+		return
+	}
+	if account.ProviderID != providers.Adobe {
+		writeError(w, http.StatusUnprocessableEntity, "provider_mismatch", "pricing sync is supported only for Adobe accounts")
+		return
+	}
+
+	account, err = s.Accounts.RefreshAccount(r.Context(), id, false)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "refresh_failed", err.Error())
+		return
+	}
+	account, token, err := s.Accounts.AdobeToken(r.Context(), account)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "token_unavailable", err.Error())
+		return
+	}
+	rules, err := s.Accounts.SyncAdobePricing(r.Context(), account, token)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "pricing_sync_failed", err.Error())
+		return
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.pricing_sync", id.String(), map[string]any{
+		"provider_id":          providers.Adobe,
+		"pricing_rules_synced": rules,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"account":              account,
+		"pricing_rules_synced": rules,
+	})
 }
 
 func (s *Server) adminImportAccountSession(w http.ResponseWriter, r *http.Request) {
@@ -433,6 +615,71 @@ func (s *Server) adminImportAccountSession(w http.ResponseWriter, r *http.Reques
 	}
 	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.session_import", id.String(), nil)
 	writeJSON(w, 200, a)
+}
+
+func (s *Server) adminImportAccountCookieJSON(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, 400, "invalid_id", "invalid account id")
+		return
+	}
+	var req struct {
+		CookieJSON json.RawMessage `json:"cookie_json"`
+	}
+	if err := decodeJSONLimit(r, &req, 768<<10); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	current, err := s.Store.GetAccount(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, 404, "not_found", "account not found")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	if current.ProviderID == providers.Adobe {
+		account, importErr := s.Accounts.ImportAdobeCookieJSON(r.Context(), id, req.CookieJSON)
+		if importErr != nil {
+			writeError(w, 400, "cookie_import_failed", importErr.Error())
+			return
+		}
+		_, token, tokenErr := s.Accounts.AdobeToken(r.Context(), account)
+		pricingRules := 0
+		pricingError := ""
+		if tokenErr == nil {
+			pricingRules, importErr = s.Accounts.SyncAdobePricing(r.Context(), account, token)
+		}
+		if tokenErr != nil {
+			pricingError = tokenErr.Error()
+		} else if importErr != nil {
+			pricingError = importErr.Error()
+		}
+		s.writeAudit(r.Context(), s.Config.AdminUsername, "account.cookie_json_import", id.String(), map[string]any{"provider_id": providers.Adobe, "pricing_rules_synced": pricingRules})
+		writeJSON(w, http.StatusOK, map[string]any{"account": account, "status": "active", "pricing_rules_synced": pricingRules, "pricing_sync_error": pricingError})
+		return
+	}
+	account, err := s.Accounts.ImportCompleteCookieJSON(r.Context(), id, req.CookieJSON)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, 404, "not_found", "account not found")
+		return
+	}
+	if err != nil {
+		writeError(w, 400, "cookie_import_failed", err.Error())
+		return
+	}
+	job, err := s.Store.EnqueueBrowserSessionRefreshJob(r.Context(), id, 1000)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeError(w, 500, "session_refresh_enqueue_failed", err.Error())
+		return
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.cookie_json_import", id.String(), map[string]any{"cookie_count_validated": true})
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"account": account,
+		"job":     job,
+		"status":  "pending_browser_validation",
+	})
 }
 
 func (s *Server) internalImportAccountSession(w http.ResponseWriter, r *http.Request) {
@@ -534,9 +781,16 @@ func (s *Server) internalClaimSessionRefresh(w http.ResponseWriter, r *http.Requ
 		"proxy_url":           account.ProxyURL,
 	}
 	if req.HeadlessRefresh {
-		cookieHeader, err := s.Accounts.SessionCookie(r.Context(), account.ID)
-		if err == nil && strings.TrimSpace(cookieHeader) != "" {
-			response["cookie_header"] = cookieHeader
+		cookieJSON, source, fingerprint, err := s.Accounts.SessionBrowserCookieJSON(r.Context(), account.ID)
+		if err == nil && source != "" {
+			response["cookie_json"] = cookieJSON
+			response["cookie_json_source"] = source
+			response["cookie_json_fingerprint"] = fingerprint
+		} else if err == nil {
+			cookieHeader, headerErr := s.Accounts.SessionCookie(r.Context(), account.ID)
+			if headerErr == nil && strings.TrimSpace(cookieHeader) != "" {
+				response["cookie_header"] = cookieHeader
+			}
 		}
 	}
 	if req.HeadedLogin && account.HasLoginCredentials {
@@ -599,9 +853,10 @@ func (s *Server) internalFailSessionRefresh(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req struct {
-		LeaseToken string `json:"lease_token"`
-		Error      string `json:"error"`
-		Terminal   bool   `json:"terminal"`
+		LeaseToken            string `json:"lease_token"`
+		Error                 string `json:"error"`
+		Terminal              bool   `json:"terminal"`
+		CookieJSONFingerprint string `json:"cookie_json_fingerprint"`
 	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil || decodeJSON(r, &req) != nil {
@@ -619,7 +874,7 @@ func (s *Server) internalFailSessionRefresh(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if req.Terminal {
-		if err := s.Store.TerminalFailSessionRefreshJob(r.Context(), id, leaseToken, req.Error); err != nil {
+		if err := s.Store.TerminalFailSessionRefreshJob(r.Context(), id, leaseToken, req.Error, req.CookieJSONFingerprint); err != nil {
 			writeError(w, 409, "lease_lost", "session refresh lease is no longer owned by this worker")
 			return
 		}

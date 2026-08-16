@@ -2,19 +2,27 @@ package providers
 
 import (
 	"errors"
+	"fmt"
 	"sort"
+	"strings"
 	"sync"
+
+	"github.com/leonardo2api/leonardo2api/internal/adobe"
 )
 
-const Leonardo = "leonardo"
+const (
+	Leonardo = "leonardo"
+	Adobe    = "adobe"
+)
 
 var ErrUnsupported = errors.New("provider adapter is not registered")
 
 type Descriptor struct {
-	ID           string   `json:"id"`
-	DisplayName  string   `json:"display_name"`
-	AuthType     string   `json:"auth_type"`
-	Capabilities []string `json:"capabilities"`
+	ID           string                                   `json:"id"`
+	DisplayName  string                                   `json:"display_name"`
+	AuthType     string                                   `json:"auth_type"`
+	Capabilities []string                                 `json:"capabilities"`
+	ResolveModel func(kind, model string) (string, error) `json:"-"`
 }
 
 // Registry is the composition root for provider-specific authentication and
@@ -26,7 +34,20 @@ type Registry struct {
 
 func NewRegistry() *Registry {
 	r := &Registry{descriptors: make(map[string]Descriptor)}
-	r.Register(Descriptor{ID: Leonardo, DisplayName: "Leonardo AI", AuthType: "browser_session", Capabilities: []string{"image", "video", "audio"}})
+	r.Register(Descriptor{
+		ID: Leonardo, DisplayName: "Leonardo AI", AuthType: "browser_session", Capabilities: []string{"image", "video", "audio"},
+		ResolveModel: func(_ string, model string) (string, error) { return model, nil },
+	})
+	r.Register(Descriptor{
+		ID: Adobe, DisplayName: "Adobe Firefly", AuthType: "oauth", Capabilities: []string{"image", "video"},
+		ResolveModel: func(kind, model string) (string, error) {
+			spec, ok := adobe.Model(model)
+			if !ok || spec.Kind != kind {
+				return "", fmt.Errorf("selected model is not available from provider %s", Adobe)
+			}
+			return spec.PublicID, nil
+		},
+	})
 	return r
 }
 
@@ -44,6 +65,37 @@ func (r *Registry) Get(id string) (Descriptor, error) {
 		return Descriptor{}, ErrUnsupported
 	}
 	return descriptor, nil
+}
+
+func (r *Registry) ResolveModel(kind, providerID, model string) (string, error) {
+	providerID = strings.ToLower(strings.TrimSpace(providerID))
+	model = strings.TrimSpace(model)
+	if providerID == "" {
+		providerID = Leonardo
+	}
+	if model == "" {
+		return "", errors.New("model is required")
+	}
+	descriptor, err := r.Get(providerID)
+	if err != nil {
+		return "", err
+	}
+	if !descriptorSupports(descriptor, kind) {
+		return "", fmt.Errorf("provider %s does not support %s generation", providerID, kind)
+	}
+	if descriptor.ResolveModel == nil {
+		return "", ErrUnsupported
+	}
+	return descriptor.ResolveModel(kind, model)
+}
+
+func descriptorSupports(descriptor Descriptor, capability string) bool {
+	for _, current := range descriptor.Capabilities {
+		if current == capability {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Registry) List() []Descriptor {

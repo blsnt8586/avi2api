@@ -4,6 +4,7 @@ import "testing"
 
 func TestPublicVideoSpecs(t *testing.T) {
 	tests := []struct {
+		provider           string
 		model              string
 		duration           int
 		resolution         string
@@ -11,25 +12,38 @@ func TestPublicVideoSpecs(t *testing.T) {
 		generateAudio      bool
 		usesResolutionMode bool
 	}{
-		{"seedance-2.0", 15, "2160p", 4, true, true},
-		{"seedance-2.0-fast", 15, "720p", 4, true, true},
-		{"seedance-2.0-mini", 15, "720p", 4, true, false},
-		{"seedance-2.5", 30, "720p", 30, true, false},
-		{"flux-3-video", 20, "1080p", 0, true, false},
-		{"veo-3.1", 8, "2160p", 3, true, true},
-		{"veo-3.1-fast", 6, "1080p", 0, true, true},
-		{"kling-o3-omni", 15, "2160p", 7, true, false},
-		{"minimax-h3", 15, "1440p", 5, true, false},
-		{"grok-imagine-1.5", 15, "1080p", 0, true, false},
+		{"adobe", "veo-3.1", 8, "1080p", 3, false, true},
+		{"adobe", "veo-3.1-fast", 6, "1080p", 0, false, true},
+		{"adobe", "seedance-2.0", 15, "1080p", 9, false, false},
+		{"adobe", "seedance-2.0-fast", 15, "720p", 9, false, false},
+		{"adobe", "kling-3.0-omni", 15, "1080p", 3, false, false},
+		{"leonardo", "seedance-2.0", 15, "2160p", 4, true, true},
+		{"leonardo", "seedance-2.0-fast", 15, "720p", 4, true, true},
+		{"leonardo", "seedance-2.0-mini", 15, "720p", 4, true, false},
+		{"leonardo", "seedance-2.5", 30, "720p", 30, true, false},
+		{"leonardo", "flux-3-video", 20, "1080p", 0, true, false},
+		{"leonardo", "veo-3.1", 8, "2160p", 3, true, true},
+		{"leonardo", "veo-3.1-fast", 6, "1080p", 0, true, true},
+		{"leonardo", "kling-o3-omni", 15, "2160p", 7, true, false},
+		{"leonardo", "minimax-h3", 15, "1440p", 5, true, false},
+		{"leonardo", "grok-imagine-1.5", 15, "1080p", 0, true, false},
 	}
 	for _, test := range tests {
-		spec, ok := Get(test.model)
+		spec, ok := GetForProvider(test.provider, test.model)
 		if !ok {
 			t.Fatalf("missing spec for %s", test.model)
 		}
 		if !spec.SupportsDuration(test.duration) || !spec.SupportsResolution(test.resolution) || spec.MaxReferenceImages != test.referenceImages || spec.SupportsGenerateAudio != test.generateAudio || spec.UsesResolutionMode != test.usesResolutionMode {
 			t.Fatalf("unexpected spec for %s: %+v", test.model, spec)
 		}
+	}
+	adobeSeedance, _ := GetForProvider("adobe", "seedance-2.0")
+	if !adobeSeedance.SupportsSize("1120x480") || !adobeSeedance.SupportsSize("720x720") || !adobeSeedance.SupportsSize("1080x1920") || adobeSeedance.MaxReferenceItems != 12 || adobeSeedance.MaxReferenceVideos != 3 || adobeSeedance.MaxReferenceAudios != 3 {
+		t.Fatalf("unexpected Adobe Seedance spec: %+v", adobeSeedance)
+	}
+	adobeKling, _ := GetForProvider("adobe", "kling-3.0-omni")
+	if !adobeKling.SupportsSize("720x720") || !adobeKling.SupportsSize("1080x1080") || adobeKling.SupportsDuration(6) || adobeKling.SupportsGenerateAudio {
+		t.Fatalf("unexpected Adobe Kling spec: %+v", adobeKling)
 	}
 }
 

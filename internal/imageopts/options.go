@@ -7,6 +7,7 @@ import (
 )
 
 const GPTImage2 = "gpt-image-2"
+const AdobeProvider = "adobe"
 
 const (
 	NanoBanana2   = "nano-banana-2"
@@ -20,6 +21,14 @@ var nanoBananaWidths = map[int]bool{768: true, 848: true, 896: true, 928: true, 
 var nanoBananaHeights = map[int]bool{672: true, 768: true, 848: true, 896: true, 928: true, 1024: true, 1152: true, 1200: true, 1264: true, 1344: true, 1376: true, 1536: true, 1696: true, 1792: true, 1856: true, 2048: true, 2304: true, 2400: true, 2528: true, 2688: true, 2752: true, 3072: true, 3392: true, 3584: true, 3712: true, 4096: true, 4608: true, 4800: true, 5056: true, 5504: true}
 
 func ParseSize(model, size string) (int, int, error) {
+	return ParseSizeForProvider("leonardo", model, size)
+}
+
+func ParseSizeForProvider(provider, model, size string) (int, int, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		provider = "leonardo"
+	}
 	if size == "" || size == "auto" {
 		return 1024, 1024, nil
 	}
@@ -31,6 +40,9 @@ func ParseSize(model, size string) (int, int, error) {
 	h, errH := strconv.Atoi(parts[1])
 	if errW != nil || errH != nil {
 		return 0, 0, fmt.Errorf("invalid image size %q", size)
+	}
+	if provider == AdobeProvider && model == GPTImage2 && size != "1024x1024" && size != "2048x2048" && size != "2880x2880" {
+		return 0, 0, fmt.Errorf("gpt-image-2 size must be 1024x1024, 2048x2048 or 2880x2880 on provider adobe")
 	}
 	if model == GPTImage2 {
 		if w <= 0 || h <= 0 || w > 3840 || h > 3840 || w%16 != 0 || h%16 != 0 {
@@ -70,9 +82,14 @@ func ParseSize(model, size string) (int, int, error) {
 	return w, h, nil
 }
 
-func NormalizeOutputFormat(format string) string {
-	if format == "" {
-		return "png"
-	}
-	return strings.ToLower(format)
+func BaseModel(model string) string { return model }
+
+func IsGPTImage2(model string) bool { return BaseModel(model) == GPTImage2 }
+
+func IsAdobeGPTImage2(provider, model string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), AdobeProvider) && model == GPTImage2
+}
+
+func IsAdobeImageModel(provider, model string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), AdobeProvider) && (model == GPTImage2 || model == NanoBanana2)
 }

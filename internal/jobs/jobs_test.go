@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/leonardo2api/leonardo2api/internal/adobe"
 	"github.com/leonardo2api/leonardo2api/internal/config"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
@@ -65,6 +66,53 @@ func TestParseSize(t *testing.T) {
 	}
 	if _, _, err := parseSize("99999x1"); err == nil {
 		t.Fatal("expected invalid size")
+	}
+}
+
+func TestAdobeGPTImageModelSpecificOmitsSizeForReferences(t *testing.T) {
+	withoutReferences := adobeGPTImageModelSpecific(2048, 2048, false)
+	if withoutReferences["size"] != "2048x2048" {
+		t.Fatalf("text-to-image model payload = %#v", withoutReferences)
+	}
+	withReferences := adobeGPTImageModelSpecific(2048, 2048, true)
+	if len(withReferences) != 0 {
+		t.Fatalf("reference-image model payload = %#v, want empty object", withReferences)
+	}
+}
+
+func TestAdobeImageSubmitRequestsUseCurrentModels(t *testing.T) {
+	nano, err := adobeImageSubmitRequest(domain.ImageRequest{Model: adobe.AdobeNanoBanana2, Prompt: "fixture"}, 5504, 3072, []adobe.Reference{{ID: "ref-1", Usage: "general"}})
+	if err != nil || nano.ModelID != "gemini-flash" || nano.ModelVersion != "nano-banana-3" || nano.GroundSearch == nil || *nano.GroundSearch || nano.SkipCAI == nil || *nano.SkipCAI {
+		t.Fatalf("unexpected Nano Banana request: %+v err=%v", nano, err)
+	}
+	if nano.ModelSpecific["aspectRatio"] != "16:9" || nano.GenerationMetadata["module"] != "image2image" {
+		t.Fatalf("unexpected Nano Banana payload metadata: %+v", nano)
+	}
+}
+
+func TestAdobeVideoSubmitRequestsUseCurrentModels(t *testing.T) {
+	tests := []struct {
+		model   string
+		modelID string
+		version string
+	}{
+		{adobe.AdobeVeo31, "veo", "3.1-generate"},
+		{adobe.AdobeVeo31Fast, "veo", "3.1-fast-generate"},
+		{adobe.AdobeSeedance20, "seedance", "seedance_2.0"},
+		{adobe.AdobeSeedance20Fast, "seedance", "seedance_2.0_fast"},
+		{adobe.AdobeKling30Omni, "kling", "kling_v3_omni"},
+	}
+	for _, test := range tests {
+		request, err := adobeVideoSubmitRequest(domain.VideoRequest{Model: test.model, Prompt: "fixture", Duration: 8}, 1280, 720, nil)
+		if err != nil || request.ModelID != test.modelID || request.ModelVersion != test.version || request.GenerateAudio == nil || *request.GenerateAudio {
+			t.Fatalf("unexpected %s request: %+v err=%v", test.model, request, err)
+		}
+	}
+	if ref := adobeVideoReference(adobe.AdobeVeo31, "image", "asset-1", 1); ref.Usage != "asset" {
+		t.Fatalf("unexpected Veo reference: %+v", ref)
+	}
+	if ref := adobeVideoReference(adobe.AdobeSeedance20, "video", "video-1", 1); ref.Usage != "source" {
+		t.Fatalf("unexpected Seedance reference: %+v", ref)
 	}
 }
 

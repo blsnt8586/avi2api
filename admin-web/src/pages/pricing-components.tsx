@@ -4,16 +4,25 @@ import { Coins } from "lucide-react";
 import { api } from "../shared/api";
 import type { ImageCostEstimate, PlatformEstimate, PublicModel } from "../shared/types";
 import { imageSizes } from "../shared/catalog";
+import { generationRoute } from "../shared/providers";
 
 export function EstimateTable({
   estimate,
+  unit = "积分",
   compact = false,
 }: {
   estimate: PlatformEstimate;
+  unit?: string;
   compact?: boolean;
 }) {
+  const values = estimate.rows.flatMap((row) => row.values).filter((value) => value != null);
+  const allZero = values.length > 0 && values.every((value) => value === 0);
   return (
     <div className={`estimate-table-wrap ${compact ? "compact" : ""}`}>
+      <div className="estimate-unit">
+        <span>成本单位</span>
+        <strong>{unit}</strong>
+      </div>
       <table className="estimate-table">
         <thead>
           <tr>
@@ -29,7 +38,7 @@ export function EstimateTable({
               <th>{row.label}</th>
               {row.values.map((value, index) => (
                 <td key={`${row.label}-${estimate.columns[index]}`}>
-                  {value.toLocaleString()}
+                  {value == null ? "—" : value.toLocaleString()}
                 </td>
               ))}
             </tr>
@@ -37,11 +46,17 @@ export function EstimateTable({
         </tbody>
       </table>
       <p>{estimate.note}</p>
+      {allZero ? (
+        <p className="estimate-zero-note">
+          当前账号的成本接口返回 0 {unit}。这是本次同步结果，后续可能随账号权益或平台计费调整。
+        </p>
+      ) : null}
     </div>
   );
 }
 
 export function ImageCostCalculator({ model }: { model: PublicModel }) {
+  const route = generationRoute(model);
   const [size, setSize] = useState("1024x1024");
   const [quality, setQuality] = useState("low");
   const [quantity, setQuantity] = useState(1);
@@ -50,10 +65,11 @@ export function ImageCostCalculator({ model }: { model: PublicModel }) {
       api<ImageCostEstimate>("/api-docs/image-estimate", {
         method: "POST",
         body: JSON.stringify({
-          model,
+          provider: route.provider,
+          model: route.model,
           size: size.trim(),
-          quality: model === "gpt-image-2" ? quality : undefined,
-          n: model === "gpt-image-2" ? 1 : quantity,
+          quality: model === "gpt-image-2" || model === "adobe:gpt-image-2" ? quality : undefined,
+		  n: model === "gpt-image-2" || model === "adobe:gpt-image-2" ? 1 : quantity,
         }),
       }),
   });
@@ -94,7 +110,7 @@ export function ImageCostCalculator({ model }: { model: PublicModel }) {
             ))}
           </datalist>
         </label>
-        {model === "gpt-image-2" ? (
+        {model === "gpt-image-2" || model === "adobe:gpt-image-2" ? (
           <label>
             质量
             <select
@@ -122,9 +138,9 @@ export function ImageCostCalculator({ model }: { model: PublicModel }) {
             aria-label="积分计算数量"
             type="number"
             min="1"
-            max={model === "gpt-image-2" ? 1 : 4}
-            value={model === "gpt-image-2" ? 1 : quantity}
-            disabled={model === "gpt-image-2"}
+            max={model === "gpt-image-2" || model === "adobe:gpt-image-2" ? 1 : 4}
+			value={model === "gpt-image-2" || model === "adobe:gpt-image-2" ? 1 : quantity}
+			disabled={model === "gpt-image-2" || model === "adobe:gpt-image-2"}
             onChange={(event) => {
               setQuantity(Number(event.target.value));
               resetResult();

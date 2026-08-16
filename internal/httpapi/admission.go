@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -52,10 +53,12 @@ func (s *Server) apiKeyAdmission(next http.Handler) http.Handler {
 			return
 		}
 		key := r.Context().Value(apiKeyContext).(domain.APIKey)
-		if err := s.admitAPIKeyRequest(r.Context(), key.ID); err != nil {
-			metrics.AdmissionRejected.WithLabelValues("api_key_rate_limit").Inc()
-			writeCreateTaskError(w, err)
-			return
+		if s.Redis != nil {
+			if err := s.admitAPIKeyRequest(r.Context(), key.ID); err != nil {
+				metrics.AdmissionRejected.WithLabelValues("api_key_rate_limit").Inc()
+				writeCreateTaskError(w, err)
+				return
+			}
 		}
 		idempotencyKey, idempotencyErr := normalizeIdempotencyKey(r.Header.Get("Idempotency-Key"))
 		if idempotencyErr != nil {
@@ -64,18 +67,26 @@ func (s *Server) apiKeyAdmission(next http.Handler) http.Handler {
 			return
 		}
 		r.Header.Set("Idempotency-Key", idempotencyKey)
-		if s.Circuit.Redis != nil {
-			if until, open, err := s.Circuit.CheckProvider(r.Context(), "leonardo"); err != nil {
-				writeError(w, http.StatusServiceUnavailable, "admission_control_unavailable", err.Error())
-				return
-			} else if open {
-				metrics.AdmissionRejected.WithLabelValues("provider_circuit_open").Inc()
-				writeCreateTaskError(w, &requestError{Status: http.StatusServiceUnavailable, Code: "provider_circuit_open", Message: "provider submission circuit is open", RetryAfter: time.Until(until)})
-				return
-			}
-		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) admitProviderCircuit(ctx context.Context, providerID string) error {
+	if s.Circuit.Redis == nil {
+		return nil
+	}
+	until, open, err := s.Circuit.CheckProvider(ctx, providerID)
+	if err != nil {
+		return &requestError{Status: http.StatusServiceUnavailable, Code: "admission_control_unavailable", Message: err.Error()}
+	}
+	if !open {
+		return nil
+	}
+	metrics.AdmissionRejected.WithLabelValues("provider_circuit_open").Inc()
+	return &requestError{
+		Status: http.StatusServiceUnavailable, Code: "provider_circuit_open",
+		Message: "provider submission circuit is open", RetryAfter: time.Until(until),
+	}
 }
 
 func normalizeIdempotencyKey(raw string) (string, *requestError) {

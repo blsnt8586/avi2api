@@ -27,12 +27,16 @@ func (s *Store) WriteAPIRequestLogs(ctx context.Context, entries []domain.APIReq
 	rows := make([][]any, 0, len(entries))
 	usage := make(map[uuid.UUID]int64)
 	for _, entry := range entries {
+		providerID := strings.ToLower(strings.TrimSpace(entry.ProviderID))
+		if providerID == "" {
+			providerID = "leonardo"
+		}
 		parameters := entry.Parameters
 		if len(parameters) == 0 || !json.Valid(parameters) {
 			parameters = json.RawMessage(`{}`)
 		}
 		rows = append(rows, []any{
-			entry.RequestID, entry.APIKeyID, entry.APIKeyPrefix, entry.AccountID, entry.TaskID,
+			entry.RequestID, providerID, entry.APIKeyID, entry.APIKeyPrefix, entry.AccountID, entry.TaskID,
 			entry.Method, entry.Path, entry.Kind, entry.Model, parameters, entry.PromptChars,
 			entry.EstimatedTokens, entry.Status, entry.ErrorCode, entry.DurationMS, entry.ClientIP,
 		})
@@ -41,7 +45,7 @@ func (s *Store) WriteAPIRequestLogs(ctx context.Context, entries []domain.APIReq
 		}
 	}
 	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"api_request_logs"}, []string{
-		"request_id", "api_key_id", "api_key_prefix", "account_id", "task_id", "method", "path", "kind", "model",
+		"request_id", "provider_id", "api_key_id", "api_key_prefix", "account_id", "task_id", "method", "path", "kind", "model",
 		"parameters", "prompt_chars", "estimated_tokens", "status", "error_code", "duration_ms", "client_ip",
 	}, pgx.CopyFromRows(rows)); err != nil {
 		return err
@@ -60,6 +64,7 @@ func (s *Store) ListAPIRequestLogsPage(ctx context.Context, page, pageSize int, 
 
 type APIRequestLogPageFilter struct {
 	Search      string
+	ProviderID  string
 	Status      int
 	Method      string
 	Kind        string
@@ -79,6 +84,7 @@ func (s *Store) ListAPIRequestLogsPageFiltered(ctx context.Context, page, pageSi
 		pageSize = 20
 	}
 	filter.Search = strings.TrimSpace(filter.Search)
+	filter.ProviderID = strings.ToLower(strings.TrimSpace(filter.ProviderID))
 	filter.Method = strings.ToUpper(strings.TrimSpace(filter.Method))
 	filter.Kind = strings.TrimSpace(filter.Kind)
 	filter.Path = strings.TrimSpace(filter.Path)
@@ -87,21 +93,21 @@ func (s *Store) ListAPIRequestLogsPageFiltered(ctx context.Context, page, pageSi
 	filter.ClientIP = strings.TrimSpace(filter.ClientIP)
 	const where = ` WHERE ($1='' OR l.request_id ILIKE '%'||$1||'%' OR l.api_key_prefix ILIKE '%'||$1||'%'
 		OR l.path ILIKE '%'||$1||'%' OR l.model ILIKE '%'||$1||'%' OR l.error_code ILIKE '%'||$1||'%'
-		OR l.client_ip ILIKE '%'||$1||'%' OR coalesce(a.name,'') ILIKE '%'||$1||'%')
-		AND ($2=0 OR l.status=$2) AND ($3='' OR l.method=$3) AND ($4='' OR l.kind=$4)
-		AND ($5='' OR l.path ILIKE '%'||$5||'%') AND ($6='' OR l.model=$6)
-		AND ($7='' OR l.api_key_prefix ILIKE '%'||$7||'%') AND ($8='' OR l.client_ip ILIKE '%'||$8||'%')
-		AND ($9::timestamptz IS NULL OR l.created_at>=$9) AND ($10::timestamptz IS NULL OR l.created_at<$10)`
-	args := []any{filter.Search, filter.Status, filter.Method, filter.Kind, filter.Path, filter.Model, filter.APIKey, filter.ClientIP, filter.CreatedFrom, filter.CreatedTo}
+		OR l.client_ip ILIKE '%'||$1||'%' OR l.provider_id ILIKE '%'||$1||'%' OR coalesce(a.name,'') ILIKE '%'||$1||'%')
+		AND ($2='' OR l.provider_id=$2) AND ($3=0 OR l.status=$3) AND ($4='' OR l.method=$4) AND ($5='' OR l.kind=$5)
+		AND ($6='' OR l.path ILIKE '%'||$6||'%') AND ($7='' OR l.model=$7)
+		AND ($8='' OR l.api_key_prefix ILIKE '%'||$8||'%') AND ($9='' OR l.client_ip ILIKE '%'||$9||'%')
+		AND ($10::timestamptz IS NULL OR l.created_at>=$10) AND ($11::timestamptz IS NULL OR l.created_at<$11)`
+	args := []any{filter.Search, filter.ProviderID, filter.Status, filter.Method, filter.Kind, filter.Path, filter.Model, filter.APIKey, filter.ClientIP, filter.CreatedFrom, filter.CreatedTo}
 	var total int64
 	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM api_request_logs l LEFT JOIN accounts a ON a.id=l.account_id`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.DB.Query(ctx, `SELECT l.id,l.request_id,l.api_key_id,l.api_key_prefix,l.account_id,
+	rows, err := s.DB.Query(ctx, `SELECT l.id,l.request_id,l.provider_id,l.api_key_id,l.api_key_prefix,l.account_id,
 		coalesce(a.name,''),l.task_id,l.method,l.path,l.kind,l.model,l.parameters,l.prompt_chars,
 		l.estimated_tokens,l.status,l.error_code,l.duration_ms,l.client_ip,l.created_at
 		FROM api_request_logs l LEFT JOIN accounts a ON a.id=l.account_id`+where+`
-		ORDER BY l.created_at DESC,l.id DESC LIMIT $11 OFFSET $12`, append(args, pageSize, int64(page-1)*int64(pageSize))...)
+		ORDER BY l.created_at DESC,l.id DESC LIMIT $12 OFFSET $13`, append(args, pageSize, int64(page-1)*int64(pageSize))...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -109,7 +115,7 @@ func (s *Store) ListAPIRequestLogsPageFiltered(ctx context.Context, page, pageSi
 	out := make([]domain.APIRequestLog, 0, pageSize)
 	for rows.Next() {
 		var entry domain.APIRequestLog
-		if err := rows.Scan(&entry.ID, &entry.RequestID, &entry.APIKeyID, &entry.APIKeyPrefix,
+		if err := rows.Scan(&entry.ID, &entry.RequestID, &entry.ProviderID, &entry.APIKeyID, &entry.APIKeyPrefix,
 			&entry.AccountID, &entry.AccountName, &entry.TaskID, &entry.Method, &entry.Path,
 			&entry.Kind, &entry.Model, &entry.Parameters, &entry.PromptChars, &entry.EstimatedTokens,
 			&entry.Status, &entry.ErrorCode, &entry.DurationMS, &entry.ClientIP, &entry.CreatedAt); err != nil {

@@ -282,12 +282,12 @@ func (s *Server) salePricingEffectiveCredits(ctx context.Context, rule domain.Mo
 	if item.GenerateAudio == nil && !item.HasVideoReference {
 		return rule.UnitTokens, []string{}, nil
 	}
-	spec, ok := videospec.Get(rule.Model)
+	spec, ok := videospec.GetForProvider(rule.ProviderID, rule.Model)
 	if !ok {
 		return 0, nil, errors.New("视频模型缺少参数规范")
 	}
 	request := domain.VideoRequest{
-		Model: rule.Model, Duration: rule.Duration, Resolution: rule.Resolution,
+		Provider: rule.ProviderID, Model: rule.Model, Duration: rule.Duration, Resolution: rule.Resolution,
 		GenerateAudio: item.GenerateAudio,
 	}
 	if len(spec.ResolutionBySize) > 0 {
@@ -306,7 +306,7 @@ func (s *Server) salePricingEffectiveCredits(ctx context.Context, rule domain.Mo
 	if err := normalizeVideoOptions(&request, spec); err != nil {
 		return 0, nil, err
 	}
-	estimate, err := pricing.Video(ctx, salePricingProviderRules{store: s.Store, providerID: rule.ProviderID}, request)
+	estimate, err := pricing.VideoForProvider(ctx, salePricingProviderRules{store: s.Store, providerID: rule.ProviderID}, rule.ProviderID, request)
 	if err != nil {
 		return 0, nil, err
 	}

@@ -30,7 +30,7 @@ func (s *Store) EnqueueDueSessionRefreshJobs(ctx context.Context, ahead time.Dur
 	command, err := s.DB.Exec(ctx, `WITH due AS (
 		SELECT a.id
 		FROM accounts a
-		WHERE a.session_refresh_enabled=true
+		WHERE a.archived_at IS NULL AND a.session_refresh_enabled=true
 		  AND a.status NOT IN ('disabled','invalid')
 		  AND (a.session_refresh_not_before IS NULL OR a.session_refresh_not_before<=now())
 		  AND (a.access_token_expires_at IS NULL OR a.access_token_expires_at<=now()+$1::interval-make_interval(secs=>a.session_refresh_jitter_seconds))
@@ -51,13 +51,23 @@ func (s *Store) EnqueueDueSessionRefreshJobs(ctx context.Context, ahead time.Dur
 }
 
 func (s *Store) EnqueueSessionRefreshJob(ctx context.Context, accountID uuid.UUID, priority int) (domain.SessionRefreshJob, error) {
+	return s.enqueueSessionRefreshJob(ctx, accountID, priority, "cookie")
+}
+
+func (s *Store) EnqueueBrowserSessionRefreshJob(ctx context.Context, accountID uuid.UUID, priority int) (domain.SessionRefreshJob, error) {
+	return s.enqueueSessionRefreshJob(ctx, accountID, priority, "browser")
+}
+
+func (s *Store) enqueueSessionRefreshJob(ctx context.Context, accountID uuid.UUID, priority int, stage string) (domain.SessionRefreshJob, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return domain.SessionRefreshJob{}, err
 	}
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `INSERT INTO session_refresh_jobs(account_id,stage,status,priority)
-		VALUES($1,'cookie','pending',$2) ON CONFLICT DO NOTHING`, accountID, priority)
+		SELECT id,$2,'pending',$3 FROM accounts
+		WHERE id=$1 AND archived_at IS NULL AND session_refresh_enabled=true
+		ON CONFLICT DO NOTHING`, accountID, stage, priority)
 	if err != nil {
 		return domain.SessionRefreshJob{}, err
 	}
@@ -69,8 +79,10 @@ func (s *Store) EnqueueSessionRefreshJob(ctx context.Context, accountID uuid.UUI
 	if err != nil {
 		return domain.SessionRefreshJob{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE session_refresh_jobs SET priority=GREATEST(priority,$2),next_attempt_at=LEAST(next_attempt_at,now()),updated_at=now()
-		WHERE id=$1 AND status='pending'`, job.ID, priority); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE session_refresh_jobs SET
+		stage=CASE WHEN $3='browser' THEN 'browser' ELSE stage END,
+		priority=GREATEST(priority,$2),next_attempt_at=LEAST(next_attempt_at,now()),updated_at=now()
+		WHERE id=$1 AND status='pending'`, job.ID, priority, stage); err != nil {
 		return domain.SessionRefreshJob{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -95,6 +107,7 @@ func (s *Store) ClaimSessionRefreshJob(ctx context.Context, stage, owner, worker
 	job, err := scanSessionRefreshJob(s.DB.QueryRow(ctx, `WITH candidate AS (
 		SELECT j.id FROM session_refresh_jobs j JOIN accounts a ON a.id=j.account_id
 		WHERE j.status='pending' AND j.stage=$1 AND j.next_attempt_at<=now()
+		  AND a.archived_at IS NULL AND a.session_refresh_enabled=true
 		  AND ($2='' OR a.browser_worker_group=$2)
 		ORDER BY j.priority DESC,j.next_attempt_at,j.created_at
 		LIMIT 1 FOR UPDATE SKIP LOCKED
@@ -147,10 +160,11 @@ func (s *Store) CompleteSessionRefreshJob(ctx context.Context, id, leaseToken uu
 	var tokenExpiresAt time.Time
 	var leaseStartedAt time.Time
 	var lastCheckedAt *time.Time
-	err = tx.QueryRow(ctx, `SELECT j.account_id,j.stage,a.access_token_expires_at,j.lease_started_at,a.last_checked_at
+	var pendingCookieJSON string
+	err = tx.QueryRow(ctx, `SELECT j.account_id,j.stage,a.access_token_expires_at,j.lease_started_at,a.last_checked_at,a.pending_cookie_json_ciphertext
 		FROM session_refresh_jobs j JOIN accounts a ON a.id=j.account_id
 		WHERE j.id=$1 AND j.status='leased' AND j.lease_token=$2
-		FOR UPDATE OF j`, id, leaseToken).Scan(&accountID, &jobStage, &tokenExpiresAt, &leaseStartedAt, &lastCheckedAt)
+		FOR UPDATE OF j,a`, id, leaseToken).Scan(&accountID, &jobStage, &tokenExpiresAt, &leaseStartedAt, &lastCheckedAt, &pendingCookieJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -165,7 +179,19 @@ func (s *Store) CompleteSessionRefreshJob(ctx context.Context, id, leaseToken uu
 	// A valid Better Auth session may legitimately return the existing JWT
 	// until Leonardo's own rotation window opens. Keep the browser result and
 	// retry close to expiry instead of treating this as a failed login.
-	if !tokenExpiresAt.After(now.Add(minFresh)) {
+	if pendingCookieJSON != "" {
+		command, updateErr := tx.Exec(ctx, `UPDATE session_refresh_jobs SET
+			stage='browser',status='pending',next_attempt_at=now(),lease_owner='',lease_token=NULL,
+			lease_started_at=NULL,lease_expires_at=NULL,attempt_count=GREATEST(0,attempt_count-1),
+			last_error='complete Cookie JSON pending browser validation',completed_at=NULL,updated_at=now()
+			WHERE id=$1 AND status='leased' AND lease_token=$2`, id, leaseToken)
+		if updateErr != nil {
+			return updateErr
+		}
+		if command.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+	} else if !tokenExpiresAt.After(now.Add(minFresh)) {
 		retryAt := tokenExpiresAt.Add(-sessionRefreshRotationRetryAhead)
 		if minimum := now.Add(time.Minute); retryAt.Before(minimum) {
 			retryAt = minimum
@@ -251,7 +277,7 @@ func (s *Store) FailSessionRefreshJob(ctx context.Context, id, leaseToken uuid.U
 	return tx.Commit(ctx)
 }
 
-func (s *Store) TerminalFailSessionRefreshJob(ctx context.Context, id, leaseToken uuid.UUID, message string) error {
+func (s *Store) TerminalFailSessionRefreshJob(ctx context.Context, id, leaseToken uuid.UUID, message, attemptedFingerprint string) error {
 	message = truncateRefreshError(message)
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -259,22 +285,43 @@ func (s *Store) TerminalFailSessionRefreshJob(ctx context.Context, id, leaseToke
 	}
 	defer tx.Rollback(ctx)
 	var accountID uuid.UUID
-	err = tx.QueryRow(ctx, `UPDATE session_refresh_jobs SET
-		status='failed',lease_owner='',lease_token=NULL,lease_started_at=NULL,lease_expires_at=NULL,
-		last_error=$3,completed_at=now(),updated_at=now()
-		WHERE id=$1 AND status='leased' AND lease_token=$2
-		RETURNING account_id`, id, leaseToken, message).Scan(&accountID)
+	var pendingCookieJSON string
+	var pendingFingerprint string
+	var tokenExpiresAt *time.Time
+	err = tx.QueryRow(ctx, `SELECT j.account_id,a.pending_cookie_json_ciphertext,a.pending_cookie_json_fingerprint,a.access_token_expires_at
+		FROM session_refresh_jobs j JOIN accounts a ON a.id=j.account_id
+		WHERE j.id=$1 AND j.status='leased' AND j.lease_token=$2
+		FOR UPDATE OF j,a`, id, leaseToken).Scan(&accountID, &pendingCookieJSON, &pendingFingerprint, &tokenExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
+	if pendingCookieJSON != "" && (attemptedFingerprint == "" || pendingFingerprint != attemptedFingerprint) {
+		_, err = tx.Exec(ctx, `UPDATE session_refresh_jobs SET
+			stage='browser',status='pending',next_attempt_at=now(),lease_owner='',lease_token=NULL,
+			lease_started_at=NULL,lease_expires_at=NULL,attempt_count=GREATEST(0,attempt_count-1),
+			last_error='complete Cookie JSON pending browser validation',completed_at=NULL,updated_at=now()
+			WHERE id=$1`, id)
+		if err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	_, err = tx.Exec(ctx, `UPDATE session_refresh_jobs SET
+		status='failed',lease_owner='',lease_token=NULL,lease_started_at=NULL,lease_expires_at=NULL,
+		last_error=$2,completed_at=now(),updated_at=now()
+		WHERE id=$1`, id, message)
+	if err != nil {
+		return err
+	}
 	_, err = tx.Exec(ctx, `UPDATE accounts SET
 		session_refresh_failures=session_refresh_failures+1,session_refresh_not_before=NULL,
-		last_error=$2,status=CASE WHEN status='disabled' THEN status ELSE 'invalid' END,
-		cooldown_until=NULL,updated_at=now()
-		WHERE id=$1`, accountID, message)
+		last_error=CASE WHEN access_token_expires_at IS NULL OR access_token_expires_at<=now() THEN $2 ELSE last_error END,
+		status=CASE WHEN status='disabled' THEN status WHEN access_token_expires_at IS NULL OR access_token_expires_at<=now() THEN 'invalid' ELSE status END,
+		cooldown_until=CASE WHEN access_token_expires_at IS NULL OR access_token_expires_at<=now() THEN NULL ELSE cooldown_until END,
+		updated_at=now() WHERE id=$1`, accountID, message)
 	if err != nil {
 		return err
 	}

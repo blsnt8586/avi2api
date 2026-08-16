@@ -25,6 +25,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--solve-captcha", action="store_true")
     parser.add_argument("--import-cookies", type=Path)
+    parser.add_argument("--cookie-json-source", choices=("active", "pending", "browser"), default="")
+    parser.add_argument("--cookie-json-fingerprint", default="")
     parser.add_argument("--login-timeout", type=int, default=120)
     parser.add_argument("--login-process-timeout", type=int, default=300)
     return parser.parse_args()
@@ -44,7 +46,6 @@ def read_env(path: Path) -> dict[str, str]:
 def cleanup_sensitive_artifacts(output_dir: Path) -> None:
     sensitive_names = {
         "session-token.json",
-        "cookie-header.txt",
         "cookies.json",
         "storage-state.json",
         "recording.har",
@@ -54,14 +55,23 @@ def cleanup_sensitive_artifacts(output_dir: Path) -> None:
             path.unlink(missing_ok=True)
 
 
-def load_browser_session(output_dir: Path) -> dict[str, object]:
+def load_browser_session(
+    output_dir: Path,
+    cookie_json_source: str = "",
+    cookie_json_fingerprint: str = "",
+) -> dict[str, object]:
     browser_session = json.loads(
         (output_dir / "session-token.json").read_text(encoding="utf-8")
     )
     browser_session.pop("status", None)
-    browser_session["cookie_header"] = (output_dir / "cookie-header.txt").read_text(
-        encoding="utf-8"
-    )
+    cookies = json.loads((output_dir / "cookies.json").read_text(encoding="utf-8"))
+    if not isinstance(cookies, list):
+        raise RuntimeError("browser cookie export must be an array")
+    browser_session["cookie_json"] = cookies
+    if cookie_json_source:
+        browser_session["cookie_json_source"] = cookie_json_source
+    if cookie_json_fingerprint:
+        browser_session["cookie_json_fingerprint"] = cookie_json_fingerprint
     return browser_session
 
 
@@ -89,7 +99,9 @@ def main() -> int:
         timeout=args.login_process_timeout,
     )
 
-    browser_session = load_browser_session(args.output_dir)
+    browser_session = load_browser_session(
+        args.output_dir, args.cookie_json_source, args.cookie_json_fingerprint
+    )
     env = read_env(args.env_file)
     sync_token = env["LEO_SESSION_SYNC_TOKEN"]
 

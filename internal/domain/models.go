@@ -25,6 +25,11 @@ type Account struct {
 	Name                           string     `json:"name"`
 	Email                          string     `json:"email"`
 	CookieCiphertext               string     `json:"-"`
+	CookieJSONCiphertext           string     `json:"-"`
+	PendingCookieJSONCiphertext    string     `json:"-"`
+	PendingCookieJSONFingerprint   string     `json:"-"`
+	HasCompleteCookieJSON          bool       `json:"has_complete_cookie_json"`
+	HasPendingCookieJSON           bool       `json:"has_pending_cookie_json"`
 	AccessTokenCiphertext          string     `json:"-"`
 	AccessTokenExpiresAt           *time.Time `json:"access_token_expires_at,omitempty"`
 	HasuraUserID                   string     `json:"hasura_user_id"`
@@ -110,6 +115,7 @@ type TaskEvent struct {
 type APIRequestLog struct {
 	ID              int64           `json:"id"`
 	RequestID       string          `json:"request_id"`
+	ProviderID      string          `json:"provider_id"`
 	APIKeyID        *uuid.UUID      `json:"api_key_id,omitempty"`
 	APIKeyPrefix    string          `json:"api_key_prefix"`
 	AccountID       *uuid.UUID      `json:"account_id,omitempty"`
@@ -137,7 +143,16 @@ type ModelConfig struct {
 	Defaults      json.RawMessage `json:"defaults"`
 }
 
+type ModelProviderConfig struct {
+	ProviderID    string          `json:"provider_id"`
+	ModelID       string          `json:"model_id"`
+	UpstreamModel string          `json:"upstream_model"`
+	Priority      int             `json:"priority"`
+	Settings      json.RawMessage `json:"settings"`
+}
+
 type ModelCostRecord struct {
+	ProviderID              string    `json:"provider_id"`
 	Model                   string    `json:"model"`
 	Kind                    string    `json:"kind"`
 	Size                    string    `json:"size,omitempty"`
@@ -220,6 +235,7 @@ type AdminTask struct {
 }
 
 type ImageRequest struct {
+	Provider          string        `json:"provider,omitempty"`
 	Model             string        `json:"model"`
 	Prompt            string        `json:"prompt"`
 	N                 int           `json:"n,omitempty"`
@@ -262,6 +278,7 @@ type ImageResult struct {
 }
 
 type VideoRequest struct {
+	Provider          string        `json:"provider,omitempty"`
 	Model             string        `json:"model"`
 	Prompt            string        `json:"prompt"`
 	Duration          int           `json:"duration,omitempty"`
@@ -309,6 +326,7 @@ type VideoOutput struct {
 }
 
 type AudioRequest struct {
+	Provider          string   `json:"provider,omitempty"`
 	Model             string   `json:"model"`
 	Prompt            string   `json:"prompt"`
 	N                 int      `json:"n,omitempty"`
@@ -384,6 +402,7 @@ type Provider struct {
 	CreditUnit   string          `json:"credit_unit"`
 	Priority     int             `json:"priority"`
 	Capabilities []string        `json:"capabilities"`
+	CatalogSync  bool            `json:"catalog_sync"`
 	Settings     json.RawMessage `json:"settings,omitempty"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`

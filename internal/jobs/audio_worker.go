@@ -9,14 +9,13 @@ import (
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 	"github.com/leonardo2api/leonardo2api/internal/metrics"
+	"github.com/leonardo2api/leonardo2api/internal/providers"
 	"strings"
 	"time"
 )
 
 func (w *Worker) processAudio(parent context.Context, id uuid.UUID) error {
 	start := time.Now()
-	metrics.TasksActive.Inc()
-	defer metrics.TasksActive.Dec()
 	ctx, cancel := context.WithTimeout(parent, w.Config.TaskTimeout)
 	defer cancel()
 	task, leaseID, claimed, err := w.Store.ClaimTask(ctx, id, w.taskLease())
@@ -25,6 +24,11 @@ func (w *Worker) processAudio(parent context.Context, id uuid.UUID) error {
 	}
 	if !claimed {
 		return nil
+	}
+	metrics.TasksActive.WithLabelValues(task.ProviderID, task.Kind).Inc()
+	defer metrics.TasksActive.WithLabelValues(task.ProviderID, task.Kind).Dec()
+	if task.ProviderID != providers.Leonardo {
+		return w.fail(ctx, id, leaseID, "provider_unavailable", providers.ErrUnsupported)
 	}
 	stopLease := w.startLeaseHeartbeat(ctx, cancel, id, leaseID)
 	defer stopLease()
@@ -92,7 +96,7 @@ func (w *Worker) processAudio(parent context.Context, id uuid.UUID) error {
 	if err != nil || !proceed {
 		return err
 	}
-	if err := w.waitForAccountSubmit(ctx, account.ID); err != nil {
+	if err := w.waitForProviderAccountSubmit(ctx, account.ProviderID, account.ID); err != nil {
 		return w.fail(ctx, id, leaseID, "account_submit_interval", err)
 	}
 	account, proceed, err = w.enforceSubmissionFence(ctx, id, leaseID, account.ID)

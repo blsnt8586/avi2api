@@ -7,16 +7,13 @@ import {
   Check,
   CirclePlay,
   Coins,
-  Download,
   Eye,
   EyeOff,
-  FlaskConical,
   Image as ImageIcon,
   KeyRound,
   Plus,
   RefreshCw,
   ScrollText,
-  Square,
   Upload,
   Video,
 } from "lucide-react";
@@ -26,16 +23,25 @@ import type {
   CachedImageResult,
   CachedVideoResult,
   MediaKind,
-  PlaygroundOutput,
   PlaygroundTask,
+  Provider,
   PublicVideoModel,
 } from "../shared/types";
 import type { PlaygroundImageModel } from "../shared/catalog";
-import { imageModels, imageSizes } from "../shared/catalog";
-import { idempotencyKey, publicAPI } from "../shared/api";
+import { imageSizes } from "../shared/catalog";
+import { api, idempotencyKey, publicAPI } from "../shared/api";
 import { clearPlaygroundCache, useCachedResult, useSessionState } from "../shared/cache";
-import { statusText } from "../shared/status";
 import { assertPromptLength } from "../shared/text";
+import {
+  isRegisteredProviderID,
+  modelDisplayID,
+  modelProviderID,
+  providerInternalModel,
+  providerPublicModels,
+  type RegisteredProviderID,
+} from "../shared/providers";
+import { GenerationProviderSelector } from "../components/generation-provider-selector";
+import { PlaygroundResult } from "../components/playground-result";
 import {
   PublicAudioModel,
   audioModelDocs,
@@ -53,14 +59,30 @@ import {
 } from "./media-specs";
 
 type PlaygroundKind = MediaKind | "chat";
+type GenerationProvider = RegisteredProviderID;
+
+const imageModelsByProvider: Record<GenerationProvider, PlaygroundImageModel[]> = {
+  leonardo: providerPublicModels<PlaygroundImageModel>("leonardo", "image"),
+  adobe: providerPublicModels<PlaygroundImageModel>("adobe", "image"),
+};
+
+function providerImageModel(provider: GenerationProvider, model: PlaygroundImageModel): PlaygroundImageModel {
+  return providerInternalModel<PlaygroundImageModel>(provider, "image", model) || model;
+}
 
 export function Playground() {
   const [media, setMedia] = useSessionState<PlaygroundKind>("media", "image");
   const [searchParams] = useSearchParams();
   const requestedMedia = searchParams.get("media");
   const requestedModel = searchParams.get("model") || undefined;
+  const requestedProvider = searchParams.get("provider");
+  const initialProvider = isRegisteredProviderID(requestedProvider) ? requestedProvider : undefined;
   const [apiKey, setAPIKey] = useSessionState("api-key", "");
   const [showKey, setShowKey] = useState(false);
+  const providers = useQuery({
+    queryKey: ["providers"],
+    queryFn: () => api<Provider[]>("/admin/api/providers"),
+  });
   React.useEffect(() => {
     if (requestedMedia === "image" || requestedMedia === "video" || requestedMedia === "audio" || requestedMedia === "chat") {
       setMedia(requestedMedia);
@@ -132,32 +154,39 @@ export function Playground() {
         </Tabs>
         <span>
           <AlertTriangle />
-          提交会调用真实接口并消耗 Leonardo 积分
+          提交会调用真实接口并消耗所选平台积分
         </span>
       </div>
       {media === "image" ? (
-        <ImagePlayground apiKey={apiKey} initialModel={requestedModel} />
+        <ImagePlayground apiKey={apiKey} providers={providers.data || []} initialModel={requestedModel} initialProvider={initialProvider} />
       ) : media === "video" ? (
-        <VideoPlayground apiKey={apiKey} initialModel={requestedModel} />
+        <VideoPlayground apiKey={apiKey} providers={providers.data || []} initialModel={requestedModel} initialProvider={initialProvider} />
       ) : media === "audio" ? (
         <AudioPlayground apiKey={apiKey} initialModel={requestedModel} />
       ) : (
-        <ChatPlayground apiKey={apiKey} />
+        <ChatPlayground apiKey={apiKey} providers={providers.data || []} />
       )}
     </section>
   );
 }
 
-function ChatPlayground({ apiKey }: { apiKey: string }) {
+function ChatPlayground({ apiKey, providers }: { apiKey: string; providers: Provider[] }) {
   const [model, setModel] = useSessionState<PlaygroundImageModel>("chat-model", "gpt-image-2");
+	const [provider, setProvider] = useSessionState<GenerationProvider>("chat-provider", "leonardo");
   const [prompt, setPrompt] = useSessionState("chat-prompt", "生成一张白色背景上的产品摄影，柔和棚拍光线");
+	const selectableModels = imageModelsByProvider[provider];
+	const effectiveModel = providerImageModel(provider, model);
+  React.useEffect(() => {
+    if (!selectableModels.includes(model) && selectableModels[0]) setModel(selectableModels[0]);
+  }, [model, selectableModels, setModel]);
   const mutation = useMutation({
     mutationFn: () => {
-      assertPromptLength(prompt, model, imageModelDocs[model].promptMax);
+		assertPromptLength(prompt, model, imageModelDocs[effectiveModel].promptMax);
       return publicAPI<Record<string, unknown>>("/v1/chat/completions", apiKey, {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey() },
         body: JSON.stringify({
+		  provider,
           model,
           stream: false,
           messages: [{ role: "user", content: prompt }],
@@ -172,9 +201,13 @@ function ChatPlayground({ apiKey }: { apiKey: string }) {
           <div><span className="eyebrow">Chat Compatibility</span><h2>Chat Completions 测试</h2></div>
           <Badge tone="warning">会消耗积分</Badge>
         </div>
+		<GenerationProviderSelector providers={providers} value={provider} capability="image" onChange={(next) => {
+		  setProvider(next);
+		  if (!imageModelsByProvider[next].includes(model)) setModel(imageModelsByProvider[next][0]);
+		}} />
         <label>模型
           <select value={model} onChange={(event) => setModel(event.target.value as PlaygroundImageModel)}>
-            {imageModels.map((value) => <option value={value} key={value}>{value}</option>)}
+			{selectableModels.map((value) => <option value={value} key={value}>{modelDisplayID(value)}</option>)}
           </select>
         </label>
         <label>用户消息
@@ -223,7 +256,7 @@ function FileInput({
   );
 }
 
-function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialModel?: string }) {
+function ImagePlayground({ apiKey, providers, initialModel, initialProvider }: { apiKey: string; providers: Provider[]; initialModel?: string; initialProvider?: GenerationProvider }) {
   const [mode, setMode] = useSessionState<"generation" | "edit">(
     "image-mode",
     "generation",
@@ -232,9 +265,16 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     "image-model",
     "gpt-image-2",
   );
+  const [provider, setProvider] = useSessionState<GenerationProvider>("image-provider", "leonardo");
   React.useEffect(() => {
-    if (initialModel && initialModel in imageModelDocs) setModel(initialModel as PlaygroundImageModel);
-  }, [initialModel, setModel]);
+    if (!initialModel) return;
+    const inferredProvider = initialProvider || modelProviderID(initialModel);
+    if (!isRegisteredProviderID(inferredProvider)) return;
+    const publicModel = modelDisplayID(initialModel) as PlaygroundImageModel;
+    if (!imageModelsByProvider[inferredProvider].includes(publicModel)) return;
+    setProvider(inferredProvider);
+    setModel(publicModel);
+  }, [initialModel, initialProvider, setModel, setProvider]);
   const [prompt, setPrompt] = useSessionState("image-prompt", "");
   const [size, setSize] = useSessionState("image-size", "1024x1024");
   const [quality, setQuality] = useSessionState("image-quality", "low");
@@ -245,6 +285,11 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
   );
   const [strength, setStrength] = useSessionState("image-strength", "MID");
   const [files, setFiles] = useState<File[]>([]);
+  const effectiveModel = providerImageModel(provider, model);
+  const selectableImageModels = imageModelsByProvider[provider];
+  React.useEffect(() => {
+    if (!selectableImageModels.includes(model) && selectableImageModels[0]) setModel(selectableImageModels[0]);
+  }, [model, selectableImageModels, setModel]);
   const [cachedResult, setCachedResult, cacheReady] =
     useCachedResult<CachedImageResult>("latest-image");
   const [taskID, setTaskID] = useState("");
@@ -252,14 +297,15 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     mutationFn: async () => {
       if (!apiKey.trim()) throw new Error("请先填写 API Key");
       if (!prompt.trim()) throw new Error("请输入图像描述");
-      assertPromptLength(prompt, model, imageModelDocs[model].promptMax);
+      assertPromptLength(prompt, model, imageModelDocs[effectiveModel].promptMax);
       if (mode === "edit" && !files.length)
         throw new Error("图生图至少需要 1 张参考图");
       const common = {
+		provider,
         model,
         prompt: prompt.trim(),
         size,
-        n: model === "gpt-image-2" ? 1 : count,
+		n: provider === "adobe" || model === "gpt-image-2" ? 1 : count,
 		response_format: "url",
         background,
         moderation: "auto",
@@ -316,8 +362,17 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
   });
   function selectModel(next: PlaygroundImageModel) {
     setModel(next);
-    setSize(imageSizes(next)[0]);
+    setSize(imageSizes(providerImageModel(provider, next))[0]);
     if (next === "gpt-image-2") setCount(1);
+  }
+  function selectProvider(next: GenerationProvider) {
+    const supported = imageModelsByProvider[next];
+    const nextModel = supported.includes(model) ? model : supported[0];
+    if (!nextModel) return;
+    setProvider(next);
+    setModel(nextModel);
+    setSize(imageSizes(providerImageModel(next, nextModel))[0]);
+    if (next === "adobe") setCount(1);
   }
   function clear() {
 	setTaskID("");
@@ -361,6 +416,7 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
           <strong>生成配置</strong>
           <span>必填与常用参数</span>
         </div>
+        <GenerationProviderSelector providers={providers} value={provider} capability="image" onChange={selectProvider} />
         <label>
           模型
           <select
@@ -369,8 +425,8 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
               selectModel(e.target.value as PlaygroundImageModel)
             }
           >
-            {imageModels.map((v) => (
-              <option key={v}>{v}</option>
+            {selectableImageModels.map((v) => (
+              <option key={v} value={v}>{modelDisplayID(v)}</option>
             ))}
           </select>
         </label>
@@ -403,12 +459,12 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
           <label>
             尺寸
             <select value={size} onChange={(e) => setSize(e.target.value)}>
-              {imageSizes(model).map((v) => (
+              {imageSizes(effectiveModel).map((v) => (
                 <option key={v}>{v}</option>
               ))}
             </select>
           </label>
-          {model === "gpt-image-2" && (
+          {(model === "gpt-image-2" || model === "adobe:gpt-image-2") && (
             <label>
               质量
               <select
@@ -426,9 +482,9 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
             <input
               type="number"
               min="1"
-              max={model === "gpt-image-2" ? 1 : 4}
-              value={model === "gpt-image-2" ? 1 : count}
-              disabled={model === "gpt-image-2"}
+			  max={provider === "adobe" || model === "gpt-image-2" ? 1 : 4}
+			  value={provider === "adobe" || model === "gpt-image-2" ? 1 : count}
+			  disabled={provider === "adobe" || model === "gpt-image-2"}
               onChange={(e) => setCount(Number(e.target.value))}
             />
           </label>
@@ -499,9 +555,16 @@ function ImagePlayground({ apiKey, initialModel }: { apiKey: string; initialMode
   );
 }
 
-const videoModels = Object.keys(videoModelDocs) as PublicVideoModel[];
+type PlaygroundVideoModel = PublicVideoModel | "kling-3.0-omni";
 
-type PlaygroundVideoModel = PublicVideoModel;
+const videoModelsByProvider: Record<GenerationProvider, PlaygroundVideoModel[]> = {
+  leonardo: providerPublicModels<PlaygroundVideoModel>("leonardo", "video"),
+  adobe: providerPublicModels<PlaygroundVideoModel>("adobe", "video"),
+};
+
+function providerVideoModel(provider: GenerationProvider, model: PlaygroundVideoModel): PublicVideoModel {
+  return (providerInternalModel<PublicVideoModel>(provider, "video", model) || model) as PublicVideoModel;
+}
 
 const terminalStatuses = [
   "succeeded",
@@ -545,7 +608,7 @@ function VideoMediaInput({
   );
 }
 
-function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialModel?: string }) {
+function VideoPlayground({ apiKey, providers, initialModel, initialProvider }: { apiKey: string; providers: Provider[]; initialModel?: string; initialProvider?: GenerationProvider }) {
   const [mode, setMode] = useSessionState<"generation" | "reference">(
     "video-mode",
     "generation",
@@ -554,9 +617,16 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     "video-model",
     "seedance-2.0-mini",
   );
+  const [provider, setProvider] = useSessionState<GenerationProvider>("video-provider", "leonardo");
   React.useEffect(() => {
-    if (initialModel && initialModel in videoModelDocs) setModel(initialModel as PlaygroundVideoModel);
-  }, [initialModel, setModel]);
+    if (!initialModel) return;
+    const inferredProvider = initialProvider || modelProviderID(initialModel);
+    if (!isRegisteredProviderID(inferredProvider)) return;
+    const publicModel = modelDisplayID(initialModel) as PlaygroundVideoModel;
+    if (!videoModelsByProvider[inferredProvider].includes(publicModel)) return;
+    setProvider(inferredProvider);
+    setModel(publicModel);
+  }, [initialModel, initialProvider, setModel, setProvider]);
   const [prompt, setPrompt] = useSessionState("video-prompt", "");
   const [duration, setDuration] = useSessionState("video-duration", 8);
   const [size, setSize] = useSessionState("video-size", "1280x720");
@@ -574,7 +644,12 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     "video-generate-audio",
     true,
   );
-  const selectedVideoSpec = videoModelDocs[model];
+  const effectiveModel = providerVideoModel(provider, model);
+  const selectableVideoModels = videoModelsByProvider[provider];
+  React.useEffect(() => {
+    if (!selectableVideoModels.includes(model) && selectableVideoModels[0]) setModel(selectableVideoModels[0]);
+  }, [model, selectableVideoModels, setModel]);
+  const selectedVideoSpec = videoModelDocs[effectiveModel];
   const referenceMode = Boolean(selectedVideoSpec.requiresStartFrame || mode === "reference");
   const [taskID, setTaskID] = useState("");
   const [cachedResult, setCachedResult, cacheReady] =
@@ -605,14 +680,15 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
       if (referenceMode && !hasReference)
         throw new Error("多模态参考模式至少需要上传 1 个参考文件");
       const fields = {
+		provider,
         model,
         prompt: prompt.trim(),
         duration,
         size,
         resolution,
         reference_strength: strength,
-        generate_audio: videoModelDocs[model].supportsGenerateAudio
-          ? videoModelDocs[model].alwaysGenerateAudio || generateAudio
+        generate_audio: selectedVideoSpec.supportsGenerateAudio
+          ? selectedVideoSpec.alwaysGenerateAudio || generateAudio
           : undefined,
       };
       if (!referenceMode)
@@ -663,10 +739,11 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     onSuccess: () => task.refetch(),
   });
   function selectModel(next: PlaygroundVideoModel) {
-    const spec = videoModelDocs[next];
+    const routed = providerVideoModel(provider, next);
+    const spec = videoModelDocs[routed];
     setModel(next);
-    setResolution(defaultVideoResolution(next));
-    setSize(modelVideoSizes(next)[0].value);
+    setResolution(defaultVideoResolution(routed));
+    setSize(modelVideoSizes(routed)[0].value);
     setDuration(spec.defaultDuration);
     setReferenceImages((current) => current.slice(0, maxImageReferences(spec, referenceVideos.length > 0)));
     if (!spec.supportsStartEnd) {
@@ -681,6 +758,24 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
     setReferenceAudio((current) => current.slice(0, maxAudioReferences(spec)));
     if (spec.alwaysGenerateAudio) setGenerateAudio(true);
     if (spec.requiresStartFrame) setMode("reference");
+  }
+  function selectProvider(next: GenerationProvider) {
+    const supported = videoModelsByProvider[next];
+    const nextModel = supported.includes(model) ? model : supported[0];
+    if (!nextModel) return;
+    setProvider(next);
+    const routed = providerVideoModel(next, nextModel);
+    const spec = videoModelDocs[routed];
+    setModel(nextModel);
+    setResolution(defaultVideoResolution(routed));
+    setSize(modelVideoSizes(routed)[0].value);
+    setDuration(spec.defaultDuration);
+    setReferenceImages([]);
+    setStartFrame([]);
+    setEndFrame([]);
+    setReferenceVideos([]);
+    setReferenceAudio([]);
+    if (spec.alwaysGenerateAudio) setGenerateAudio(true);
   }
   function resetLive() {
     setTaskID("");
@@ -727,6 +822,7 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
           <strong>生成配置</strong>
           <span>视频任务为异步执行</span>
         </div>
+        <GenerationProviderSelector providers={providers} value={provider} capability="video" onChange={selectProvider} />
         <label>
           模型
           <select
@@ -735,8 +831,8 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
               selectModel(e.target.value as PlaygroundVideoModel)
             }
           >
-            {videoModels.map((v) => (
-              <option key={v}>{v}</option>
+            {selectableVideoModels.map((v) => (
+              <option key={v} value={v}>{modelDisplayID(v)}</option>
             ))}
           </select>
         </label>
@@ -834,11 +930,11 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
               onChange={(e) => {
                 const nextSize = e.target.value;
                 setSize(nextSize);
-                const mappedResolution = videoResolutionForSize(model, nextSize);
+                const mappedResolution = videoResolutionForSize(effectiveModel, nextSize);
                 if (mappedResolution) setResolution(mappedResolution);
               }}
             >
-              {modelVideoSizes(model).map((option) => (
+              {modelVideoSizes(effectiveModel).map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
@@ -849,7 +945,7 @@ function VideoPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
               value={resolution}
               onChange={(e) => setResolution(e.target.value)}
             >
-              {videoResolutionsForSize(model, size).map((v) => (
+              {videoResolutionsForSize(effectiveModel, size).map((v) => (
                 <option key={v}>{v}</option>
               ))}
             </select>
@@ -971,7 +1067,7 @@ function AudioPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
       if (!apiKey.trim()) throw new Error("请先填写 API Key");
       if (!prompt.trim()) throw new Error("请输入音频描述");
       assertPromptLength(prompt, model, audioModelDocs[model].promptMax);
-      const common = { model, prompt: prompt.trim(), n: count };
+      const common = { provider: "leonardo", model, prompt: prompt.trim(), n: count };
       const body =
         model === "dialogue-v3"
           ? { ...common, voice, language, prompt_influence: promptInfluence }
@@ -1251,260 +1347,5 @@ function AudioPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
         }
       />
     </div>
-  );
-}
-
-function MediaGallery({
-  kind,
-  imageFormat,
-  outputs,
-  viewMode,
-}: {
-  kind: MediaKind;
-  imageFormat: "png" | "jpeg";
-  outputs: PlaygroundOutput[];
-  viewMode: "fit" | "fill";
-}) {
-  const single = outputs.length === 1;
-  return (
-    <div
-      className={`playground-result-media ${single ? "single" : "multiple"} ${viewMode} ${kind}`}
-    >
-      {outputs.map((output, index) => {
-        const src =
-          output.url ||
-          (output.b64_json
-            ? `data:image/${imageFormat};base64,${output.b64_json}`
-            : "");
-        const extension =
-          kind === "video" ? "mp4" : kind === "audio" ? "mp3" : imageFormat;
-        const label =
-          kind === "video" ? "视频" : kind === "audio" ? "音频" : "图像";
-        return (
-          <figure key={output.id || index}>
-            {output.nsfw && (
-              <div className="playground-content-warning">
-                <AlertTriangle />
-                <span>
-                  <strong>上游标记为显式内容</strong>
-                  <small>
-                    {output.moderation_classifications?.length
-                      ? output.moderation_classifications.join(" · ")
-                      : "请按业务内容政策决定是否展示"}
-                  </small>
-                </span>
-              </div>
-            )}
-            <div className="playground-media-frame">
-              {kind === "video" ? (
-                <video src={src} controls playsInline preload="metadata" />
-              ) : kind === "audio" ? (
-                <audio src={src} controls preload="metadata" />
-              ) : (
-                <img src={src} alt={`生成结果 ${index + 1}`} />
-              )}
-            </div>
-            <figcaption>
-              <span>
-                <strong>
-                  {label} {index + 1}
-                </strong>
-                <small>
-                  {output.width && output.height
-                    ? `${output.width} × ${output.height}`
-                    : "生成结果"}
-                  {output.duration ? ` · ${output.duration} 秒` : ""}
-                </small>
-              </span>
-              {src && (
-                <a
-                  href={src}
-                  download={`leonardo-${kind}-${index + 1}.${extension}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <Download />
-                  下载
-                </a>
-              )}
-            </figcaption>
-          </figure>
-        );
-      })}
-    </div>
-  );
-}
-
-function PlaygroundResult({
-  kind,
-  imageFormat = "jpeg",
-  pending,
-  restoring = false,
-  error,
-  outputs,
-  task,
-  cachedAt,
-  onClear,
-  onCancel,
-}: {
-  kind: MediaKind;
-  imageFormat?: "png" | "jpeg";
-  pending: boolean;
-  restoring?: boolean;
-  error?: string;
-  outputs?: PlaygroundOutput[];
-  task?: PlaygroundTask;
-  cachedAt?: number;
-  onClear: () => void;
-  onCancel?: () => void;
-}) {
-  const [viewMode, setViewMode] = useState<"fit" | "fill">("fit");
-  const hasMedia = Boolean(outputs?.length);
-  const succeeded = task ? task.status === "succeeded" : hasMedia;
-  const activeTask = Boolean(task && !terminalStatuses.includes(task.status));
-  return (
-    <section className="playground-preview">
-      <div className="playground-preview-heading">
-        <div>
-          <span className="eyebrow">Live Result</span>
-          <h2>生成结果</h2>
-        </div>
-        <div className="playground-preview-actions">
-          {cachedAt && (
-            <span
-              className="playground-cache-badge"
-              title={`缓存于 ${new Date(cachedAt).toLocaleString("zh-CN")}`}
-            >
-              <Check />
-              最近结果
-            </span>
-          )}
-          {hasMedia && kind !== "audio" && (
-            <div className="segmented compact" aria-label="媒体显示方式">
-              <button
-                className={viewMode === "fit" ? "active" : ""}
-                onClick={() => setViewMode("fit")}
-              >
-                适应
-              </button>
-              <button
-                className={viewMode === "fill" ? "active" : ""}
-                onClick={() => setViewMode("fill")}
-              >
-                铺满
-              </button>
-            </div>
-          )}
-          {(hasMedia || task) && (
-            <button
-              className="icon"
-              onClick={onClear}
-              title="清空结果和对应缓存"
-              aria-label="清空结果"
-            >
-              <Square />
-            </button>
-          )}
-        </div>
-      </div>
-      {task && (
-        <div className="playground-status">
-          <span>
-            <i className={`status ${task.status}`}></i>
-            {statusText(task.status)}
-          </span>
-          {task.status !== "processing" && (
-            <>
-              <strong>{task.progress || 0}%</strong>
-              <div>
-                <i style={{ width: `${task.progress || 0}%` }}></i>
-              </div>
-            </>
-          )}
-          <code>{task.id}</code>
-        </div>
-      )}
-      <div className={`playground-stage ${hasMedia ? "has-media" : ""}`}>
-        {restoring && !pending && (
-          <div className="playground-empty loading">
-            <RefreshCw className="spin" />
-            <strong>正在恢复最近结果</strong>
-            <span>媒体缓存在当前浏览器中</span>
-          </div>
-        )}
-        {pending && (
-          <div className="playground-empty loading">
-            <RefreshCw className="spin" />
-            <strong>
-              {kind === "image"
-				? "正在提交图像任务"
-                : kind === "video"
-                  ? "正在提交视频任务"
-                  : "正在提交音频任务"}
-            </strong>
-            <span>请保持页面打开</span>
-          </div>
-        )}
-        {!restoring && !pending && !error && !hasMedia && !task && (
-          <div className="playground-empty">
-            <FlaskConical />
-            <strong>结果将在这里显示</strong>
-            <span>配置参数并提交一次真实测试</span>
-          </div>
-        )}
-        {error && (
-          <div className="playground-empty error-state">
-            <AlertTriangle />
-            <strong>请求失败</strong>
-            <span>{error}</span>
-          </div>
-        )}
-        {task?.error_message && (
-          <div className="playground-empty error-state">
-            <AlertTriangle />
-            <strong>{statusText(task.status)}</strong>
-            <span>{task.error_message}</span>
-            <code>
-              {[task.error_code, task.error_details?.provider_error_code]
-                .filter(Boolean)
-                .join(" · ")}
-            </code>
-            {task.generation_id && (
-              <small>Generation ID：{task.generation_id}</small>
-            )}
-          </div>
-        )}
-        {succeeded && hasMedia && (
-          <MediaGallery
-            kind={kind}
-            imageFormat={imageFormat}
-            outputs={outputs || []}
-            viewMode={viewMode}
-          />
-        )}{" "}
-        {succeeded && !hasMedia && (
-          <div className="playground-empty error-state">
-            <AlertTriangle />
-            <strong>任务完成但没有媒体结果</strong>
-            <span>上游渠道未返回可展示的文件地址。</span>
-          </div>
-        )}
-        {activeTask && !pending && (
-          <div className="playground-progress-note">
-            <RefreshCw className="spin" />
-            <span>
-              每 3 秒自动更新，完成后会显示{kind === "image" ? "图像" : kind === "video" ? "视频" : "音频"}
-              。
-            </span>
-            {onCancel && (
-              <button className="secondary" onClick={onCancel}>
-                <Square />
-                取消排队
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </section>
   );
 }

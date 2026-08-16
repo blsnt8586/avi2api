@@ -1,7 +1,8 @@
 import { Eye } from "lucide-react";
 import { TableSkeleton } from "./ui";
-import type { Task } from "../shared/types";
-import { statusText, tokenCost } from "../shared/status";
+import type { ProviderOverview, Task } from "../shared/types";
+import { statusText, taskCreditUnit, tokenCost } from "../shared/status";
+import { ProviderBadge } from "./provider-switcher";
 
 function hasContentWarning(task: Task) {
   return Boolean(task.result?.nsfw || task.result?.data?.some((output) => output.nsfw));
@@ -27,11 +28,13 @@ function resultSummary(task: Task) {
 export function OverviewTaskTable({
   data,
   loading = false,
-  onOpenTask,
+	onOpenTask,
+	providers = [],
 }: {
   data: Task[];
   loading?: boolean;
-  onOpenTask?: (task: Task) => void;
+	onOpenTask?: (task: Task) => void;
+	providers?: ProviderOverview[];
 }) {
   return (
     <div className="task-table">
@@ -65,12 +68,13 @@ export function OverviewTaskTable({
             <small>{new Date(task.created_at).toLocaleString("zh-CN")}</small>
           </span>
           <span>
+            <ProviderBadge providerID={task.provider_id} />
             <b className="kind-badge">
               {task.kind === "video" ? "VIDEO" : task.kind === "audio" ? "AUDIO" : "IMAGE"}
             </b>
             <small>{task.model}</small>
           </span>
-          <span>{tokenCost(task)}</span>
+		  <span>{taskCreditUnit(task, providers)} {tokenCost(task)}</span>
           <span>
             <i className={`status ${task.status}`}></i>
             {statusText(task.status)}

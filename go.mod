@@ -12,7 +12,6 @@ require (
 	github.com/redis/go-redis/v9 v9.7.3
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.59.0
 	golang.org/x/crypto v0.33.0
-	golang.org/x/image v0.44.0
 	golang.org/x/net v0.35.0
 )
 

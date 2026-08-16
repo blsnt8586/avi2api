@@ -33,8 +33,10 @@ import type {
   ModelCostRecord,
   PlatformModelRow,
   PlatformModelsResponse,
+  Provider,
 } from "../shared/types";
 import { Metric } from "../components/metric";
+import { ProviderBadge, ProviderSwitcher } from "../components/provider-switcher";
 import { api } from "../shared/api";
 import {
   audioOptions,
@@ -43,11 +45,13 @@ import {
   costEstimates,
   modelCost,
   videoOptions,
+  videoWorkflowLabel,
 } from "../shared/catalog";
 import { formatOptionalTokens, formatTokens } from "../shared/status";
 import { EstimateTable } from "./pricing-components";
+import { modelDisplayID, providerCreditUnit, providerDefinition, providerDisplayName, providerSupports } from "../shared/providers";
 
-function FeaturedModels({ rows }: { rows: PlatformModelRow[] }) {
+function FeaturedModels({ rows, providerID, providers }: { rows: PlatformModelRow[]; providerID: string; providers: Provider[] }) {
   return (
     <div className="featured-models">
       {rows.map((r) => (
@@ -58,7 +62,7 @@ function FeaturedModels({ rows }: { rows: PlatformModelRow[] }) {
           <div>
             <strong>{r.public_id}</strong>
             <small>
-              {r.platform.provider || "Leonardo"} · {modelCost(r.platform)}
+              <ProviderBadge providerID={providerID} providers={providers} /> {r.platform.provider || providerDisplayName(providerID, providers)} · {modelCost(r.platform)}
             </small>
           </div>
           <i className="status active"></i>
@@ -73,11 +77,19 @@ function CostReference({
   costs,
   rules,
   kind,
+  providerID,
+  unit,
+  loading,
+  error,
 }: {
   rows: PlatformModelRow[];
   costs: ModelCostRecord[];
   rules: CostRule[];
   kind: MediaKind;
+  providerID: string;
+  unit: string;
+  loading: boolean;
+  error?: Error | null;
 }) {
   const estimates = costEstimates(rules, kind);
   const [selected, setSelected] = useState("");
@@ -89,15 +101,22 @@ function CostReference({
     <section className="cost-reference">
       <div className="section-heading">
         <div>
-          <span className="eyebrow">Routing Price</span>
-          <h2>路由积分规则</h2>
+          <span className="eyebrow">Platform Cost</span>
+          <h2>平台成本规则</h2>
         </div>
-        <small>后端实时定价 · 未匹配规则的请求将被阻止</small>
+        <small>{unit} 实时成本 · 未匹配规则的请求将被阻止</small>
       </div>
       <p className="cost-note">
-        此处数据直接来自后端价格规则，并用于账户余额校验和原子预留。每次修改都会记录审计日志。
+        成本规则决定任务创建时预留多少上游 {unit}，按模型、尺寸或分辨率、时长和工作流匹配；任务成功后按命中的规则结算。
       </p>
-      {active ? (
+      {loading ? (
+        <div className="loading-state compact-loading">
+          <RefreshCw className="spin" />
+          正在读取平台成本规则…
+        </div>
+      ) : error ? (
+        <p className="error">{error.message}</p>
+      ) : active ? (
         <>
           <div className="cost-model-picker">
             {estimates.map((e) => (
@@ -110,12 +129,12 @@ function CostReference({
               </button>
             ))}
           </div>
-          <EstimateTable estimate={active} />
+          <EstimateTable estimate={active} unit={unit} />
         </>
       ) : (
         <div className="empty-state compact-empty">
           <Coins />
-          <strong>当前没有启用的积分规则</strong>
+          <strong>当前没有启用的成本规则</strong>
           <span>生成请求会返回 cost_unavailable。</span>
         </div>
       )}
@@ -127,7 +146,7 @@ function CostReference({
         <small>本地账本结算与上游 Generate 报告值分开显示</small>
       </div>
       <p className="cost-note">
-        本地结算用于积分扣账；上游报告值来自提交响应的 apiCreditCost，仅作观测，不参与财务结算。
+        本地结算用于 {unit} 扣账；上游报告值来自提交响应的 apiCreditCost，仅作观测，不参与财务结算。
       </p>
       <div className="cost-table">
         <div className="cost-line cost-head">
@@ -139,7 +158,7 @@ function CostReference({
         </div>
         {rows.map((r) => {
           const observed = costs.filter(
-            (c) => c.kind === kind && c.model === r.platform.id,
+            (c) => c.provider_id === providerID && c.kind === kind && c.model === r.public_id,
           );
           return (
             <div className="cost-line" key={r.platform.id}>
@@ -177,7 +196,7 @@ function CostReference({
                 {observed.length ? (
                   observed.slice(0, 3).map((c) => (
                     <small key={`${c.minimum}-${c.maximum}-${c.average}`}>
-                      {formatTokens(c.average)}（{c.minimum}–{c.maximum}）
+                      {formatTokens(c.average)} {unit}（{c.minimum}–{c.maximum}）
                     </small>
                   ))
                 ) : (
@@ -189,7 +208,7 @@ function CostReference({
                   observed.slice(0, 3).map((c) => (
                     <small key={`${c.model}-${c.upstream_reported_samples}-${c.last_used_at}`}>
                       {c.upstream_reported_samples > 0 && c.upstream_reported_average != null
-                        ? `${formatTokens(c.upstream_reported_average)}（${formatOptionalTokens(c.upstream_reported_minimum)}–${formatOptionalTokens(c.upstream_reported_maximum)}）· ${c.upstream_reported_samples} 次`
+                        ? `${formatTokens(c.upstream_reported_average)} ${unit}（${formatOptionalTokens(c.upstream_reported_minimum)}–${formatOptionalTokens(c.upstream_reported_maximum)}）· ${c.upstream_reported_samples} 次`
                         : "上游未报告"}
                     </small>
                   ))
@@ -205,10 +224,11 @@ function CostReference({
   );
 }
 
-export function Models({ costs }: { costs: ModelCostRecord[] }) {
+export function Models() {
   const client = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [media, setMedia] = useState<MediaKind>("image");
+  const providerID = searchParams.get("provider") || "leonardo";
   const search = searchParams.get("search") || "";
   const [scope, setScope] = useState<"all" | "exposed">("exposed");
   const [page, setPage] = useState(1);
@@ -221,26 +241,35 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
       : media === "video"
         ? "/admin/api/platform-video-models"
         : "/admin/api/platform-audio-models";
+  const providers = useQuery({
+    queryKey: ["providers"],
+    queryFn: () => api<Provider[]>("/admin/api/providers"),
+  });
   const models = useQuery({
-    queryKey: ["platform-models", media],
-    queryFn: () => api<PlatformModelsResponse>(path),
+    queryKey: ["platform-models", providerID, media],
+    queryFn: () => api<PlatformModelsResponse>(`${path}?provider=${encodeURIComponent(providerID)}`),
     refetchInterval: false,
   });
   const rules = useQuery({
-    queryKey: ["cost-rules"],
-    queryFn: () => api<CostRule[]>("/admin/api/cost-rules"),
+    queryKey: ["cost-rules", providerID, media],
+    queryFn: () => api<CostRule[]>(`/admin/api/cost-rules?provider=${encodeURIComponent(providerID)}&kind=${media}`),
+    refetchInterval: false,
+  });
+  const costs = useQuery({
+    queryKey: ["model-costs", providerID, media],
+    queryFn: () => api<ModelCostRecord[]>(`/admin/api/model-costs?provider=${encodeURIComponent(providerID)}&kind=${media}`),
     refetchInterval: false,
   });
   const sync = useMutation({
     mutationFn: () =>
       api<PlatformModelsResponse>("/admin/api/platform-models/sync", {
         method: "POST",
-        body: JSON.stringify({ media_type: media }),
+        body: JSON.stringify({ provider_id: providerID, media_type: media }),
       }),
-    onSuccess: (data) => client.setQueryData(["platform-models", media], data),
+    onSuccess: (data) => client.setQueryData(["platform-models", providerID, media], data),
   });
   const rows = models.data?.data || [];
-  const featured = rows.filter((r) => r.exposed).slice(0, 4);
+  const featured = rows.filter((r) => r.exposed);
   const needle = search.trim().toLowerCase();
   const visible = rows.filter(
     (r) =>
@@ -257,20 +286,40 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
   }, [page, totalPages]);
   const mediaName =
     media === "image" ? "图像" : media === "video" ? "视频" : "音频";
+  const currentProvider = providers.data?.find((provider) => provider.id === providerID);
+  const costUnit = providerCreditUnit(providerID, providers.data || []);
+  const switchProvider = (nextProviderID: string) => {
+    const nextProvider = providers.data?.find((provider) => provider.id === nextProviderID);
+    const nextMedia = nextProvider && !providerSupports(nextProvider, media)
+      ? (["image", "video", "audio"] as MediaKind[]).find((kind) => providerSupports(nextProvider, kind)) || "image"
+      : media;
+    setMedia(nextMedia);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("provider", nextProviderID);
+      return next;
+    }, { replace: true });
+    setPage(1);
+    setSelectedModel(null);
+  };
   return (
     <section>
+      <div className="provider-business-header">
+        <div><span className="eyebrow">Provider Workspace</span><h2>平台业务视图</h2><p>{providerDefinition(providerID, currentProvider).description}</p></div>
+        <ProviderSwitcher providers={providers.data || []} value={providerID} onChange={switchProvider} />
+      </div>
       <div className="model-catalog-toolbar">
         <Tabs value={media} onValueChange={(value) => { setMedia(value as MediaKind); setPage(1); }}>
           <TabsList className="model-media-tabs">
-          <TabsTrigger value="image">
+          <TabsTrigger value="image" disabled={currentProvider ? !providerSupports(currentProvider, "image") : false}>
             <ImageIcon />
             图像模型
           </TabsTrigger>
-          <TabsTrigger value="video">
+          <TabsTrigger value="video" disabled={currentProvider ? !providerSupports(currentProvider, "video") : false}>
             <CirclePlay />
             视频模型
           </TabsTrigger>
-          <TabsTrigger value="audio">
+          <TabsTrigger value="audio" disabled={currentProvider ? !providerSupports(currentProvider, "audio") : false}>
             <AudioLines />
             音频模型
           </TabsTrigger>
@@ -278,20 +327,22 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
         </Tabs>
         <div>
           <small>
-            {models.data?.synced_at
-              ? `最后同步：${new Date(models.data.synced_at).toLocaleString("zh-CN")}`
-              : "尚未同步平台目录"}
+            {models.data?.catalog_source === "configured_models"
+              ? "目录来源：平台配置 · 随应用版本生效"
+              : models.data?.synced_at
+                ? `最后同步：${new Date(models.data.synced_at).toLocaleString("zh-CN")}`
+                : "尚未同步平台目录"}
           </small>
           <button className="secondary" onClick={() => setShowRules(true)}>
             <Coins />
-            管理积分规则
+            管理成本规则
           </button>
-          <button onClick={() => {
+          {models.data?.sync_supported && <button onClick={() => {
             if (window.confirm(`同步会刷新当前${mediaName}模型目录和 Schema 版本，确认继续？`)) sync.mutate();
           }} disabled={sync.isPending}>
             <RefreshCw className={sync.isPending ? "spin" : ""} size={17} />
             {sync.isPending ? "同步中" : `同步平台${mediaName}模型`}
-          </button>
+          </button>}
         </div>
       </div>
       {sync.error && <p className="error">{sync.error.message}</p>}
@@ -307,7 +358,7 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
           <div className="stats">
             <Metric
               icon={media === "audio" ? <AudioLines /> : <Boxes />}
-              label={`平台${mediaName}模型`}
+              label={`${providerDisplayName(providerID, providers.data)} ${mediaName}模型`}
               value={rows.length}
             />
             <Metric
@@ -317,8 +368,8 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
             />
             <Metric
               icon={<Activity />}
-              label="Schema"
-              value={models.data?.schema_version || "--"}
+              label="目录来源"
+              value={models.data?.catalog_source === "configured_models" ? "平台配置" : `上游 Schema ${models.data?.schema_version || "--"}`}
             />
           </div>
           {featured.length > 0 && (
@@ -326,16 +377,20 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
               <div className="section-heading">
                 <div>
                   <span className="eyebrow">Public Models</span>
-                  <h2>对外精选</h2>
+                  <h2>全部对外模型</h2>
                 </div>
                 <small>当前 API 默认可用</small>
               </div>
-              <FeaturedModels rows={featured} />
+              <FeaturedModels rows={featured} providerID={providerID} providers={providers.data || []} />
               <CostReference
                 rows={featured}
-                costs={costs}
+                costs={costs.data || []}
                 rules={rules.data || []}
                 kind={media}
+                providerID={providerID}
+                unit={costUnit}
+                loading={rules.isLoading}
+                error={rules.error}
               />
             </>
           )}
@@ -343,7 +398,7 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
             <div className="empty-state">
               <Boxes />
               <strong>还没有保存模型目录</strong>
-              <span>点击“同步平台模型”从 Leonardo 获取并保存当前目录。</span>
+              <span>{models.data?.sync_supported ? "点击同步按钮从当前平台获取并保存目录。" : "当前平台尚未配置可用模型。"}</span>
             </div>
           ) : (
             <>
@@ -398,7 +453,7 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
                 <div className="row model head">
                   <span>模型</span>
                   <span>平台</span>
-                  <span>基础积分</span>
+                  <span>计价方式</span>
                   <span>
                     {media === "image"
                       ? "质量"
@@ -495,10 +550,11 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
                     <div className="model-detail-content">
                       <div className="request-detail-grid">
                         <span><small>模型名称</small><strong>{selectedModel.platform.name}</strong></span>
-                        <span><small>提供商</small><strong>{selectedModel.platform.provider || "未知"}</strong></span>
+                        <span><small>接入平台</small><strong>{providerDisplayName(providerID, providers.data)}</strong></span>
+                        <span><small>模型厂商</small><strong>{selectedModel.platform.provider || "未知"}</strong></span>
                         <span><small>对外 ID</small><strong>{selectedModel.public_id || "未开放"}</strong></span>
                         <span><small>上游 ID</small><strong>{selectedModel.platform.id}</strong></span>
-                        <span><small>基础积分</small><strong>{modelCost(selectedModel.platform)}</strong></span>
+                        <span><small>计价方式</small><strong>{modelCost(selectedModel.platform)}</strong></span>
                         <span><small>开放状态</small><Badge tone={selectedModel.exposed ? "success" : "neutral"}>{selectedModel.exposed ? "对外可用" : "仅平台"}</Badge></span>
                       </div>
                       <section><h3>能力参数</h3><p>{selectedModel.platform.description || "平台未提供说明。"}</p></section>
@@ -517,40 +573,53 @@ export function Models({ costs }: { costs: ModelCostRecord[] }) {
       )}
       {showRules && (
         <CostRuleDialog
+          key={providerID}
+          providerID={providerID}
+          provider={currentProvider}
+          unit={costUnit}
+          kind={media}
           rules={rules.data || []}
           close={() => setShowRules(false)}
-          refresh={() => client.invalidateQueries({ queryKey: ["cost-rules"] })}
+          refresh={() => client.invalidateQueries({ queryKey: ["cost-rules", providerID, media] })}
         />
       )}
     </section>
   );
 }
 
-const emptyCostRule: Omit<CostRule, "id" | "created_at" | "updated_at"> = {
-  provider_id: "leonardo",
-  kind: "image",
-  model: "gpt-image-2",
-  size: "1024x1024",
-  quality: "low",
-  resolution: "",
-  duration: 0,
-  unit_tokens: 0,
-  enabled: true,
-  price_version: "manual-v1",
-  source: "manual",
-};
+function emptyCostRule(providerID: string, kind: MediaKind = "image"): Omit<CostRule, "id" | "created_at" | "updated_at"> {
+  const provider = providerDefinition(providerID);
+  const model = modelDisplayID(provider.models[kind][0] || "");
+  return {
+    provider_id: providerID, kind, model,
+    size: kind === "image" ? "1024x1024" : "",
+    quality: kind === "image" ? "low" : providerID === "adobe" && model === "kling-3.0-omni" ? "t2v" : "",
+    resolution: kind === "video" ? "720p" : "",
+    duration: kind === "video" ? 8 : kind === "audio" ? 1 : 0,
+    unit_tokens: 0, enabled: true, price_version: "manual-v1", source: "manual",
+  };
+}
 
 function CostRuleDialog({
+  providerID,
+  provider,
+  unit,
+  kind,
   rules,
   close,
   refresh,
 }: {
+  providerID: string;
+  provider?: Provider;
+  unit: string;
+  kind: MediaKind;
   rules: CostRule[];
   close: () => void;
   refresh: () => void;
 }) {
-  const [editing, setEditing] = useState<CostRule | typeof emptyCostRule>(
-    emptyCostRule,
+  const currentRules = rules.filter((rule) => rule.enabled || rule.drifted);
+  const [editing, setEditing] = useState<CostRule | ReturnType<typeof emptyCostRule>>(
+    () => emptyCostRule(providerID, kind),
   );
   const save = useMutation({
     mutationFn: () =>
@@ -571,26 +640,14 @@ function CostRuleDialog({
       api(`/admin/api/cost-rules/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       refresh();
-      setEditing(emptyCostRule);
+      setEditing(emptyCostRule(providerID, kind));
     },
   });
   function change(patch: Partial<CostRule>) {
     setEditing((current) => ({ ...current, ...patch }));
   }
   function changeKind(kind: MediaKind) {
-    change({
-      kind,
-      model:
-        kind === "image"
-          ? "gpt-image-2"
-          : kind === "video"
-            ? "seedance-2.0-fast"
-            : "sound-effects-v2",
-      size: kind === "image" ? "1024x1024" : "",
-      quality: kind === "image" ? "low" : "",
-      resolution: kind === "video" ? "720p" : "",
-      duration: kind === "video" ? 8 : kind === "audio" ? 1 : 0,
-    });
+    change(emptyCostRule(providerID, kind));
   }
   return (
     <div
@@ -607,9 +664,9 @@ function CostRuleDialog({
       >
         <header className="dialog-heading">
           <div>
-            <span className="eyebrow">Routing Price</span>
-            <h2 id="cost-rule-title">积分规则管理</h2>
-            <p>这些规则直接控制请求是否允许提交及账户积分预留。</p>
+            <span className="eyebrow">Platform Cost</span>
+            <h2 id="cost-rule-title">平台成本规则</h2>
+            <p><ProviderBadge providerID={providerID} providers={provider ? [provider] : []} /> 任务创建时按这些规则预留 {unit}，成功后结算，失败或取消则释放。</p>
           </div>
           <button className="icon" aria-label="关闭" onClick={close}>
             <X />
@@ -619,12 +676,15 @@ function CostRuleDialog({
           <div className="cost-rule-list">
             <button
               className="secondary"
-              onClick={() => setEditing({ ...emptyCostRule })}
+              onClick={() => setEditing(emptyCostRule(providerID, kind))}
             >
               <Plus />
               新增规则
             </button>
-            {rules.map((rule) => (
+            <small className="cost-rule-list-summary">
+              当前启用 {rules.filter((rule) => rule.enabled).length} 条
+            </small>
+            {currentRules.map((rule) => (
               <button
                 key={rule.id}
                 className={
@@ -639,7 +699,9 @@ function CostRuleDialog({
                       ? audioRuleLabel(rule.model, rule.duration)
                       : [
                           rule.size,
-                          rule.quality,
+                          rule.kind === "video" && rule.quality
+                            ? videoWorkflowLabel(rule.quality)
+                            : rule.quality,
                           rule.resolution,
                           rule.duration ? `${rule.duration} 秒` : "",
                         ]
@@ -647,7 +709,7 @@ function CostRuleDialog({
                           .join(" · ")}
                   </small>
                 </span>
-                <b>{rule.unit_tokens.toLocaleString()}</b>
+                <b>{rule.unit_tokens.toLocaleString()} {unit}</b>
                 <i
                   className={`status ${rule.drifted ? "failed" : rule.enabled ? "active" : "disabled"}`}
                   title={rule.drifted ? rule.drift_reason || "检测到价格漂移" : undefined}
@@ -674,9 +736,7 @@ function CostRuleDialog({
                   value={editing.kind}
                   onChange={(e) => changeKind(e.target.value as MediaKind)}
                 >
-                  <option value="image">图像</option>
-                  <option value="video">视频</option>
-                  <option value="audio">音频</option>
+                  {(["image", "video", "audio"] as MediaKind[]).filter((kind) => !provider || providerSupports(provider, kind)).map((kind) => <option key={kind} value={kind}>{kind === "image" ? "图像" : kind === "video" ? "视频" : "音频"}</option>)}
                 </select>
               </label>
               <label>
@@ -684,7 +744,15 @@ function CostRuleDialog({
                 <input
                   required
                   value={editing.model}
-                  onChange={(e) => change({ model: e.target.value })}
+                  onChange={(e) => {
+                    const model = e.target.value;
+                    change({
+                      model,
+                      ...(editing.kind === "video"
+                        ? { quality: providerID === "adobe" && model === "kling-3.0-omni" ? (editing.quality || "t2v") : "" }
+                        : {}),
+                    });
+                  }}
                 />
               </label>
               {editing.kind === "image" ? (
@@ -708,6 +776,19 @@ function CostRuleDialog({
                 </>
               ) : editing.kind === "video" ? (
                 <>
+                  {providerID === "adobe" && editing.model === "kling-3.0-omni" ? (
+                    <label>
+                      工作流
+                      <select
+                        value={editing.quality || "t2v"}
+                        onChange={(e) => change({ quality: e.target.value })}
+                      >
+                        <option value="t2v">文生视频</option>
+                        <option value="i2v">首帧 / 首尾帧</option>
+                        <option value="rtv">参考图</option>
+                      </select>
+                    </label>
+                  ) : null}
                   <label>
                     分辨率
                     <input
@@ -748,7 +829,7 @@ function CostRuleDialog({
                 </label>
               )}
               <label>
-                单次积分
+                单次成本（{unit}）
                 <input
                   required
                   type="number"

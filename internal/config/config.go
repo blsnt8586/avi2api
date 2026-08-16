@@ -24,6 +24,8 @@ type Config struct {
 	SessionSyncToken           string
 	PublicBaseURL              string
 	SchemaVersion              string
+	AdobeSubmitAPIKey          string
+	AdobeCreditsAPIKey         string
 	SyncTimeout                time.Duration
 	PollInterval               time.Duration
 	TaskTimeout                time.Duration
@@ -77,6 +79,7 @@ type Config struct {
 	DailyImageLimit            int
 	IPRateLimitPerMinute       int
 	AccountSubmitInterval      time.Duration
+	AdobeAccountSubmitInterval time.Duration
 	CircuitFailures            int
 	CircuitCooldown            time.Duration
 	Upstream429Cooldown        time.Duration
@@ -84,18 +87,20 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
-		Mode:             env("LEO_MODE", "all"),
-		HTTPAddr:         env("LEO_HTTP_ADDR", ":8080"),
-		DatabaseURL:      env("LEO_DATABASE_URL", "postgres://leonardo:leonardo@localhost:5432/leonardo?sslmode=disable"),
-		RedisAddr:        env("LEO_REDIS_ADDR", "localhost:6379"),
-		RedisPassword:    os.Getenv("LEO_REDIS_PASSWORD"),
-		AdminUsername:    env("LEO_ADMIN_USERNAME", "admin"),
-		AdminPassword:    os.Getenv("LEO_ADMIN_PASSWORD"),
-		SessionSyncToken: os.Getenv("LEO_SESSION_SYNC_TOKEN"),
-		PublicBaseURL:    strings.TrimRight(env("LEO_PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
-		SchemaVersion:    env("LEO_SCHEMA_VERSION", "1.258.0"),
-		TaskAssetDir:     env("LEO_TASK_ASSET_DIR", "./data/task-assets"),
-		LogLevel:         env("LEO_LOG_LEVEL", "info"),
+		Mode:               env("LEO_MODE", "all"),
+		HTTPAddr:           env("LEO_HTTP_ADDR", ":8080"),
+		DatabaseURL:        env("LEO_DATABASE_URL", "postgres://leonardo:leonardo@localhost:5432/leonardo?sslmode=disable"),
+		RedisAddr:          env("LEO_REDIS_ADDR", "localhost:6379"),
+		RedisPassword:      os.Getenv("LEO_REDIS_PASSWORD"),
+		AdminUsername:      env("LEO_ADMIN_USERNAME", "admin"),
+		AdminPassword:      os.Getenv("LEO_ADMIN_PASSWORD"),
+		SessionSyncToken:   os.Getenv("LEO_SESSION_SYNC_TOKEN"),
+		PublicBaseURL:      strings.TrimRight(env("LEO_PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
+		SchemaVersion:      env("LEO_SCHEMA_VERSION", "1.258.0"),
+		AdobeSubmitAPIKey:  strings.TrimSpace(os.Getenv("ADOBE_SUBMIT_API_KEY")),
+		AdobeCreditsAPIKey: strings.TrimSpace(os.Getenv("ADOBE_CREDITS_API_KEY")),
+		TaskAssetDir:       env("LEO_TASK_ASSET_DIR", "./data/task-assets"),
+		LogLevel:           env("LEO_LOG_LEVEL", "info"),
 	}
 	var err error
 	if c.RedisDB, err = intEnv("LEO_REDIS_DB", 0); err != nil {
@@ -255,6 +260,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if c.AccountSubmitInterval, err = durationEnv("LEO_ACCOUNT_SUBMIT_INTERVAL", 8*time.Second); err != nil {
+		return Config{}, err
+	}
+	if c.AdobeAccountSubmitInterval, err = durationEnv("ADOBE_ACCOUNT_SUBMIT_INTERVAL", 0); err != nil {
 		return Config{}, err
 	}
 	if c.CircuitFailures, err = intEnv("LEO_CIRCUIT_FAILURES", 3); err != nil {

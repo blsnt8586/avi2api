@@ -13,6 +13,7 @@ import (
 var (
 	ErrNotFound             = errors.New("not found")
 	ErrAccountCapacityInUse = errors.New("account capacity is in use")
+	ErrAccountInUse         = errors.New("account is in use")
 )
 
 type AccountConfigPatch struct {
@@ -34,6 +35,11 @@ type AccountCapacityInUseError struct {
 	RequestedQueue       int
 }
 
+type AccountInUseError struct {
+	ActiveTasks      int `json:"active_tasks"`
+	HeldReservations int `json:"held_reservations"`
+}
+
 type AccountPage struct {
 	Data     []domain.Account `json:"data"`
 	Total    int              `json:"total"`
@@ -53,6 +59,7 @@ type TaskPageFilter struct {
 	Status      string
 	Kind        string
 	Model       string
+	ProviderID  string
 	CreatedFrom *time.Time
 	CreatedTo   *time.Time
 }
@@ -65,15 +72,34 @@ type AuditLogPageFilter struct {
 }
 
 type AccountOverview struct {
-	TotalAccounts        int   `json:"accounts"`
-	ActiveAccounts       int   `json:"active_accounts"`
-	TotalTokens          int64 `json:"total_tokens"`
-	ReservedTokens       int64 `json:"reserved_tokens"`
-	AvailableTokens      int64 `json:"available_tokens"`
-	VideoProtectedTokens int64 `json:"video_protected_tokens"`
-	VideoReady720P15     int   `json:"video_ready_720p_15s"`
-	VideoReady1080P8     int   `json:"video_ready_1080p_8s"`
-	VideoReady1080P10    int   `json:"video_ready_1080p_10s"`
+	TotalAccounts  int `json:"accounts"`
+	ActiveAccounts int `json:"active_accounts"`
+}
+
+type ProviderOverview struct {
+	ProviderID            string         `json:"provider_id"`
+	DisplayName           string         `json:"display_name"`
+	Enabled               bool           `json:"enabled"`
+	CreditUnit            string         `json:"credit_unit"`
+	Capabilities          []string       `json:"capabilities"`
+	Accounts              int            `json:"accounts"`
+	ActiveAccounts        int            `json:"active_accounts"`
+	AttentionAccounts     int            `json:"attention_accounts"`
+	TotalCredits          int64          `json:"total_credits"`
+	ReservedCredits       int64          `json:"reserved_credits"`
+	AvailableCredits      int64          `json:"available_credits"`
+	ExecutionSlots        int            `json:"execution_slots"`
+	QueueSlots            int            `json:"queue_slots"`
+	ExecutingTasks        int            `json:"executing_tasks"`
+	QueuedTasks           int            `json:"queued_tasks"`
+	FailedLastHour        int            `json:"failed_last_hour"`
+	SubmissionUncertain   int            `json:"submission_uncertain"`
+	TaskTotal             int            `json:"task_total"`
+	TaskCounts            map[string]int `json:"task_counts"`
+	VideoProtectedCredits int64          `json:"video_protected_credits,omitempty"`
+	VideoReady720P15      int            `json:"video_ready_720p_15s,omitempty"`
+	VideoReady1080P8      int            `json:"video_ready_1080p_8s,omitempty"`
+	VideoReady1080P10     int            `json:"video_ready_1080p_10s,omitempty"`
 }
 
 type TaskOverview struct {
@@ -87,6 +113,12 @@ func (e *AccountCapacityInUseError) Error() string {
 }
 
 func (e *AccountCapacityInUseError) Unwrap() error { return ErrAccountCapacityInUse }
+
+func (e *AccountInUseError) Error() string {
+	return fmt.Sprintf("account currently has %d unfinished tasks and %d held reservations", e.ActiveTasks, e.HeldReservations)
+}
+
+func (e *AccountInUseError) Unwrap() error { return ErrAccountInUse }
 
 type SchedulingPolicy struct {
 	QueueTimeout           time.Duration

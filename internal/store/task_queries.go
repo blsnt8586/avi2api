@@ -58,6 +58,7 @@ func (s *Store) GetTaskOverview(ctx context.Context) (TaskOverview, error) {
 	overview := TaskOverview{Counts: map[string]int{}}
 	rows, err := s.DB.Query(ctx, `SELECT status,count(*) FROM tasks
 		WHERE status IN ('queued','reserving','uploading','submitted','polling')
+		   OR status='submission_uncertain'
 		   OR (status IN ('succeeded','failed') AND completed_at>=now()-interval '1 hour')
 		GROUP BY status`)
 	if err != nil {
@@ -96,16 +97,18 @@ func (s *Store) ListTasksPageFiltered(ctx context.Context, page, pageSize int, f
 	filter.Status = strings.TrimSpace(filter.Status)
 	filter.Kind = strings.TrimSpace(filter.Kind)
 	filter.Model = strings.TrimSpace(filter.Model)
-	const where = ` WHERE ($1='' OR t.id::text ILIKE '%'||$1||'%' OR t.prompt ILIKE '%'||$1||'%' OR t.model ILIKE '%'||$1||'%')
+	filter.ProviderID = strings.TrimSpace(filter.ProviderID)
+	const where = ` WHERE ($1='' OR t.id::text ILIKE '%'||$1||'%' OR t.prompt ILIKE '%'||$1||'%' OR t.model ILIKE '%'||$1||'%' OR t.provider_id ILIKE '%'||$1||'%')
 		AND ($2='' OR ($2='active' AND t.status=ANY(ARRAY['reserving','uploading','submitted','polling'])) OR ($2<>'active' AND t.status=$2))
 		AND ($3='' OR t.kind=$3) AND ($4='' OR t.model=$4)
-		AND ($5::timestamptz IS NULL OR t.created_at>=$5) AND ($6::timestamptz IS NULL OR t.created_at<$6)`
-	args := []any{filter.Search, filter.Status, filter.Kind, filter.Model, filter.CreatedFrom, filter.CreatedTo}
+		AND ($5='' OR t.provider_id=$5)
+		AND ($6::timestamptz IS NULL OR t.created_at>=$6) AND ($7::timestamptz IS NULL OR t.created_at<$7)`
+	args := []any{filter.Search, filter.Status, filter.Kind, filter.Model, filter.ProviderID, filter.CreatedFrom, filter.CreatedTo}
 	var total int64
 	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM tasks t`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.DB.Query(ctx, `SELECT id,provider_id,api_key_id,account_id,kind,status,progress,model,prompt,request,generation_id,result,error_code,error_message,error_details,retry_count,tokens_before,tokens_after,cancel_requested,created_at,updated_at,started_at,completed_at,queue_deadline_at,upstream_deadline_at,last_upstream_status_at,unknown_status_count,reconciliation_reason FROM tasks t`+where+` ORDER BY created_at DESC,id DESC LIMIT $7 OFFSET $8`, append(args, pageSize, int64(page-1)*int64(pageSize))...)
+	rows, err := s.DB.Query(ctx, `SELECT id,provider_id,api_key_id,account_id,kind,status,progress,model,prompt,request,generation_id,result,error_code,error_message,error_details,retry_count,tokens_before,tokens_after,cancel_requested,created_at,updated_at,started_at,completed_at,queue_deadline_at,upstream_deadline_at,last_upstream_status_at,unknown_status_count,reconciliation_reason FROM tasks t`+where+` ORDER BY created_at DESC,id DESC LIMIT $8 OFFSET $9`, append(args, pageSize, int64(page-1)*int64(pageSize))...)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/leonardo2api/leonardo2api/internal/adobe"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/imageopts"
 	"github.com/leonardo2api/leonardo2api/internal/store"
@@ -29,12 +30,17 @@ type Estimate struct {
 }
 
 func Image(ctx context.Context, rules RuleStore, request domain.ImageRequest) (Estimate, error) {
-	size, err := imagePricingSize(request.Model, request.Size)
+	return ImageForProvider(ctx, rules, "leonardo", request)
+}
+
+func ImageForProvider(ctx context.Context, rules RuleStore, provider string, request domain.ImageRequest) (Estimate, error) {
+	baseModel := imageopts.BaseModel(request.Model)
+	size, err := imagePricingSize(provider, request.Model, request.Size)
 	if err != nil {
 		return Estimate{}, ErrCostUnavailable
 	}
 	quality := ""
-	if request.Model == "gpt-image-2" {
+	if baseModel == imageopts.GPTImage2 {
 		quality = strings.ToLower(strings.TrimSpace(request.Quality))
 		if quality == "" || quality == "auto" {
 			quality = "low"
@@ -52,8 +58,8 @@ func Image(ctx context.Context, rules RuleStore, request domain.ImageRequest) (E
 		quantity = 1
 	}
 	unitTokens := rule.UnitTokens
-	if request.Model == imageopts.GPTImage2 {
-		width, height, parseErr := imageopts.ParseSize(request.Model, request.Size)
+	if baseModel == imageopts.GPTImage2 && !imageopts.IsAdobeGPTImage2(provider, request.Model) {
+		width, height, parseErr := imageopts.ParseSizeForProvider(provider, request.Model, request.Size)
 		if parseErr != nil {
 			return Estimate{}, ErrCostUnavailable
 		}
@@ -68,16 +74,17 @@ func Image(ctx context.Context, rules RuleStore, request domain.ImageRequest) (E
 	}, nil
 }
 
-func imagePricingSize(model, requested string) (string, error) {
+func imagePricingSize(provider, model, requested string) (string, error) {
+	baseModel := imageopts.BaseModel(model)
 	size := strings.ToLower(strings.TrimSpace(requested))
 	if size == "" || size == "auto" {
 		size = "1024x1024"
 	}
-	width, height, err := imageopts.ParseSize(model, size)
+	width, height, err := imageopts.ParseSizeForProvider(provider, model, size)
 	if err != nil {
 		return "", err
 	}
-	switch model {
+	switch baseModel {
 	case imageopts.GPTImage2:
 		pixels := int64(width) * int64(height)
 		for _, edge := range []int{1024, 2048, 2880} {
@@ -116,7 +123,11 @@ func gptImage2Tokens(width, height int, quality string) (int64, error) {
 }
 
 func Video(ctx context.Context, rules RuleStore, request domain.VideoRequest) (Estimate, error) {
-	spec, ok := videospec.Get(request.Model)
+	return VideoForProvider(ctx, rules, "leonardo", request)
+}
+
+func VideoForProvider(ctx context.Context, rules RuleStore, provider string, request domain.VideoRequest) (Estimate, error) {
+	spec, ok := videospec.GetForProvider(provider, request.Model)
 	if !ok {
 		return Estimate{}, ErrCostUnavailable
 	}
@@ -149,7 +160,8 @@ func Video(ctx context.Context, rules RuleStore, request domain.VideoRequest) (E
 			return Estimate{}, ErrCostUnavailable
 		}
 	}
-	rule, err := rules.FindModelCostRule(ctx, "video", request.Model, "", "", resolution, duration)
+	quality := adobeVideoWorkflow(provider, request)
+	rule, err := rules.FindModelCostRule(ctx, "video", request.Model, "", quality, resolution, duration)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return Estimate{}, ErrCostUnavailable
@@ -186,7 +198,7 @@ func Video(ctx context.Context, rules RuleStore, request domain.VideoRequest) (E
 			tokens = (numerator + denominator - 1) / denominator
 		}
 	}
-	if request.GenerateAudio != nil && !*request.GenerateAudio {
+	if provider != "adobe" && request.GenerateAudio != nil && !*request.GenerateAudio {
 		// Stored rules represent each model's default motion_has_audio=true cost.
 		// These inverse modifiers come from Leonardo schema 1.232.1.
 		switch request.Model {
@@ -209,6 +221,23 @@ func Video(ctx context.Context, rules RuleStore, request domain.VideoRequest) (E
 		Tokens: tokens, UnitTokens: rule.UnitTokens, RuleID: rule.ID,
 		PriceVersion: rule.PriceVersion, Source: rule.Source,
 	}, nil
+}
+
+func adobeVideoWorkflow(provider string, request domain.VideoRequest) string {
+	if provider != "adobe" || request.Model != adobe.AdobeKling30Omni {
+		return ""
+	}
+	ordinaryImages := len(request.ReferenceImages) + len(request.SourceImages)
+	if request.SourceImage != nil {
+		ordinaryImages++
+	}
+	if ordinaryImages > 0 {
+		return adobe.AdobeKlingWorkflowRTV
+	}
+	if request.StartFrame != nil || request.EndFrame != nil {
+		return adobe.AdobeKlingWorkflowI2V
+	}
+	return adobe.AdobeKlingWorkflowT2V
 }
 
 func Audio(ctx context.Context, rules RuleStore, request domain.AudioRequest) (Estimate, error) {

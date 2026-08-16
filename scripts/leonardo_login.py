@@ -725,20 +725,12 @@ async def export_session(
             "exported cookies did not produce an authenticated session",
         )
     cookies = await context.cookies([APP_URL, "https://api.leonardo.ai/"])
-    cookie_header = "; ".join(
-        f"{cookie['name']}={cookie['value']}"
-        for cookie in cookies
-        if cookie["domain"].endswith("leonardo.ai")
-    )
     await context.storage_state(path=output_dir / "storage-state.json")
     storage_state_path = output_dir / "storage-state.json"
     cookies_path = output_dir / "cookies.json"
-    cookie_header_path = output_dir / "cookie-header.txt"
     cookies_path.write_text(json.dumps(cookies, indent=2), encoding="utf-8")
-    cookie_header_path.write_text(cookie_header, encoding="utf-8")
     storage_state_path.chmod(0o600)
     cookies_path.chmod(0o600)
-    cookie_header_path.chmod(0o600)
 
     unique_requests = list(
         {

@@ -10,13 +10,12 @@ import (
 	"github.com/leonardo2api/leonardo2api/internal/imageopts"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 	"github.com/leonardo2api/leonardo2api/internal/metrics"
+	"github.com/leonardo2api/leonardo2api/internal/providers"
 	"time"
 )
 
 func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	start := time.Now()
-	metrics.TasksActive.Inc()
-	defer metrics.TasksActive.Dec()
 	ctx, cancel := context.WithTimeout(parent, w.Config.TaskTimeout)
 	defer cancel()
 	task, leaseID, claimed, err := w.Store.ClaimTask(ctx, id, w.taskLease())
@@ -26,6 +25,8 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	if !claimed {
 		return nil
 	}
+	metrics.TasksActive.WithLabelValues(task.ProviderID, task.Kind).Inc()
+	defer metrics.TasksActive.WithLabelValues(task.ProviderID, task.Kind).Dec()
 	stopLease := w.startLeaseHeartbeat(ctx, cancel, id, leaseID)
 	defer stopLease()
 	var req domain.ImageRequest
@@ -36,6 +37,13 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 		return w.fail(ctx, id, leaseID, "invalid_request", err)
 	}
 	defer w.cleanupTerminalImageAssets(id, req)
+	switch task.ProviderID {
+	case providers.Adobe:
+		return w.processAdobeImage(ctx, id, leaseID, task, req, start)
+	case providers.Leonardo:
+	default:
+		return w.fail(ctx, id, leaseID, "provider_unavailable", providers.ErrUnsupported)
+	}
 	if isSubmittedGenerationTask(task) {
 		if task.UpstreamDeadlineAt != nil && !task.UpstreamDeadlineAt.After(time.Now()) {
 			return w.markSubmissionUncertain(ctx, id, leaseID, task.AccountID, "upstream_deadline_exceeded", "upstream generation deadline exceeded")
@@ -162,7 +170,7 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	if err != nil || !proceed {
 		return err
 	}
-	if err := w.waitForAccountSubmit(ctx, account.ID); err != nil {
+	if err := w.waitForProviderAccountSubmit(ctx, account.ProviderID, account.ID); err != nil {
 		return w.fail(ctx, id, leaseID, "account_submit_interval", err)
 	}
 	account, proceed, err = w.enforceSubmissionFence(ctx, id, leaseID, account.ID)

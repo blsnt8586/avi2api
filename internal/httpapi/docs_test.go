@@ -52,12 +52,20 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	}
 	promptLimits := promptContract["limits"].(map[string]any)
 	wantPromptLimits := modelconstraints.AllPromptLimits()
-	if len(promptLimits) != len(wantPromptLimits) {
-		t.Fatalf("OpenAPI prompt models=%d, backend=%d", len(promptLimits), len(wantPromptLimits))
-	}
 	for model, limit := range wantPromptLimits {
-		if promptLimits[model] != float64(limit) {
-			t.Errorf("OpenAPI prompt limit for %s=%v, want %d", model, promptLimits[model], limit)
+		actual := promptLimits[model]
+		if actual == nil {
+			actual = promptLimits["adobe:"+model]
+		}
+		if actual != float64(limit) {
+			t.Errorf("OpenAPI prompt limit for %s=%v, want %d", model, actual, limit)
+		}
+	}
+	for route, rawLimit := range promptLimits {
+		model := strings.TrimPrefix(route, "adobe:")
+		limit, ok := wantPromptLimits[model]
+		if !ok || rawLimit != float64(limit) {
+			t.Errorf("OpenAPI prompt route %s=%v has no matching backend limit", route, rawLimit)
 		}
 	}
 	for path, rawItem := range paths {
@@ -103,7 +111,7 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 		t.Fatalf("Grok Imagine 1.5 frame exception is missing: %+v", modes["frame"])
 	}
 	videoModels := modes["video"]["models"].([]any)
-	if len(videoModels) != 6 || !containsOpenAPIValue(videoModels, "flux-3-video") || !containsOpenAPIValue(videoModels, "seedance-2.5") || !containsOpenAPIValue(videoModels, "kling-o3-omni") || containsOpenAPIValue(videoModels, "minimax-h3") {
+	if len(videoModels) != 8 || !containsOpenAPIValue(videoModels, "flux-3-video") || !containsOpenAPIValue(videoModels, "seedance-2.5") || !containsOpenAPIValue(videoModels, "adobe:seedance-2.0") || !containsOpenAPIValue(videoModels, "adobe:seedance-2.0-fast") || !containsOpenAPIValue(videoModels, "kling-o3-omni") || containsOpenAPIValue(videoModels, "minimax-h3") {
 		t.Fatalf("video-reference mode models are incomplete: %+v", modes["video"])
 	}
 	if !strings.Contains(modes["audio"]["rule"].(string), "MiniMax H3 requires an ordinary image") {
@@ -118,7 +126,7 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 		t.Fatalf("frame reference exclusions are incomplete: %+v", combinations)
 	}
 	rawCombinationRules, ok := combinations["rules"].([]any)
-	if !ok || len(rawCombinationRules) != 6 {
+	if !ok || len(rawCombinationRules) != 10 {
 		t.Fatalf("video reference combinations are incomplete: %+v", combinations["rules"])
 	}
 	combinationRules := make(map[string]map[string]any)
@@ -159,8 +167,24 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	if len(grokCombinations) != 1 || !containsOpenAPIValue(grokCombinations, "start_frame") || !containsOpenAPIValue(grokRequired, "start_frame") || !containsOpenAPIValue(grokUnsupported, "end_frame") {
 		t.Fatalf("Grok Imagine 1.5 reference contract is unclear: %+v", combinationRules["grok-imagine-1.5"])
 	}
+	adobeCombinations := combinationRules["adobe:veo-3.1-fast"]["combinable_reference_fields"].([]any)
+	if !containsOpenAPIValue(adobeCombinations, "start_frame") || !containsOpenAPIValue(adobeCombinations, "end_frame") {
+		t.Fatalf("Adobe Veo frame contract is unclear: %+v", combinationRules["adobe:veo-3.1-fast"])
+	}
+	adobeSeedanceCombinations := combinationRules["adobe:seedance-2.0"]["combinable_reference_fields"].([]any)
+	if !containsOpenAPIValue(adobeSeedanceCombinations, "image") || !containsOpenAPIValue(adobeSeedanceCombinations, "video") || !containsOpenAPIValue(adobeSeedanceCombinations, "audio") || combinationRules["adobe:seedance-2.0"]["max_reference_media"] != float64(12) {
+		t.Fatalf("Adobe Seedance reference contract is unclear: %+v", combinationRules["adobe:seedance-2.0"])
+	}
+	if combinationRules["adobe:kling-3.0-omni"] == nil || combinationRules["adobe:veo-3.1"] == nil {
+		t.Fatalf("Adobe Kling or Veo reference contract is missing: kling=%+v veo=%+v", combinationRules["adobe:kling-3.0-omni"], combinationRules["adobe:veo-3.1"])
+	}
 	components := document["components"].(map[string]any)
 	schemas := components["schemas"].(map[string]any)
+	chatRequest := schemas["ChatCompletionRequest"].(map[string]any)
+	chatProperties := chatRequest["properties"].(map[string]any)
+	if chatProperties["provider"] == nil {
+		t.Fatal("ChatCompletionRequest must expose provider selection")
+	}
 	imageReference := schemas["ImageReferenceRequest"].(map[string]any)
 	if imageReference["allOf"] != nil {
 		t.Fatal("ImageReferenceRequest must not combine additionalProperties=false through allOf")
@@ -190,12 +214,12 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	imageSize := schemas["ImageSize"].(map[string]any)
 	modelRules := imageSize["x-model-rules"].(map[string]any)
 	if len(modelRules["gpt-image-2"].(map[string]any)["standard_presets"].([]any)) != 30 ||
-		len(modelRules["nano-banana-2,nano-banana-pro"].(map[string]any)["standard_presets"].([]any)) != 30 ||
+		len(modelRules["nano-banana-2,nano-banana-pro,adobe:nano-banana-2"].(map[string]any)["standard_presets"].([]any)) != 30 ||
 		len(modelRules["seedream-5.0-pro"].(map[string]any)["standard_presets"].([]any)) != 48 {
 		t.Fatalf("image size presets are incomplete: %+v", modelRules)
 	}
 	gptSizeRule := modelRules["gpt-image-2"].(map[string]any)
-	nanoSizeRule := modelRules["nano-banana-2,nano-banana-pro"].(map[string]any)
+	nanoSizeRule := modelRules["nano-banana-2,nano-banana-pro,adobe:nano-banana-2"].(map[string]any)
 	seedreamSizeRule := modelRules["seedream-5.0-pro"].(map[string]any)
 	if gptSizeRule["size_mode"] != "enumerated_edges" || gptSizeRule["custom_sizes"] != false ||
 		nanoSizeRule["size_mode"] != "enumerated_edges" || nanoSizeRule["custom_sizes"] != false ||
@@ -204,7 +228,7 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	}
 	quantityRules := schemas["ImageQuantity"].(map[string]any)["x-model-rules"].(map[string]any)
 	for modelID, maximum := range map[string]float64{
-		"gpt-image-2": 1, "nano-banana-2": 4, "nano-banana-pro": 4, "seedream-5.0-pro": 4,
+		"gpt-image-2": 1, "adobe:gpt-image-2": 1, "adobe:nano-banana-2": 1, "nano-banana-2": 4, "nano-banana-pro": 4, "seedream-5.0-pro": 4,
 	} {
 		if quantityRules[modelID].(map[string]any)["maximum"] != maximum {
 			t.Fatalf("image quantity rule for %s is unclear: %+v", modelID, quantityRules[modelID])

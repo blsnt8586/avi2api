@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"github.com/google/uuid"
+	"github.com/leonardo2api/leonardo2api/internal/adobe"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 	"github.com/leonardo2api/leonardo2api/internal/metrics"
+	"github.com/leonardo2api/leonardo2api/internal/providers"
 	"net/http"
 	"strings"
 	"time"
@@ -21,8 +23,7 @@ func (w *Worker) complete(ctx context.Context, id, leaseID uuid.UUID, generation
 		return nil
 	}
 	_ = w.Store.ClearTerminalTaskSourceImage(context.Background(), id)
-	metrics.TasksTotal.WithLabelValues(domain.TaskSucceeded).Inc()
-	metrics.TaskDuration.Observe(time.Since(start).Seconds())
+	w.recordTerminalTaskMetrics(id, domain.TaskSucceeded, time.Since(start))
 	_ = w.Redis.Publish(ctx, "leo:task:"+id.String(), "done").Err()
 	return nil
 }
@@ -40,7 +41,7 @@ func (w *Worker) failDetailedWithSettlement(ctx context.Context, id, leaseID uui
 		return nil
 	}
 	_ = w.Store.ClearTerminalTaskSourceImage(context.Background(), id)
-	metrics.TasksTotal.WithLabelValues(domain.TaskFailed).Inc()
+	w.recordTerminalTaskMetrics(id, domain.TaskFailed, 0)
 	_ = w.Redis.Publish(context.Background(), "leo:task:"+id.String(), "done").Err()
 	return nil
 }
@@ -54,9 +55,23 @@ func (w *Worker) failAfterSubmission(ctx context.Context, id, leaseID uuid.UUID,
 		return nil
 	}
 	_ = w.Store.ClearTerminalTaskSourceImage(context.Background(), id)
-	metrics.TasksTotal.WithLabelValues(domain.TaskFailed).Inc()
+	w.recordTerminalTaskMetrics(id, domain.TaskFailed, 0)
 	_ = w.Redis.Publish(context.Background(), "leo:task:"+id.String(), "done").Err()
 	return nil
+}
+
+func (w *Worker) recordTerminalTaskMetrics(id uuid.UUID, status string, duration time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	task, err := w.Store.GetTask(ctx, id)
+	if err != nil {
+		w.Log.Warn("read terminal task for metrics", "task_id", id, "error", err)
+		return
+	}
+	metrics.TasksTotal.WithLabelValues(task.ProviderID, task.Kind, status).Inc()
+	if duration > 0 {
+		metrics.TaskDuration.WithLabelValues(task.ProviderID, task.Kind).Observe(duration.Seconds())
+	}
 }
 
 func (w *Worker) failUpstreamGeneration(ctx context.Context, id, leaseID uuid.UUID, generationID string, account domain.Account, token string, client *leonardo.Client, kind string) error {
@@ -82,15 +97,19 @@ func (w *Worker) failUpstreamGeneration(ctx context.Context, id, leaseID uuid.UU
 	return w.failAfterSubmission(ctx, id, leaseID, "upstream_failed", message, details, account, token)
 }
 
-func (w *Worker) waitForAccountSubmit(ctx context.Context, accountID uuid.UUID) error {
-	if w.Config.AccountSubmitInterval <= 0 {
+func (w *Worker) waitForProviderAccountSubmit(ctx context.Context, providerID string, accountID uuid.UUID) error {
+	interval := w.Config.AccountSubmitInterval
+	if providerID == providers.Adobe {
+		interval = w.Config.AdobeAccountSubmitInterval
+	}
+	if interval <= 0 {
 		return nil
 	}
-	key := "leo:account:last-submit:" + accountID.String()
+	key := "leo:account:last-submit:" + providerID + ":" + accountID.String()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		ok, err := w.Redis.SetNX(ctx, key, time.Now().UnixMilli(), w.Config.AccountSubmitInterval).Result()
+		ok, err := w.Redis.SetNX(ctx, key, time.Now().UnixMilli(), interval).Result()
 		if err != nil {
 			return err
 		}
@@ -114,16 +133,15 @@ func (w *Worker) recordAccountFailure(ctx context.Context, account domain.Accoun
 			sharedRetryAt = &until
 		}
 	}
-	var he *leonardo.HTTPError
-	if errors.As(err, &he) {
-		if he.Status == http.StatusUnauthorized || he.Status == http.StatusForbidden {
+	if status, ok := upstreamHTTPStatus(err); ok {
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
 			_ = w.Store.SetAccountError(ctx, account.ID, "invalid", err.Error(), nil)
 			return nil
 		}
-		if he.Status >= 400 && he.Status < 500 && he.Status != http.StatusRequestTimeout && he.Status != http.StatusTooManyRequests {
+		if status >= 400 && status < 500 && status != http.StatusRequestTimeout && status != http.StatusTooManyRequests {
 			return nil
 		}
-		if he.Status == http.StatusTooManyRequests {
+		if status == http.StatusTooManyRequests || status == http.StatusUnavailableForLegalReasons {
 			until := time.Now().Add(w.Config.Upstream429Cooldown)
 			if sharedRetryAt != nil && sharedRetryAt.After(until) {
 				until = *sharedRetryAt
@@ -171,9 +189,8 @@ func (w *Worker) recordAccountFailure(ctx context.Context, account domain.Accoun
 }
 
 func sharedCircuitFailure(err error) bool {
-	var upstream *leonardo.HTTPError
-	if errors.As(err, &upstream) {
-		return upstream.Status == http.StatusRequestTimeout || upstream.Status == http.StatusTooManyRequests || upstream.Status >= http.StatusInternalServerError
+	if status, ok := upstreamHTTPStatus(err); ok {
+		return status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status == http.StatusUnavailableForLegalReasons || status >= http.StatusInternalServerError
 	}
 	var gqlErr *leonardo.GraphQLError
 	if errors.As(err, &gqlErr) {
@@ -190,9 +207,16 @@ func sharedCircuitFailure(err error) bool {
 	return true
 }
 
-func isRateLimited(err error) bool {
-	var upstream *leonardo.HTTPError
-	return errors.As(err, &upstream) && upstream.Status == 429
+func upstreamHTTPStatus(err error) (int, bool) {
+	var leoError *leonardo.HTTPError
+	if errors.As(err, &leoError) {
+		return leoError.Status, true
+	}
+	var adobeError *adobe.HTTPError
+	if errors.As(err, &adobeError) {
+		return adobeError.Status, true
+	}
+	return 0, false
 }
 
 func (w *Worker) clearAccountFailures(ctx context.Context, accountID uuid.UUID) {
@@ -200,9 +224,8 @@ func (w *Worker) clearAccountFailures(ctx context.Context, accountID uuid.UUID) 
 }
 
 func submissionUncertain(err error) bool {
-	var upstream *leonardo.HTTPError
-	if errors.As(err, &upstream) {
-		return upstream.Status == http.StatusRequestTimeout || upstream.Status >= http.StatusInternalServerError
+	if status, ok := upstreamHTTPStatus(err); ok {
+		return status == http.StatusRequestTimeout || status >= http.StatusInternalServerError
 	}
 	var gqlErr *leonardo.GraphQLError
 	if errors.As(err, &gqlErr) {

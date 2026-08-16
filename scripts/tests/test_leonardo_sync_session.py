@@ -18,26 +18,52 @@ SPEC.loader.exec_module(sync_module)
 
 
 class SyncSessionTests(unittest.TestCase):
-    def test_load_browser_session_includes_refreshed_cookie(self) -> None:
+    def test_load_browser_session_includes_complete_cookie_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output_dir = Path(directory)
             (output_dir / "session-token.json").write_text(
                 json.dumps({"access_token": "jwt", "verified": True, "status": 200}),
                 encoding="utf-8",
             )
-            (output_dir / "cookie-header.txt").write_text(
-                "next-auth.session-token=fresh-cookie",
+            (output_dir / "cookies.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "name": "__Secure-better-auth.session_token",
+                            "value": "fresh-cookie",
+                            "domain": ".leonardo.ai",
+                            "path": "/",
+                            "httpOnly": True,
+                            "secure": True,
+                            "sameSite": "Lax",
+                        }
+                    ]
+                ),
                 encoding="utf-8",
             )
 
-            session = sync_module.load_browser_session(output_dir)
+            session = sync_module.load_browser_session(
+                output_dir, "pending", "test-fingerprint"
+            )
 
             self.assertEqual(session["access_token"], "jwt")
             self.assertNotIn("status", session)
             self.assertEqual(
-                session["cookie_header"],
-                "next-auth.session-token=fresh-cookie",
+                session["cookie_json"],
+                [
+                    {
+                        "name": "__Secure-better-auth.session_token",
+                        "value": "fresh-cookie",
+                        "domain": ".leonardo.ai",
+                        "path": "/",
+                        "httpOnly": True,
+                        "secure": True,
+                        "sameSite": "Lax",
+                    }
+                ],
             )
+            self.assertEqual(session["cookie_json_source"], "pending")
+            self.assertEqual(session["cookie_json_fingerprint"], "test-fingerprint")
 
     def test_import_error_uses_sanitized_api_message(self) -> None:
         class Response:

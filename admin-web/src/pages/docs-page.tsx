@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   AudioLines,
@@ -12,10 +13,18 @@ import {
   Images,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui";
-import type { ImageCostMatrix, MediaKind, PublicModel, PublicVideoModel, VideoCostEstimate } from "../shared/types";
+import type { ImageCostMatrix, MediaKind, Provider, PublicModel, PublicVideoModel, VideoCostEstimate } from "../shared/types";
 import { CopyCode } from "../components/copy-code";
+import { ProviderBadge, ProviderSwitcher } from "../components/provider-switcher";
 import { imageSizeGroups } from "../shared/catalog";
 import { api } from "../shared/api";
+import {
+  generationRoute,
+  modelsForProvider,
+  providerDefinition,
+  providerDisplayName,
+  providerSupports,
+} from "../shared/providers";
 import { ImageCostCalculator } from "./pricing-components";
 import {
   PublicAudioModel,
@@ -34,6 +43,8 @@ import {
 
 const imagePricingNotes: Record<PublicModel, string> = {
   "gpt-image-2": "按真实像素计价：每百万像素 7 积分，再应用 low=1、medium=8.833、high=35.167 倍率并向上取整。",
+	"adobe:gpt-image-2": "使用 Adobe BKS 在账号导入时读取的 1K / 2K / 4K 与质量档价格，不套用 Leonardo 像素公式。",
+	"adobe:nano-banana-2": "使用 Adobe BKS 在账号导入时读取的 1K / 2K / 4K 固定质量价格。",
   "nano-banana-2": "Small 80、Medium 120、Large 160 积分；档位按 Leonardo 的宽度枚举和 1584/3168 特例判定。",
   "nano-banana-pro": "Small/Medium 140、Large 250 积分；Large 档按 Leonardo 的宽度规则判定。",
   "seedream-5.0-pro": "常规尺寸 45 积分；达到 2K 阈值后为 90 积分。",
@@ -65,7 +76,7 @@ function ImageSizeCost({
       <strong>{size}</strong>
       {loading ? (
         <small>积分计算中</small>
-      ) : model === "gpt-image-2" ? (
+      ) : model === "gpt-image-2" || model === "adobe:gpt-image-2" ? (
         <small>
           低 {costs?.low?.toLocaleString() ?? "—"} · 中 {costs?.medium?.toLocaleString() ?? "—"} · 高 {costs?.high?.toLocaleString() ?? "—"}
         </small>
@@ -88,13 +99,14 @@ function imageParametersForModel(
     );
   }
   parameters.push(
-    ["model", "string", "必填", "生成模型。", model],
+	["provider", "string", "可选", "任务创建时选择上游平台。", `${generationRoute(model).provider}；查询任务时不传`],
+	["model", "string", "必填", "生成模型。", generationRoute(model).model],
     ["prompt", "string", "必填", endpoint === "reference" ? "图片修改要求。" : "图片内容描述。", `1–${imageModelDocs[model].promptMax.toLocaleString()} 个 Unicode 字符`],
     ["size", "string", "可选", "输出尺寸。", imageModelDocs[model].size],
-    ["n", "integer", "可选", "生成数量。", model === "gpt-image-2" ? "固定为 1" : "1–4；默认 1"],
+		["n", "integer", "可选", "生成数量。", model === "gpt-image-2" || model.startsWith("adobe-") ? "固定为 1" : "1–4；默认 1"],
     ["response_format", "string", "可选", "结果格式。", "固定为 url"],
   );
-  if (model === "gpt-image-2") {
+  if (model === "gpt-image-2" || model === "adobe:gpt-image-2") {
     parameters.push(["quality", "string", "可选", "生成质量。", "auto、low、medium、high；默认 auto"]);
   }
   parameters.push(
@@ -106,13 +118,21 @@ function imageParametersForModel(
 }
 
 function chatParametersForModel(model: PublicModel): DocParameter[] {
+	const route = generationRoute(model);
   return [
+	[
+	  "provider",
+	  "string",
+	  "可选",
+	  "任务创建时选择上游平台。",
+	  `${route.provider}；查询任务时不传`,
+	],
     [
       "model",
       "string",
       "可选",
       "图片模型。",
-      "四个公开图片模型；默认 gpt-image-2",
+		`${route.model}；默认 gpt-image-2`,
     ],
     [
       "messages",
@@ -381,8 +401,45 @@ function DeveloperOverview() {
 
 export function APIDocs() {
   const [media, setMedia] = useState<MediaKind>("image");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const providers = useQuery({
+    queryKey: ["public-providers"],
+    queryFn: () => api<Provider[]>("/api-docs/providers"),
+    staleTime: 60 * 1000,
+  });
+  const requestedProviderID = searchParams.get("provider")?.trim().toLowerCase() || "leonardo";
+  const providerID = providers.data?.find((provider) => provider.enabled && provider.id === requestedProviderID)?.id
+    || (providers.data?.find((provider) => provider.enabled) || providers.data?.[0])?.id
+    || requestedProviderID;
+  const currentProvider = providers.data?.find((provider) => provider.id === providerID);
+  const setProviderQuery = (nextProviderID: string, replace = false) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("provider", nextProviderID);
+    setSearchParams(nextParams, { replace });
+  };
+  useEffect(() => {
+    if (requestedProviderID === providerID) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("provider", providerID);
+    setSearchParams(nextParams, { replace: true });
+  }, [providerID, requestedProviderID, searchParams, setSearchParams]);
+  const switchMedia = (nextMedia: MediaKind) => {
+    setMedia(nextMedia);
+    if (currentProvider && !providerSupports(currentProvider, nextMedia)) {
+      const fallback = providers.data?.find((provider) => provider.enabled && providerSupports(provider, nextMedia));
+      if (fallback) setProviderQuery(fallback.id);
+    }
+  };
+  const switchProvider = (nextProviderID: string) => {
+    setProviderQuery(nextProviderID);
+    const nextProvider = providers.data?.find((provider) => provider.id === nextProviderID);
+    if (nextProvider && !providerSupports(nextProvider, media)) {
+      const nextMedia = (["image", "video", "audio"] as MediaKind[]).find((kind) => providerSupports(nextProvider, kind));
+      if (nextMedia) setMedia(nextMedia);
+    }
+  };
   return (
-    <Tabs value={media} onValueChange={(value) => setMedia(value as MediaKind)} className="docs-workspace">
+    <Tabs value={media} onValueChange={(value) => switchMedia(value as MediaKind)} className="docs-workspace">
       <div className="docs-index">
         <span className="eyebrow">API Reference</span>
         <h2>开发者指南</h2>
@@ -408,13 +465,27 @@ export function APIDocs() {
       </div>
       <div className="docs-content">
         <DeveloperOverview />
+        <div className="provider-business-header docs-provider-header">
+          <div>
+            <span className="eyebrow">Provider API</span>
+            <h2>{providerDisplayName(providerID, providers.data || [])} 接口</h2>
+            <p>{providerDefinition(providerID, currentProvider).description}。平台仅在创建任务时选择，后续查询和取消只使用任务 ID。</p>
+          </div>
+          <ProviderSwitcher
+            providers={providers.data || []}
+            value={providerID}
+            capability={media}
+            onChange={switchProvider}
+          />
+        </div>
+        {providers.error && <p className="error">平台目录加载失败：{providers.error.message}</p>}
         <div id="endpoints" className="endpoint-reference">
           {media === "image" ? (
-            <ImageDocs />
+            <ImageDocs key={providerID} providerID={providerID} />
           ) : media === "video" ? (
-            <VideoDocs />
+            <VideoDocs key={providerID} providerID={providerID} />
           ) : (
-            <AudioDocs />
+			<AudioDocs key={providerID} providerID={providerID} />
           )}
         </div>
       </div>
@@ -422,20 +493,24 @@ export function APIDocs() {
   );
 }
 
-function ImageDocs() {
+function ImageDocs({ providerID }: { providerID: string }) {
+  const availableModels = modelsForProvider(Object.keys(imageModelDocs) as PublicModel[], providerID);
+	const supported = availableModels.length > 0;
   const [endpoint, setEndpoint] = useState<ImageEndpoint>("generation");
-  const [model, setModel] = useState<PublicModel>("gpt-image-2");
+  const [model, setModel] = useState<PublicModel>(availableModels[0] || "gpt-image-2");
+  const route = generationRoute(model);
   const doc = imageModelDocs[model];
   const chatParameters = chatParametersForModel(model);
   const sizeGroups = imageSizeGroups[model];
   const matrixSizes = sizeGroups.flatMap((group) => [group.small, group.medium, group.large]).filter((size): size is string => Boolean(size));
   const matrixQuery = useQuery({
-    queryKey: ["public-image-cost-matrix", model],
+    queryKey: ["public-image-cost-matrix", route.provider, route.model],
     queryFn: () => api<ImageCostMatrix>("/api-docs/image-cost-matrix", {
       method: "POST",
-      body: JSON.stringify({ model, sizes: matrixSizes }),
+      body: JSON.stringify({ provider: route.provider, model: route.model, sizes: matrixSizes }),
     }),
     staleTime: 5 * 60 * 1000,
+	enabled: supported,
   });
   const costsBySize = new Map(matrixQuery.data?.rows.map((row) => [row.size, row.costs]) || []);
   const endpointPath = "/v1/images/generations";
@@ -443,7 +518,8 @@ function ImageDocs() {
   const sample = endpoint === "generation" ? asyncImageExample(model) : editExample(model);
   const responseExample = asyncImageTaskResponseExample(model);
   const asyncPoll = imageTaskPollExample();
-  const chatSample = chatCompletionExample();
+  const chatSample = chatCompletionExample(model);
+	if (!supported) return <ProviderDocsUnavailable providerID={providerID} media="图像" />;
   return (
     <section className="api-docs">
       <div className="doc-toolbar">
@@ -465,7 +541,7 @@ function ImageDocs() {
         </div>
         <div className="doc-toolbar-actions">
           <code>POST {endpointPath}</code>
-          <a className="doc-playground-link" href={`/playground?media=image&model=${model}`}>
+          <a className="doc-playground-link" href={`/playground?media=image&provider=${route.provider}&model=${route.model}`}>
             <FlaskConical />在测试中心打开
           </a>
         </div>
@@ -490,7 +566,7 @@ function ImageDocs() {
       </div>
       <h2>选择模型</h2>
       <div className="model-picker">
-        {(Object.keys(imageModelDocs) as PublicModel[]).map((id) => (
+        {availableModels.map((id) => (
           <button
             key={id}
             className={model === id ? "active" : ""}
@@ -503,7 +579,7 @@ function ImageDocs() {
       </div>
       <div className="model-guide">
         <div>
-          <span className="model-role">{doc.role}</span>
+          <span className="model-role"><ProviderBadge providerID={route.provider} />{doc.role}</span>
           <h2>{doc.name}</h2>
           <p>{doc.use}</p>
         </div>
@@ -758,22 +834,26 @@ function videoModeRules(model: PublicVideoModel, mode: VideoMode) {
 
 function VideoCostCalculator({ model }: { model: PublicVideoModel }) {
   const spec = videoModelDocs[model];
+  const route = generationRoute(model);
   const [duration, setDuration] = useState(spec.defaultDuration);
   const [size, setSize] = useState(modelVideoSizes(model)[0].value);
   const [resolution, setResolution] = useState(defaultVideoResolution(model));
   const [generateAudio, setGenerateAudio] = useState(true);
-  const [hasVideoReference, setHasVideoReference] = useState(false);
+	const [hasVideoReference, setHasVideoReference] = useState(false);
+	const [referenceMode, setReferenceMode] = useState("text");
   const estimate = useMutation({
     mutationFn: () =>
       api<VideoCostEstimate>("/api-docs/video-estimate", {
         method: "POST",
         body: JSON.stringify({
-          model,
+          provider: route.provider,
+          model: route.model,
           duration,
           size,
           resolution,
           generate_audio: spec.supportsGenerateAudio ? generateAudio : undefined,
-          has_video_reference: maxVideoReferences(spec) > 0 ? hasVideoReference : false,
+		  has_video_reference: maxVideoReferences(spec) > 0 ? hasVideoReference : false,
+		  reference_mode: model === "adobe:kling-3.0-omni" ? referenceMode : undefined,
         }),
       }),
   });
@@ -846,17 +926,32 @@ function VideoCostCalculator({ model }: { model: PublicVideoModel }) {
           价格选项
           <select
             aria-label="视频积分计算价格选项"
-            value={hasVideoReference ? "reference" : generateAudio ? "audio" : "silent"}
-            onChange={(event) => {
-              const value = event.target.value;
+			value={model === "adobe:kling-3.0-omni" ? referenceMode : hasVideoReference ? "reference" : generateAudio ? "audio" : "silent"}
+			onChange={(event) => {
+			  const value = event.target.value;
+			  if (model === "adobe:kling-3.0-omni") {
+				setReferenceMode(value);
+				resetResult();
+				return;
+			  }
               setHasVideoReference(value === "reference");
               setGenerateAudio(value !== "silent");
               resetResult();
             }}
           >
-            <option value="audio">{spec.supportsGenerateAudio ? "原生音频开启" : "模型默认参数"}</option>
-            {spec.supportsGenerateAudio && !spec.alwaysGenerateAudio ? <option value="silent">原生音频关闭</option> : null}
-            {maxVideoReferences(spec) > 0 ? <option value="reference">包含参考视频</option> : null}
+			{model === "adobe:kling-3.0-omni" ? (
+			  <>
+				<option value="text">无参考</option>
+				<option value="frame">首尾帧</option>
+				<option value="image">普通参考图</option>
+			  </>
+			) : (
+			  <>
+				<option value="audio">{spec.supportsGenerateAudio ? "原生音频开启" : "模型默认参数"}</option>
+				{spec.supportsGenerateAudio && !spec.alwaysGenerateAudio ? <option value="silent">原生音频关闭</option> : null}
+				{maxVideoReferences(spec) > 0 ? <option value="reference">包含参考视频</option> : null}
+			  </>
+			)}
           </select>
         </label>
         <button type="submit" disabled={estimate.isPending}>
@@ -919,7 +1014,8 @@ function videoParametersForMode(model: PublicVideoModel, mode: VideoMode): DocPa
   const spec = videoModelDocs[model];
   const fixedVeoImage = model === "veo-3.1" && mode === "image";
   const parameters: DocParameter[] = [
-    ["model", "string", "必填", "视频模型。", model],
+	["provider", "string", "可选", "任务创建时选择上游平台。", `${generationRoute(model).provider}；查询任务时不传`],
+	["model", "string", "必填", "视频模型。", generationRoute(model).model],
     ["prompt", "string", "必填", "视频内容和镜头描述。", `1–${spec.promptMax.toLocaleString()} 个 Unicode 字符`],
     ["duration", "integer", fixedVeoImage ? "固定" : "可选", "视频时长。", fixedVeoImage ? "固定为 8 秒" : `${spec.duration}；默认 ${spec.defaultDuration} 秒`],
     ["size", "string", fixedVeoImage ? "固定" : "可选", "画面方向和尺寸。", fixedVeoImage ? "固定为 1280x720" : modelVideoSizes(model).map((item) => item.value).join("、")],
@@ -1000,9 +1096,12 @@ function videoParametersForMode(model: PublicVideoModel, mode: VideoMode): DocPa
   return parameters;
 }
 
-function VideoDocs() {
-  const [model, setModel] = useState<PublicVideoModel>("seedance-2.0-mini");
+function VideoDocs({ providerID }: { providerID: string }) {
+  const availableModels = modelsForProvider(Object.keys(videoModelDocs) as PublicVideoModel[], providerID);
+  const [model, setModel] = useState<PublicVideoModel>(availableModels[0] || "seedance-2.0-mini");
   const [mode, setMode] = useState<VideoMode>("text");
+	if (availableModels.length === 0) return <ProviderDocsUnavailable providerID={providerID} media="视频" />;
+  const route = generationRoute(model);
   const doc = videoModelDocs[model];
   const modeDoc = videoModeDocs[mode];
   const modeDescription = doc.requiresStartFrame && mode === "frame"
@@ -1022,7 +1121,7 @@ function VideoDocs() {
         <strong>视频生成</strong>
         <div className="doc-toolbar-actions">
           <code>POST /v1/videos/generations</code>
-          <a className="doc-playground-link" href={`/playground?media=video&model=${model}`}>
+          <a className="doc-playground-link" href={`/playground?media=video&provider=${route.provider}&model=${route.model}`}>
             <FlaskConical />在测试中心打开
           </a>
         </div>
@@ -1043,7 +1142,7 @@ function VideoDocs() {
       </div>
       <h2>选择模型</h2>
       <div className="model-picker">
-        {(Object.keys(videoModelDocs) as PublicVideoModel[]).map((id) => (
+        {availableModels.map((id) => (
           <button
             key={id}
             className={model === id ? "active" : ""}
@@ -1058,7 +1157,7 @@ function VideoDocs() {
       </div>
       <div className="model-guide">
         <div>
-          <span className="model-role">{doc.role}</span>
+          <span className="model-role"><ProviderBadge providerID={route.provider} />{doc.role}</span>
           <h2>{doc.name}</h2>
           <p>{doc.use}</p>
         </div>
@@ -1200,6 +1299,7 @@ function VideoDocs() {
 
 function audioParametersForModel(model: PublicAudioModel): DocParameter[] {
   const parameters: DocParameter[] = [
+	["provider", "string", "可选", "任务创建时选择上游平台。", "当前音频固定为 leonardo；查询任务时不传"],
     ["model", "string", model === "sound-effects-v2" ? "可选" : "必填", "音频模型。", `${model}${model === "sound-effects-v2" ? "；默认 sound-effects-v2" : ""}`],
     ["prompt", "string", "必填", "朗读文本、音乐描述或音效描述。", `1–${audioModelDocs[model].promptMax.toLocaleString()} 个 Unicode 字符`],
     ["n", "integer", "可选", "生成数量。", "1–4；默认 1"],
@@ -1229,10 +1329,10 @@ function audioParametersForModel(model: PublicAudioModel): DocParameter[] {
 function audioGenerationExample(model: PublicAudioModel) {
   const body =
     model === "dialogue-v3"
-      ? '{\n    "model": "dialogue-v3",\n    "prompt": "Welcome to the Leonardo media studio.",\n    "voice": "george",\n    "language": "en",\n    "prompt_influence": 0.5,\n    "n": 1\n  }'
+      ? '{\n    "provider": "leonardo",\n    "model": "dialogue-v3",\n    "prompt": "Welcome to the Leonardo media studio.",\n    "voice": "george",\n    "language": "en",\n    "prompt_influence": 0.5,\n    "n": 1\n  }'
       : model === "music-v1"
-        ? '{\n    "model": "music-v1",\n    "prompt": "Warm cinematic piano and strings, slow build, no vocals",\n    "duration_minutes": 1,\n    "force_instrumental": true,\n    "n": 1\n  }'
-        : '{\n    "model": "sound-effects-v2",\n    "prompt": "Rain falling on a metal roof, seamless ambient loop",\n    "duration": 6,\n    "loop": true,\n    "prompt_influence": 0.7,\n    "n": 1\n  }';
+        ? '{\n    "provider": "leonardo",\n    "model": "music-v1",\n    "prompt": "Warm cinematic piano and strings, slow build, no vocals",\n    "duration_minutes": 1,\n    "force_instrumental": true,\n    "n": 1\n  }'
+        : '{\n    "provider": "leonardo",\n    "model": "sound-effects-v2",\n    "prompt": "Rain falling on a metal roof, seamless ambient loop",\n    "duration": 6,\n    "loop": true,\n    "prompt_influence": 0.7,\n    "n": 1\n  }';
   return `curl $BASE_URL/v1/audio/generations \\\n+  -H "Authorization: Bearer $AIV2API_API_KEY" \\\n+  -H "Content-Type: application/json" \\\n+  -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\\n+  -d '${body}'`.replaceAll(
     "\n+",
     "\n",
@@ -1246,8 +1346,9 @@ function audioPollExample() {
   );
 }
 
-function AudioDocs() {
+function AudioDocs({ providerID }: { providerID: string }) {
   const [model, setModel] = useState<PublicAudioModel>("sound-effects-v2");
+	if (providerID !== "leonardo") return <ProviderDocsUnavailable providerID={providerID} media="音频" />;
   const doc = audioModelDocs[model];
   const parameters = audioParametersForModel(model);
   const request = audioGenerationExample(model);
@@ -1350,13 +1451,24 @@ function AudioDocs() {
   );
 }
 
+function ProviderDocsUnavailable({ providerID, media }: { providerID: string; media: string }) {
+	return (
+	  <section className="empty-state">
+		<AlertTriangle />
+		<strong>{providerID} 尚未提供{media}文档适配器</strong>
+		<span>平台已经注册，但需要补充该媒体类型的参数说明后才会在文档和测试中心开放。</span>
+	  </section>
+	);
+}
+
 function asyncImageExample(model: PublicModel) {
-  const quality = model === "gpt-image-2" ? `\n    "quality": "low",` : "";
+  const route = generationRoute(model);
+  const quality = model === "gpt-image-2" || model === "adobe:gpt-image-2" ? `\n    "quality": "low",` : "";
   return `curl $BASE_URL/v1/images/generations \\
   -H "Authorization: Bearer $AIV2API_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
-  -d '{\n    "model": "${model}",\n    "prompt": "一张白色背景上的产品摄影，柔和棚拍光线",\n    "size": "1024x1024",${quality}\n    "n": 1,\n    "response_format": "url"\n  }'`;
+  -d '{\n    "provider": "${route.provider}",\n    "model": "${route.model}",\n    "prompt": "一张白色背景上的产品摄影，柔和棚拍光线",\n    "size": "1024x1024",${quality}\n    "n": 1,\n    "response_format": "url"\n  }'`;
 }
 
 function asyncImageTaskResponseExample(model: PublicModel) {
@@ -1366,7 +1478,7 @@ function asyncImageTaskResponseExample(model: PublicModel) {
   "status": "queued",
   "progress": 0,
   "queue_position": 2,
-  "model": "${model}",
+  "model": "${generationRoute(model).model}",
   "prompt": "一张白色背景上的产品摄影，柔和棚拍光线",
   "retry_count": 0,
   "cancel_requested": false,
@@ -1384,17 +1496,19 @@ curl -X POST $BASE_URL/v1/images/TASK_ID/cancel \\
   -H "Authorization: Bearer $AIV2API_API_KEY"`;
 }
 
-function chatCompletionExample() {
+function chatCompletionExample(model: PublicModel) {
+	const route = generationRoute(model);
   return `curl $BASE_URL/v1/chat/completions \\
   -H "Authorization: Bearer $AIV2API_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
-  -d '{\n    "model": "gpt-image-2",\n    "stream": false,\n    "messages": [\n      {\n        "role": "user",\n        "content": "生成一张白色背景上的红色陶瓷方块产品照"\n      }\n    ]\n  }'`;
+  -d '{\n    "provider": "${route.provider}",\n    "model": "${route.model}",\n    "stream": false,\n    "messages": [\n      {\n        "role": "user",\n        "content": "生成一张白色背景上的红色陶瓷方块产品照"\n      }\n    ]\n  }'`;
 }
 
 function editExample(model: PublicModel) {
+  const route = generationRoute(model);
   const quality =
-    model === "gpt-image-2"
+    model === "gpt-image-2" || model === "adobe:gpt-image-2"
       ? ` \\
   -F "quality=low"`
       : "";
@@ -1404,7 +1518,8 @@ function editExample(model: PublicModel) {
   -F "image[]=@product.png" \\
   -F "image[]=@style-reference.jpg" \\
   -F "prompt=保留产品结构，转换为干净的水彩插画" \\
-  -F "model=${model}" \\
+  -F "provider=${route.provider}" \\
+  -F "model=${route.model}" \\
   -F "size=1024x1024"${quality} \\
   -F "n=1" \\
   -F "reference_strength=MID" \\
@@ -1412,6 +1527,7 @@ function editExample(model: PublicModel) {
 }
 
 function videoModeExample(model: PublicVideoModel, mode: VideoMode) {
+  const route = generationRoute(model);
   const spec = videoModelDocs[model];
   const selectedSize = modelVideoSizes(model)[0].value;
   const preferredResolution = spec.resolutions.includes("1080p") ? "1080p" : "720p";
@@ -1423,10 +1539,11 @@ function videoModeExample(model: PublicVideoModel, mode: VideoMode) {
   -H "Authorization: Bearer $AIV2API_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
-  -d '{\n    "model": "${model}",\n    "prompt": "一颗玻璃球在白色摄影棚中缓慢旋转，电影级光线",\n    "duration": ${spec.defaultDuration},\n    "size": "${selectedSize}",\n    "resolution": "${selectedResolution}"${audio}\n  }'`;
+  -d '{\n    "provider": "${route.provider}",\n    "model": "${route.model}",\n    "prompt": "一颗玻璃球在白色摄影棚中缓慢旋转，电影级光线",\n    "duration": ${spec.defaultDuration},\n    "size": "${selectedSize}",\n    "resolution": "${selectedResolution}"${audio}\n  }'`;
   }
   const fields = [
-    `model=${model}`,
+    `provider=${route.provider}`,
+    `model=${route.model}`,
     "prompt=让主体自然向镜头走来，保持外观和动作连贯",
     `duration=${spec.defaultDuration}`,
     `size=${selectedSize}`,

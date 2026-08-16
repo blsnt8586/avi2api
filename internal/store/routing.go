@@ -73,7 +73,31 @@ func (s *Store) CreateReservedTaskForProvider(ctx context.Context, keyID uuid.UU
 	return s.createReservedTaskForProvider(ctx, keyID, providerID, kind, model, prompt, request, request, idempotencyKey, estimatedTokens, pricingRuleID, lease)
 }
 
+func (s *Store) CreateReservedTaskForProviderWithHashRequest(ctx context.Context, keyID uuid.UUID, providerID, kind, model, prompt string, request, hashRequest any, idempotencyKey string, estimatedTokens, pricingRuleID int64, lease time.Duration) (domain.Task, bool, error) {
+	return s.createReservedTaskForProvider(ctx, keyID, providerID, kind, model, prompt, request, hashRequest, idempotencyKey, estimatedTokens, pricingRuleID, lease)
+}
+
 func (s *Store) createReservedTaskForProvider(ctx context.Context, keyID uuid.UUID, providerID, kind, model, prompt string, request, hashRequest any, idempotencyKey string, estimatedTokens, pricingRuleID int64, lease time.Duration) (domain.Task, bool, error) {
+	const maxAttempts = 5
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		task, created, err := s.createReservedTaskForProviderOnce(ctx, keyID, providerID, kind, model, prompt, request, hashRequest, idempotencyKey, estimatedTokens, pricingRuleID, lease)
+		if err == nil || !retryableClaimTransactionError(err) || attempt == maxAttempts-1 {
+			return task, created, err
+		}
+		delay := (10 * time.Millisecond) << attempt
+		delay += time.Duration(keyID[0]%10) * time.Millisecond
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return domain.Task{}, false, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return domain.Task{}, false, errors.New("task admission retry loop exhausted")
+}
+
+func (s *Store) createReservedTaskForProviderOnce(ctx context.Context, keyID uuid.UUID, providerID, kind, model, prompt string, request, hashRequest any, idempotencyKey string, estimatedTokens, pricingRuleID int64, lease time.Duration) (domain.Task, bool, error) {
 	body, err := json.Marshal(request)
 	if err != nil {
 		return domain.Task{}, false, err
@@ -110,22 +134,6 @@ func (s *Store) createReservedTaskForProvider(ctx context.Context, keyID uuid.UU
 			return domain.Task{}, false, err
 		}
 	}
-	var keyConcurrency, keyNonTerminal int
-	if err := tx.QueryRow(ctx, `SELECT concurrency_limit FROM api_keys
-		WHERE id=$1 AND enabled=true AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at>now())
-		FOR UPDATE`, keyID).Scan(&keyConcurrency); err != nil {
-		return domain.Task{}, false, err
-	}
-	if keyConcurrency < 1 {
-		keyConcurrency = 1
-	}
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE api_key_id=$1
-		AND status IN ('queued','reserving','uploading','submitted','polling')`, keyID).Scan(&keyNonTerminal); err != nil {
-		return domain.Task{}, false, err
-	}
-	if keyNonTerminal >= keyConcurrency*(1+s.SchedulingPolicy.APIKeyQueueMultiplier) {
-		return domain.Task{}, false, ErrAPIKeyCapacity
-	}
 	var providerUncertain int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM tasks uncertain
 		JOIN account_reservations uncertain_reservation ON uncertain_reservation.task_id=uncertain.id AND uncertain_reservation.state='held'
@@ -153,7 +161,7 @@ func (s *Store) createReservedTaskForProvider(ctx context.Context, keyID uuid.UU
 		WHERE r.state='held' GROUP BY r.account_id
 	)
 	SELECT a.id FROM accounts a LEFT JOIN usage u ON u.account_id=a.id
-	WHERE a.provider_id=$2 AND a.status='active' AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
+	WHERE a.archived_at IS NULL AND a.provider_id=$2 AND a.status='active' AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
 	  AND a.access_token_expires_at IS NOT NULL AND a.access_token_expires_at>now()
 	  AND a.last_checked_at IS NOT NULL
 	  AND (SELECT count(*) FROM tasks uncertain
@@ -263,7 +271,7 @@ func (s *Store) createReservedTaskForProvider(ctx context.Context, keyID uuid.UU
 		    AND a.subscription_tokens+a.rollover_tokens+a.paid_tokens-COALESCE(u.reserved,0)>=a.protected_tokens
 		    THEN a.protected_tokens ELSE 0 END >=$1),false)
 		FROM accounts a LEFT JOIN usage u ON u.account_id=a.id
-		WHERE a.provider_id=$2 AND a.status='active' AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
+		WHERE a.archived_at IS NULL AND a.provider_id=$2 AND a.status='active' AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
 		  AND a.access_token_expires_at IS NOT NULL AND a.access_token_expires_at>now()
 		  AND a.last_checked_at IS NOT NULL`
 		if scanErr := tx.QueryRow(ctx, diagnosticSQL, estimatedTokens, providerID, kind).Scan(&healthy, &enoughBalance); scanErr != nil {
@@ -276,6 +284,25 @@ func (s *Store) createReservedTaskForProvider(ctx context.Context, keyID uuid.UU
 			return domain.Task{}, false, ErrInsufficientPoolBalance
 		}
 		return domain.Task{}, false, ErrAccountQueueCapacity
+	}
+
+	// ClaimTask locks account -> API key -> system capacity. Admission must use
+	// the same order so task creation cannot deadlock with a worker claim.
+	var keyConcurrency, keyNonTerminal int
+	if err := tx.QueryRow(ctx, `SELECT concurrency_limit FROM api_keys
+		WHERE id=$1 AND enabled=true AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at>now())
+		FOR UPDATE`, keyID).Scan(&keyConcurrency); err != nil {
+		return domain.Task{}, false, err
+	}
+	if keyConcurrency < 1 {
+		keyConcurrency = 1
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE api_key_id=$1
+		AND status IN ('queued','reserving','uploading','submitted','polling')`, keyID).Scan(&keyNonTerminal); err != nil {
+		return domain.Task{}, false, err
+	}
+	if keyNonTerminal >= keyConcurrency*(1+s.SchedulingPolicy.APIKeyQueueMultiplier) {
+		return domain.Task{}, false, ErrAPIKeyCapacity
 	}
 
 	capacityConfig, err := lockSystemAdmission(ctx, tx)

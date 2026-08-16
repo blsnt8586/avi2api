@@ -4,11 +4,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Ban,
+  Boxes,
   Check,
+  CheckCircle2,
   CirclePlay,
   Coins,
   ExternalLink,
+  FileJson,
   Gauge,
+  KeyRound,
   Minus,
   Pencil,
   Plus,
@@ -16,11 +20,17 @@ import {
   Search,
   Server,
   ShieldCheck,
+  Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import {
   Badge,
   Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
   Pagination as UIPagination,
   QueryStatus,
   Sheet,
@@ -38,6 +48,113 @@ import {
 } from "../components/account-status";
 import { Metric } from "../components/metric";
 import { api } from "../shared/api";
+import { providerCreditUnit } from "../shared/providers";
+
+type ArchiveAccountsResponse = {
+  archived: number;
+  failed: number;
+  results: Array<{
+    id: string;
+    archived: boolean;
+    error_code?: string;
+    error_message?: string;
+  }>;
+};
+
+type ArchiveBatchResponse = ArchiveAccountsResponse & {
+  requestFailed: number;
+};
+
+type AdobePricingSyncResponse = {
+  account: Account;
+  pricing_rules_synced: number;
+};
+
+type BulkCookieImportStatus = "ready" | "invalid" | "importing" | "submitted" | "failed";
+
+type BulkCookieImportItem = {
+  id: string;
+  fileName: string;
+  name: string;
+  cookieJSON: unknown | null;
+  status: BulkCookieImportStatus;
+  error: string;
+};
+
+const MAX_BULK_COOKIE_FILES = 50;
+const MAX_COOKIE_FILE_BYTES = 512 * 1024;
+const ARCHIVE_BATCH_SIZE = 100;
+const COOKIE_IMPORT_CONCURRENCY = 4;
+
+function accountNameFromFile(fileName: string) {
+  const withoutExtension = fileName.replace(/\.json$/i, "").trim();
+  return (withoutExtension || "provider-account").slice(0, 200);
+}
+
+function accountSessionExpiryText(account: Account) {
+  return sessionExpiryText(
+    account.access_token_expires_at,
+    account.provider_id === "adobe" ? "AT" : "JWT",
+  );
+}
+
+function accountCredentialText(account: Account, compact = false) {
+  if (account.has_pending_cookie_json) return "完整 Cookie 待验证";
+  if (account.has_complete_cookie_json) {
+    if (account.provider_id === "adobe") return compact ? "Cookie 自动续期" : "完整 Cookie · 自动续期";
+    return compact ? "完整 Cookie" : "完整 Cookie 已保存";
+  }
+  if (account.has_login_credentials) return compact ? "自动登录" : "自动登录已配置";
+  return account.provider_id === "adobe" ? "仅 Access Token" : sessionRefreshText(account);
+}
+
+function validateCookieJSON(value: unknown, providerID: "leonardo" | "adobe") {
+  if (!Array.isArray(value)) return "必须是浏览器导出的 Cookie JSON 数组";
+	const maximum = providerID === "adobe" ? 128 : 64;
+	const minimum = providerID === "adobe" ? 1 : 2;
+	if (value.length < minimum || value.length > maximum) return `Cookie 数量必须在 ${minimum} 到 ${maximum} 条之间`;
+  const names = value.map((cookie) => {
+    if (!cookie || typeof cookie !== "object") return "";
+    const name = (cookie as { name?: unknown }).name;
+    return typeof name === "string" ? name.trim().toLowerCase() : "";
+  });
+  if (names.some((name) => !name)) return "每条 Cookie 都必须包含 name";
+	if (providerID === "adobe") {
+		const invalidScope = value.some((cookie) => {
+		  const item = cookie as { domain?: unknown; url?: unknown };
+		  const domain = typeof item.domain === "string" ? item.domain.replace(/^\./, "").toLowerCase() : "";
+		  let host = "";
+		  if (typeof item.url === "string") {
+			try { host = new URL(item.url).hostname.toLowerCase(); } catch { host = ""; }
+		  }
+		  return ![domain, host].some((value) => value === "adobe.com" || value.endsWith(".adobe.com") || value === "adobelogin.com" || value.endsWith(".adobelogin.com"));
+		});
+		return invalidScope ? "Adobe Cookie 文件包含非 Adobe 域名" : "";
+	}
+  if (!names.some((name) => name.includes("session_token")) || !names.some((name) => name.includes("session_data"))) {
+    return "缺少 Leonardo session_token 或 session_data";
+  }
+  return "";
+}
+
+function chunkAccountIDs(ids: string[]) {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += ARCHIVE_BATCH_SIZE) {
+    chunks.push(ids.slice(index, index + ARCHIVE_BATCH_SIZE));
+  }
+  return chunks;
+}
+
+function SelectionCheckbox({
+  indeterminate = false,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & { indeterminate?: boolean }) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return <input ref={ref} type="checkbox" className="account-checkbox" {...props} />;
+}
 
 export function Accounts({
   edit,
@@ -47,6 +164,22 @@ export function Accounts({
   const client = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [selectedAccounts, setSelectedAccounts] = useState<Map<string, Account>>(() => new Map());
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveMode, setArchiveMode] = useState<"selected" | "invalid">("selected");
+  const [archiveFeedback, setArchiveFeedback] = useState("");
+  const [cleanupScanning, setCleanupScanning] = useState(false);
+  const [cleanupError, setCleanupError] = useState("");
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkImportBusy, setBulkImportBusy] = useState(false);
+	const [bulkImportSummary, setBulkImportSummary] = useState("");
+	const [bulkImportItems, setBulkImportItems] = useState<BulkCookieImportItem[]>([]);
+	const [bulkImportProvider, setBulkImportProvider] = useState<"leonardo" | "adobe">("leonardo");
+  const [bulkImportConfig, setBulkImportConfig] = useState({
+    imageConcurrency: 5,
+    queueCapacity: 40,
+    workerGroup: "default",
+  });
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get("search") || "";
   const deferredSearch = React.useDeferredValue(search.trim());
@@ -73,6 +206,10 @@ export function Accounts({
       return api<AccountsPage>(`/admin/api/accounts?${params}`);
     },
   });
+  const providers = useQuery({
+    queryKey: ["providers"],
+    queryFn: () => api<Provider[]>("/admin/api/providers"),
+  });
   const overview = useQuery({
     queryKey: ["overview"],
     queryFn: () => api<OverviewResponse>("/admin/api/overview"),
@@ -82,7 +219,7 @@ export function Accounts({
     client.invalidateQueries({ queryKey: ["overview"] });
   };
   const data = accounts.data?.data || [];
-  const providerOptions = [...new Set(data.map((account) => account.provider_id))].sort();
+  const providerOptions = providers.data || [];
   const filteredData = data;
   const total = accounts.data?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -94,6 +231,34 @@ export function Accounts({
       api(`/admin/api/accounts/${id}/session-refresh`, { method: "POST" }),
     onSuccess: refresh,
   });
+  const pricingSync = useMutation({
+    mutationFn: (id: string) =>
+      api<AdobePricingSyncResponse>(`/admin/api/accounts/${id}/pricing-sync`, { method: "POST" }),
+    onSuccess: (result) => {
+      setArchiveFeedback(`已同步 ${result.pricing_rules_synced} 条 Adobe BKS 价格规则。`);
+      refresh();
+    },
+    onError: (error) => setCleanupError(`Adobe 价格同步失败：${error.message}`),
+  });
+  const importCookieJSON = useMutation({
+    mutationFn: ({ id, cookieJSON }: { id: string; cookieJSON: unknown }) =>
+      api(`/admin/api/accounts/${id}/cookie-json`, {
+        method: "PUT",
+        body: JSON.stringify({ cookie_json: cookieJSON }),
+    }),
+    onSuccess: refresh,
+    onError: (error) => window.alert(error.message),
+  });
+  const onCookieFile = async (account: Account, file?: File) => {
+    if (!file) return;
+    try {
+      const cookieJSON: unknown = JSON.parse(await file.text());
+      importCookieJSON.mutate({ id: account.id, cookieJSON });
+    } catch {
+      // The API performs authoritative validation; this only rejects malformed files early.
+      window.alert("Cookie JSON 文件不是有效的 JSON 数组。");
+    }
+  };
   const status = useMutation({
     mutationFn: (a: Account) =>
       api(`/admin/api/accounts/${a.id}/status`, {
@@ -104,33 +269,260 @@ export function Accounts({
       }),
     onSuccess: refresh,
   });
+  const archive = useMutation({
+    mutationFn: async (ids: string[]): Promise<ArchiveBatchResponse> => {
+      const batches = chunkAccountIDs(ids);
+      const combined: ArchiveBatchResponse = { archived: 0, failed: 0, requestFailed: 0, results: [] };
+      for (const batch of batches) {
+        try {
+          const result = await api<ArchiveAccountsResponse>("/admin/api/accounts/archive", {
+            method: "POST",
+            body: JSON.stringify({ ids: batch }),
+          });
+          combined.archived += result.archived;
+          combined.failed += result.failed;
+          combined.results.push(...result.results);
+        } catch {
+          combined.failed += batch.length;
+          combined.requestFailed += batch.length;
+        }
+      }
+      return combined;
+    },
+    onSuccess: (result) => {
+      const archivedIDs = new Set(result.results.filter((item) => item.archived).map((item) => item.id));
+      setSelectedAccounts((current) => {
+        const next = new Map(current);
+        archivedIDs.forEach((id) => next.delete(id));
+        return next;
+      });
+      setArchiveOpen(false);
+      setArchiveFeedback(
+        result.requestFailed
+          ? `已归档 ${result.archived} 个账号；${result.requestFailed} 个账号请求失败，仍保留在当前选择中，可稍后重试。`
+          : result.failed
+          ? `已归档 ${result.archived} 个账号；${result.failed} 个账号仍有任务或预留，已保留在账号池。`
+          : `已从运营池归档 ${result.archived} 个账号，历史任务与账本记录保持不变。`,
+      );
+      refresh();
+    },
+  });
+  const scanInvalidAccounts = async () => {
+    setCleanupScanning(true);
+    setCleanupError("");
+    setArchiveFeedback("");
+    try {
+      const invalidAccounts = new Map<string, Account>();
+      let currentPage = 1;
+      let expectedTotal = 0;
+      do {
+        const providerQuery = providerFilter === "all" ? "" : `&provider=${encodeURIComponent(providerFilter)}`;
+        const result = await api<AccountsPage>(
+          `/admin/api/accounts?page=${currentPage}&page_size=${ARCHIVE_BATCH_SIZE}&status=invalid${providerQuery}`,
+        );
+        expectedTotal = result.total;
+        result.data.forEach((account) => invalidAccounts.set(account.id, account));
+        if (result.data.length === 0) break;
+        currentPage += 1;
+      } while (invalidAccounts.size < expectedTotal);
+      if (invalidAccounts.size === 0) {
+        setArchiveFeedback("当前没有凭证失效账号，无需清理。");
+        return;
+      }
+      setSelectedAccounts(invalidAccounts);
+      setArchiveMode("invalid");
+      setArchiveOpen(true);
+    } catch (error) {
+      setCleanupError(error instanceof Error ? error.message : "扫描失效账号失败");
+    } finally {
+      setCleanupScanning(false);
+    }
+  };
+  const openBulkImport = () => {
+	const nextProvider = providerFilter === "adobe" ? "adobe" : "leonardo";
+	setBulkImportProvider(nextProvider);
+	setBulkImportConfig((current) => ({ ...current, imageConcurrency: nextProvider === "adobe" ? 20 : 5 }));
+    setBulkImportItems([]);
+    setBulkImportSummary("");
+    setBulkImportOpen(true);
+  };
+  const addCookieFiles = async (files: File[]) => {
+    const remaining = Math.max(0, MAX_BULK_COOKIE_FILES - bulkImportItems.length);
+    const acceptedFiles = files.slice(0, remaining);
+    if (files.length > remaining) {
+      setBulkImportSummary(`单次最多导入 ${MAX_BULK_COOKIE_FILES} 个文件，超出的文件未加入。`);
+    } else {
+      setBulkImportSummary("");
+    }
+    const parsed = await Promise.all(acceptedFiles.map(async (file, index): Promise<BulkCookieImportItem> => {
+      const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${index}-${Math.random()}`;
+      if (file.size > MAX_COOKIE_FILE_BYTES) {
+        return { id, fileName: file.name, name: accountNameFromFile(file.name), cookieJSON: null, status: "invalid", error: "文件超过 512 KB" };
+      }
+      try {
+        const cookieJSON: unknown = JSON.parse(await file.text());
+		const error = validateCookieJSON(cookieJSON, bulkImportProvider);
+        return {
+          id,
+          fileName: file.name,
+          name: accountNameFromFile(file.name),
+          cookieJSON: error ? null : cookieJSON,
+          status: error ? "invalid" : "ready",
+          error,
+        };
+      } catch {
+        return { id, fileName: file.name, name: accountNameFromFile(file.name), cookieJSON: null, status: "invalid", error: "文件不是有效 JSON" };
+      }
+    }));
+    setBulkImportItems((current) => [...current, ...parsed]);
+  };
+  const importCookieAccounts = async () => {
+    const pendingItems = bulkImportItems.filter(
+      (item) => (item.status === "ready" || item.status === "failed") && item.cookieJSON && item.name.trim(),
+    );
+    if (pendingItems.length === 0) return;
+    setBulkImportBusy(true);
+    setBulkImportSummary("");
+    let succeeded = 0;
+    let failed = 0;
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < pendingItems.length) {
+        const item = pendingItems[nextIndex++];
+        setBulkImportItems((current) => current.map((entry) => (
+          entry.id === item.id ? { ...entry, status: "importing", error: "" } : entry
+        )));
+        try {
+          await api("/admin/api/accounts", {
+            method: "POST",
+            body: JSON.stringify({
+			  provider_id: bulkImportProvider,
+              name: item.name.trim(),
+              email: "",
+              password: "",
+              cookie_json: item.cookieJSON,
+              proxy_url: "",
+              image_concurrency: bulkImportConfig.imageConcurrency,
+              queue_capacity: bulkImportConfig.queueCapacity,
+              routing_role: "general",
+              protected_tokens: 0,
+              video_reserved_slots: 0,
+			  ...(bulkImportProvider === "leonardo" ? { browser_worker_group: bulkImportConfig.workerGroup.trim() } : {}),
+            }),
+          });
+          succeeded += 1;
+          setBulkImportItems((current) => current.map((entry) => (
+            entry.id === item.id ? { ...entry, status: "submitted", error: "" } : entry
+          )));
+        } catch (error) {
+          failed += 1;
+          setBulkImportItems((current) => current.map((entry) => (
+            entry.id === item.id
+              ? { ...entry, status: "failed", error: error instanceof Error ? error.message : "导入失败" }
+              : entry
+          )));
+        }
+      }
+    };
+    await Promise.all(Array.from(
+      { length: Math.min(COOKIE_IMPORT_CONCURRENCY, pendingItems.length) },
+      () => worker(),
+    ));
+    setBulkImportBusy(false);
+    setBulkImportSummary(
+      failed
+		? `已导入 ${succeeded} 个账号，${failed} 个失败。`
+		: `已导入 ${succeeded} 个账号。`,
+    );
+    refresh();
+  };
+  const pageSelected = filteredData.filter((account) => selectedAccounts.has(account.id));
+  const allPageSelected = filteredData.length > 0 && pageSelected.length === filteredData.length;
+  const somePageSelected = pageSelected.length > 0 && !allPageSelected;
+  const toggleAccount = (account: Account, checked: boolean) => {
+    setSelectedAccounts((current) => {
+      const next = new Map(current);
+      if (checked) next.set(account.id, account);
+      else next.delete(account.id);
+      return next;
+    });
+  };
+  const togglePage = (checked: boolean) => {
+    setSelectedAccounts((current) => {
+      const next = new Map(current);
+      filteredData.forEach((account) => {
+        if (checked) next.set(account.id, account);
+        else next.delete(account.id);
+      });
+      return next;
+    });
+  };
+  const clearFilters = () => {
+    setSearchParams(new URLSearchParams(), { replace: true });
+    setPage(1);
+  };
+  const hasFilters = Boolean(search || statusFilter !== "all" || roleFilter !== "all" || providerFilter !== "all");
+  const importableCount = bulkImportItems.filter(
+    (item) => (item.status === "ready" || item.status === "failed") && item.cookieJSON && item.name.trim(),
+  ).length;
+  const bulkImportConfigValid =
+    bulkImportConfig.imageConcurrency >= 1 &&
+	bulkImportConfig.imageConcurrency <= (bulkImportProvider === "adobe" ? 100 : 5) &&
+    bulkImportConfig.queueCapacity >= 1 &&
+    bulkImportConfig.queueCapacity <= 1000 &&
+	(bulkImportProvider === "adobe" || /^[A-Za-z0-9._-]{1,100}$/.test(bulkImportConfig.workerGroup.trim()));
+  const providerSummaries = overview.data?.provider_summaries || [];
+  const selectedProviderSummary = providerFilter === "all"
+    ? undefined
+    : providerSummaries.find((provider) => provider.provider_id === providerFilter);
+  const totalExecutionSlots = providerSummaries.reduce((sum, provider) => sum + provider.execution_slots, 0);
+	const creditUnit = selectedProviderSummary ? providerCreditUnit(selectedProviderSummary.provider_id, [selectedProviderSummary]) : "积分";
   return (
     <section>
       <div className="stats">
-        <Metric icon={<Server />} label="账号数量" value={overview.data?.accounts || 0} />
-        <Metric
-          icon={<Coins />}
-          label="净可用积分"
-          value={(overview.data?.available_tokens || 0).toLocaleString()}
-        />
-        <Metric
-          icon={<Coins />}
-          label="已预留积分"
-          value={(overview.data?.reserved_tokens || 0).toLocaleString()}
-        />
-        <Metric
-          icon={<Activity />}
-          label="可用账号"
-          value={overview.data?.active_accounts || 0}
-        />
+        <Metric icon={<Server />} label="账号数量" value={selectedProviderSummary?.accounts ?? overview.data?.accounts ?? 0} />
+        {selectedProviderSummary ? (
+          <>
+            <Metric icon={<Coins />} label={`净可用 ${creditUnit}`} value={selectedProviderSummary.available_credits.toLocaleString()} />
+            <Metric icon={<Coins />} label={`已预留 ${creditUnit}`} value={selectedProviderSummary.reserved_credits.toLocaleString()} />
+            <Metric icon={<Activity />} label="可用账号" value={`${selectedProviderSummary.active_accounts}/${selectedProviderSummary.accounts}`} />
+          </>
+        ) : (
+          <>
+            <Metric icon={<Activity />} label="可用账号" value={`${overview.data?.active_accounts || 0}/${overview.data?.accounts || 0}`} />
+            <Metric icon={<Boxes />} label="平台数量" value={providerSummaries.length} />
+            <Metric icon={<Gauge />} label="可用执行槽位" value={totalExecutionSlots} />
+          </>
+        )}
       </div>
-      <div className="video-inventory-strip" aria-label="Seedance 2.0 视频库存">
-        <span><strong>{overview.data?.video_ready_720p_15s || 0}</strong><small>720p · 15秒可用账号</small></span>
-        <span><strong>{overview.data?.video_ready_1080p_8s || 0}</strong><small>1080p · 8秒可用账号</small></span>
-        <span><strong>{overview.data?.video_ready_1080p_10s || 0}</strong><small>1080p · 10秒可用账号</small></span>
-        <span><strong>{(overview.data?.video_protected_tokens || 0).toLocaleString()}</strong><small>视频保护积分</small></span>
+      {(providerFilter === "all" || providerFilter === "leonardo") && (() => {
+        const leonardo = providerSummaries.find((provider) => provider.provider_id === "leonardo");
+        return (
+          <div className="video-inventory-strip" aria-label="Leonardo Seedance 2.0 视频库存">
+            <span><strong>Leonardo</strong><small>Seedance 2.0 库存</small></span>
+            <span><strong>{leonardo?.video_ready_720p_15s || 0}</strong><small>720p · 15秒可用账号</small></span>
+            <span><strong>{leonardo?.video_ready_1080p_8s || 0}</strong><small>1080p · 8秒可用账号</small></span>
+            <span><strong>{leonardo?.video_ready_1080p_10s || 0}</strong><small>1080p · 10秒可用账号</small></span>
+            <span><strong>{(leonardo?.video_protected_credits || 0).toLocaleString()}</strong><small>视频保护积分</small></span>
+          </div>
+        );
+      })()}
+      <div className="account-operations-bar">
+        <span>账号操作</span>
+        <div>
+		  {(providerFilter === "all" || providerFilter === "leonardo" || providerFilter === "adobe") && (
+			<button type="button" className="secondary" onClick={openBulkImport}>
+			  <Upload />批量导入 Cookie
+            </button>
+          )}
+          <button type="button" className="account-clean-invalid" disabled={cleanupScanning} onClick={() => void scanInvalidAccounts()}>
+            {cleanupScanning ? <RefreshCw className="spin" /> : <Trash2 />}
+            {cleanupScanning ? "正在扫描" : "清理失效账号"}
+          </button>
+        </div>
       </div>
-      <div className="accounts-toolbar">
+      {cleanupError && <p className="error account-operation-error">操作失败：{cleanupError}</p>}
+      <div className="accounts-toolbar account-filter-workspace">
         <label className="search-box">
           <Search />
           <input
@@ -149,6 +541,7 @@ export function Accounts({
               <option value="attention">需要关注</option>
               <option value="rate_limited">429 风控</option>
               <option value="cooldown">临时故障</option>
+              <option value="invalid">凭证失效</option>
               <option value="disabled">已禁用</option>
             </select>
           </label>
@@ -162,9 +555,14 @@ export function Accounts({
           <label>渠道
             <select value={providerFilter} onChange={(event) => setAccountFilter("provider", event.target.value)}>
               <option value="all">全部</option>
-              {providerOptions.map((provider) => <option value={provider} key={provider}>{provider}</option>)}
+              {providerOptions.map((provider) => <option value={provider.id} key={provider.id}>{provider.display_name}</option>)}
             </select>
           </label>
+          {hasFilters && (
+            <button type="button" className="secondary account-clear-filters" onClick={clearFilters}>
+              <X size={15} />清除
+            </button>
+          )}
         </div>
         <QueryStatus
           fetching={accounts.isFetching}
@@ -173,8 +571,37 @@ export function Accounts({
           label={`本页 ${filteredData.length} / 共 ${total}`}
         />
       </div>
+      {selectedAccounts.size > 0 && (
+        <div className="account-bulk-bar" role="status">
+          <span className="account-bulk-count"><CheckCircle2 />已选 <strong>{selectedAccounts.size}</strong> 个账号</span>
+          <span className="account-bulk-context">选择会跨页保留</span>
+          <div>
+            <button type="button" className="text-action" onClick={() => setSelectedAccounts(new Map())}>清空选择</button>
+            <button type="button" className="danger-button" onClick={() => { setArchiveMode("selected"); setArchiveFeedback(""); setArchiveOpen(true); }}>
+              <Trash2 />归档所选
+            </button>
+          </div>
+        </div>
+      )}
+      {archiveFeedback && (
+        <div className="account-action-feedback">
+          <CheckCircle2 />
+          <span>{archiveFeedback}</span>
+          <button className="icon" aria-label="关闭提示" title="关闭" onClick={() => setArchiveFeedback("")}><X /></button>
+        </div>
+      )}
       <div className="table account-table">
         <div className="account-row account-head">
+          <span className="account-select-cell">
+            <SelectionCheckbox
+              checked={allPageSelected}
+              indeterminate={somePageSelected}
+              disabled={filteredData.length === 0}
+              aria-label="选择本页账号"
+              title="选择本页账号"
+              onChange={(event) => togglePage(event.target.checked)}
+            />
+          </span>
           <span>账号</span>
           <span>渠道 / 邮箱</span>
           <span>套餐</span>
@@ -186,9 +613,16 @@ export function Accounts({
           <span>会话</span>
           <span>操作</span>
         </div>
-        {accounts.isLoading && <TableSkeleton rows={6} columns={10} />}
+        {accounts.isLoading && <TableSkeleton rows={6} columns={11} />}
         {filteredData.map((a) => (
-          <div className="account-row" key={a.id}>
+          <div className={`account-row${selectedAccounts.has(a.id) ? " selected" : ""}`} key={a.id}>
+            <span className="account-select-cell">
+              <SelectionCheckbox
+                checked={selectedAccounts.has(a.id)}
+                aria-label={`选择 ${a.name}`}
+                onChange={(event) => toggleAccount(a, event.target.checked)}
+              />
+            </span>
             <span className="account-name-cell">
               <strong>{a.name}</strong>
               <small>{a.routing_role === "video_reserved" ? `视频保留 · ${a.protected_tokens.toLocaleString()}` : `通用 · ${a.id.slice(0, 8)}`}</small>
@@ -211,7 +645,7 @@ export function Accounts({
             </span>
             <span className="account-number-cell">
               <strong>{a.reserved_tokens.toLocaleString()}</strong>
-              <small>积分</small>
+			  <small>{providerCreditUnit(a.provider_id, providerOptions)}</small>
             </span>
             <span className="account-number-cell">
               <strong>{a.active_reservations}/{a.image_concurrency}</strong>
@@ -226,8 +660,8 @@ export function Accounts({
               className="account-updated-cell"
               title={a.last_checked_at ? `余额更新 ${new Date(a.last_checked_at).toLocaleString("zh-CN")}` : undefined}
             >
-              <strong>{sessionExpiryText(a.access_token_expires_at)}</strong>
-              <small>{a.has_login_credentials ? "自动登录已配置" : sessionRefreshText(a)}</small>
+              <strong>{accountSessionExpiryText(a)}</strong>
+              <small>{accountCredentialText(a)}</small>
             </span>
             <span className="account-actions-cell">
               <button
@@ -246,6 +680,32 @@ export function Accounts({
               >
                 <RefreshCw className={m.isPending ? "spin" : ""} size={17} />
               </button>
+              {a.provider_id === "adobe" && (
+                <button
+                  className="icon"
+                  title="同步 Adobe 模型价格"
+                  aria-label={`同步 ${a.name} 的 Adobe 模型价格`}
+                  disabled={pricingSync.isPending}
+                  onClick={() => {
+                    setCleanupError("");
+                    setArchiveFeedback("");
+                    pricingSync.mutate(a.id);
+                  }}
+                >
+                  <Coins className={pricingSync.isPending && pricingSync.variables === a.id ? "spin" : ""} size={17} />
+                </button>
+              )}
+              <label className="icon account-cookie-import" title="导入完整 Cookie JSON" aria-label={`导入 ${a.name} 的完整 Cookie JSON`}>
+                <ShieldCheck size={17} />
+                <input
+                  type="file"
+                  accept="application/json,.json"
+              onChange={(event) => {
+                void onCookieFile(a, event.currentTarget.files?.[0]);
+                event.currentTarget.value = "";
+              }}
+                />
+              </label>
               <button
                 className="icon"
                 title={a.status === "disabled" ? "启用账号" : "禁用账号"}
@@ -267,8 +727,9 @@ export function Accounts({
         {filteredData.map((account) => {
           const operational = accountOperationalState(account);
           return (
-            <article className="account-mobile-card" key={account.id}>
+            <article className={`account-mobile-card${selectedAccounts.has(account.id) ? " selected" : ""}`} key={account.id}>
               <header>
+                <SelectionCheckbox checked={selectedAccounts.has(account.id)} aria-label={`选择 ${account.name}`} onChange={(event) => toggleAccount(account, event.target.checked)} />
                 <span><strong>{account.name}</strong><small>{account.provider_id} · {account.email || "未填写邮箱"}</small></span>
                 <Badge tone={operational.className === "active" ? "success" : operational.className === "rate_limited" ? "warning" : "danger"}>{operational.label}</Badge>
               </header>
@@ -278,8 +739,24 @@ export function Accounts({
                 <span><small>排队</small><strong>{account.queued_tasks}/{account.queue_capacity}</strong></span>
               </div>
               <footer>
-                <small>{sessionExpiryText(account.access_token_expires_at)} · {account.has_login_credentials ? "自动登录" : sessionRefreshText(account)}</small>
-                <Button variant="secondary" size="sm" onClick={() => edit(account)}><Pencil size={15} />详情</Button>
+              <small>{accountSessionExpiryText(account)} · {accountCredentialText(account, true)}</small>
+                <span className="account-mobile-actions">
+                  {account.provider_id === "adobe" && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={pricingSync.isPending}
+                      onClick={() => {
+                        setCleanupError("");
+                        setArchiveFeedback("");
+                        pricingSync.mutate(account.id);
+                      }}
+                    >
+                      <Coins size={15} />同步价格
+                    </Button>
+                  )}
+                  <Button variant="secondary" size="sm" onClick={() => edit(account)}><Pencil size={15} />详情</Button>
+                </span>
               </footer>
             </article>
           );
@@ -303,6 +780,155 @@ export function Accounts({
           setPage(1);
         }}
       />
+      <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <DialogContent className="account-archive-dialog" showClose={false}>
+          <span className="account-archive-icon"><Trash2 /></span>
+          <DialogTitle>{archiveMode === "invalid" ? `清理 ${selectedAccounts.size} 个凭证失效账号？` : `归档 ${selectedAccounts.size} 个账号？`}</DialogTitle>
+          <DialogDescription>
+            {archiveMode === "invalid"
+              ? "已自动找出全部凭证失效账号。确认后会从运营池归档并停止刷新；有任务或积分预留的账号会跳过。"
+              : "账号会从运营池移除并停止会话刷新，已有任务和财务记录仍会保留。正在执行、排队或持有积分预留的账号会自动跳过。"}
+          </DialogDescription>
+          <div className="account-archive-list">
+            {[...selectedAccounts.values()].map((account) => (
+              <span key={account.id}><strong>{account.name}</strong><small>{account.email || account.provider_id}</small></span>
+            ))}
+          </div>
+          {archive.error && <p className="error">归档失败：{archive.error.message}</p>}
+          <footer>
+            <button type="button" className="secondary" onClick={() => setArchiveOpen(false)}>取消</button>
+            <button type="button" className="danger-button" disabled={archive.isPending} onClick={() => archive.mutate([...selectedAccounts.keys()])}>
+              <Trash2 />{archive.isPending ? "正在归档" : "确认归档"}
+            </button>
+          </footer>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={bulkImportOpen} onOpenChange={(open) => { if (!bulkImportBusy) setBulkImportOpen(open); }}>
+        <DialogContent className="account-bulk-import-dialog" showClose={!bulkImportBusy}>
+          <div className="account-bulk-import-heading">
+            <span><FileJson /></span>
+			<div>
+			  <DialogTitle>批量导入完整 Cookie</DialogTitle>
+			  <DialogDescription>每个 JSON 文件创建一个所选平台账号，账号名称可在提交前修改。</DialogDescription>
+			</div>
+		  </div>
+		  <div className="segmented compact" role="group" aria-label="批量导入平台">
+			{(["leonardo", "adobe"] as const).map((providerID) => (
+			  <button
+				type="button"
+				key={providerID}
+				className={bulkImportProvider === providerID ? "active" : ""}
+				disabled={bulkImportBusy}
+				onClick={() => {
+				  setBulkImportProvider(providerID);
+				  setBulkImportItems([]);
+				  setBulkImportSummary("");
+				  setBulkImportConfig((current) => ({ ...current, imageConcurrency: providerID === "adobe" ? 20 : 5 }));
+				}}
+			  >
+				{providerID === "adobe" ? "Adobe" : "Leonardo"}
+			  </button>
+			))}
+		  </div>
+          <label
+            className="account-bulk-cookie-drop"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (!bulkImportBusy) void addCookieFiles(Array.from(event.dataTransfer.files));
+            }}
+          >
+            <input
+              type="file"
+              accept="application/json,.json"
+              multiple
+              disabled={bulkImportBusy || bulkImportItems.length >= MAX_BULK_COOKIE_FILES}
+              onChange={(event) => {
+                void addCookieFiles(Array.from(event.currentTarget.files || []));
+                event.currentTarget.value = "";
+              }}
+            />
+            <Upload />
+            <span><strong>选择或拖入多个 Cookie JSON</strong><small>单次最多 {MAX_BULK_COOKIE_FILES} 个文件，每个文件最大 512 KB</small></span>
+            <span>{bulkImportItems.length}/{MAX_BULK_COOKIE_FILES}</span>
+          </label>
+		  <div className="account-bulk-import-config">
+			<span><strong>{bulkImportProvider === "adobe" ? "Adobe" : "Leonardo"}</strong><small>平台</small></span>
+            <label>并发槽位
+              <input
+                type="number"
+                min={1}
+				max={bulkImportProvider === "adobe" ? 100 : 5}
+                value={bulkImportConfig.imageConcurrency}
+                disabled={bulkImportBusy}
+                onChange={(event) => setBulkImportConfig((current) => ({ ...current, imageConcurrency: Number(event.target.value) || 1 }))}
+              />
+            </label>
+            <label>等待队列
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={bulkImportConfig.queueCapacity}
+                disabled={bulkImportBusy}
+                onChange={(event) => setBulkImportConfig((current) => ({ ...current, queueCapacity: Number(event.target.value) || 1 }))}
+              />
+            </label>
+			{bulkImportProvider === "leonardo" && <label>Worker 组
+              <input
+                maxLength={100}
+                value={bulkImportConfig.workerGroup}
+                disabled={bulkImportBusy}
+                onChange={(event) => setBulkImportConfig((current) => ({ ...current, workerGroup: event.target.value }))}
+              />
+			</label>}
+          </div>
+          {bulkImportItems.length > 0 && (
+            <div className="account-bulk-import-list">
+              <div className="account-bulk-import-list-head"><span>文件</span><span>账号名称</span><span>状态</span><span></span></div>
+              {bulkImportItems.map((item) => (
+                <div className="account-bulk-import-item" key={item.id}>
+                  <span title={item.fileName}><FileJson /><small>{item.fileName}</small></span>
+                  <input
+                    value={item.name}
+                    maxLength={200}
+                    aria-label={`${item.fileName} 的账号名称`}
+                    disabled={bulkImportBusy || item.status === "submitted"}
+                    onChange={(event) => setBulkImportItems((current) => current.map((entry) => (
+                      entry.id === item.id ? { ...entry, name: event.target.value, error: entry.status === "failed" ? "" : entry.error } : entry
+                    )))}
+                  />
+                  <span className={`account-bulk-import-status ${item.status}`}>
+                    {item.status === "importing" && <RefreshCw className="spin" />}
+                    {item.status === "submitted" && <CheckCircle2 />}
+                    {item.status === "invalid" || item.status === "failed" ? <X /> : null}
+                    <small title={item.error || undefined}>
+					  {item.status === "ready" ? "待导入" : item.status === "invalid" ? item.error : item.status === "importing" ? "提交中" : item.status === "submitted" ? (bulkImportProvider === "adobe" ? "已导入" : "待验证") : item.error}
+                    </small>
+                  </span>
+                  <button
+                    type="button"
+                    className="icon"
+                    title="移除"
+                    aria-label={`移除 ${item.fileName}`}
+                    disabled={bulkImportBusy}
+                    onClick={() => setBulkImportItems((current) => current.filter((entry) => entry.id !== item.id))}
+                  ><Trash2 /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          {bulkImportSummary && <p className="account-bulk-import-summary">{bulkImportSummary}</p>}
+		  {!bulkImportConfigValid && <p className="error">并发范围为 1–{bulkImportProvider === "adobe" ? 100 : 5}，队列范围为 1–1000{bulkImportProvider === "leonardo" ? "，Worker 组只允许字母、数字、点、下划线和连字符" : ""}。</p>}
+          <footer>
+            <button type="button" className="secondary" disabled={bulkImportBusy} onClick={() => setBulkImportOpen(false)}>关闭</button>
+            <button type="button" disabled={bulkImportBusy || importableCount === 0 || !bulkImportConfigValid} onClick={() => void importCookieAccounts()}>
+              {bulkImportBusy ? <RefreshCw className="spin" /> : <Upload />}
+              {bulkImportBusy ? "正在导入" : `导入 ${importableCount} 个账号`}
+            </button>
+          </footer>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -317,6 +943,7 @@ export function AccountDialog({
   done: () => void;
 }) {
   const isEditing = Boolean(account);
+  type AccountAuthMethod = "complete_cookie" | "complete_cookie_password" | "access_token";
   const providers = useQuery({
     queryKey: ["providers"],
     queryFn: () => api<Provider[]>("/admin/api/providers"),
@@ -326,7 +953,9 @@ export function AccountDialog({
     name: account?.name || "",
     email: account?.email || "",
     password: "",
-    cookie: "",
+    access_token: "",
+    cookie_json: null as unknown,
+    cookie_file_name: "",
     proxy_url: account?.proxy_url || "",
     image_concurrency: account?.image_concurrency || 5,
     queue_capacity: account?.queue_capacity || 40,
@@ -334,12 +963,14 @@ export function AccountDialog({
     protected_tokens: account?.protected_tokens || 0,
     video_reserved_slots: account?.video_reserved_slots || 0,
     browser_worker_group: account?.browser_worker_group || "default",
+    auth_method: (account?.provider_id === "adobe" ? "access_token" : account?.has_login_credentials ? "complete_cookie_password" : "complete_cookie") as AccountAuthMethod,
   }));
   const selected = providers.data?.find(
     (provider) => provider.id === v.provider_id,
   );
+  const concurrencyMaximum = (account?.provider_id || v.provider_id) === "adobe" ? 100 : 5;
   const authLabel = (authType: string) => {
-    if (authType === "browser_session") return "浏览器会话";
+    if (authType === "browser_session") return "完整 Cookie";
     if (authType.includes("cookie")) return "Cookie 会话";
     if (authType === "api_key") return "API Key";
     if (authType === "oauth") return "OAuth";
@@ -368,11 +999,19 @@ export function AccountDialog({
                 browser_worker_group: v.browser_worker_group.trim(),
               }
             : {
-                ...v,
+                provider_id: v.provider_id,
                 name: v.name.trim(),
                 email: v.email.trim(),
-                cookie: v.cookie.trim(),
+                ...(v.provider_id === "leonardo" && v.password ? { password: v.password } : {}),
+                ...(v.provider_id === "adobe" && v.auth_method === "access_token"
+                  ? { access_token: v.access_token.trim() }
+                  : { cookie_json: v.cookie_json }),
                 proxy_url: v.proxy_url.trim(),
+                image_concurrency: v.image_concurrency,
+                queue_capacity: v.queue_capacity,
+                routing_role: v.routing_role,
+                protected_tokens: v.protected_tokens,
+                video_reserved_slots: v.video_reserved_slots,
                 browser_worker_group: v.browser_worker_group.trim(),
               },
         ),
@@ -382,11 +1021,12 @@ export function AccountDialog({
   const canSubmit = Boolean(
     (isEditing || selected) &&
       v.name.trim() &&
-      (isEditing || v.cookie.trim()) &&
-      (!v.password || v.email.trim()) &&
-      /^[A-Za-z0-9._-]{1,100}$/.test(v.browser_worker_group.trim()) &&
+      (isEditing || (v.provider_id === "adobe" && v.auth_method === "access_token" ? v.access_token.trim() : v.cookie_json)) &&
+      (v.provider_id !== "leonardo" || v.auth_method !== "complete_cookie_password" || isEditing || (v.email.trim() && v.password)) &&
+      (v.provider_id !== "leonardo" || !v.password || v.email.trim()) &&
+      (v.provider_id !== "leonardo" || /^[A-Za-z0-9._-]{1,100}$/.test(v.browser_worker_group.trim())) &&
       v.image_concurrency >= 1 &&
-      v.image_concurrency <= 5 &&
+      v.image_concurrency <= concurrencyMaximum &&
       v.queue_capacity >= 1 &&
       v.queue_capacity <= 1000 &&
       v.protected_tokens >= 0 &&
@@ -394,7 +1034,7 @@ export function AccountDialog({
       v.video_reserved_slots <= v.image_concurrency,
   );
   const setConcurrency = (next: number) => {
-    const concurrency = Math.min(5, Math.max(1, next));
+    const concurrency = Math.min(concurrencyMaximum, Math.max(1, next));
     setV({
       ...v,
       image_concurrency: concurrency,
@@ -447,37 +1087,46 @@ export function AccountDialog({
           </button>
         </header>
 
-        <section className="account-dialog-section">
+        <section className="account-dialog-section account-platform-section">
           <div className="account-section-heading">
             <Server />
             <div>
-              <strong>渠道与登录</strong>
+              <strong>选择平台</strong>
               <small>
                 {isEditing
-                  ? "渠道和登录凭据保持不变，本次只修改运行配置。"
-                  : "选择上游平台，并在新页面完成登录准备。"}
+                  ? "账号所属平台创建后保持不变。"
+                  : "每个平台使用独立凭据和积分，不会混用账号池。"}
               </small>
             </div>
           </div>
-          <div className="account-provider-layout">
-            <fieldset className="provider-choice-fieldset">
-              <legend>渠道</legend>
-              <div className="provider-choice-grid">
+          <fieldset className="provider-choice-fieldset">
+            <legend className="sr-only">平台</legend>
+            <div className="provider-choice-grid">
                 {(providers.data || []).map((provider) => {
                   const isSelected = provider.id === v.provider_id;
+                  const isAvailable = provider.enabled && (provider.id === "leonardo" || provider.id === "adobe");
                   return (
                     <label
                       key={provider.id}
-                      className={`provider-choice${isSelected ? " selected" : ""}${provider.enabled ? "" : " disabled"}`}
+                      className={`provider-choice${isSelected ? " selected" : ""}${isAvailable ? "" : " disabled"}`}
                     >
                       <input
                         type="radio"
                         name="provider_id"
                         value={provider.id}
                         checked={isSelected}
-                        disabled={isEditing || !provider.enabled}
+                        disabled={isEditing || !isAvailable}
                         onChange={() =>
-                          setV({ ...v, provider_id: provider.id })
+                          setV({
+                            ...v,
+                            provider_id: provider.id,
+                            auth_method: provider.id === "adobe" ? "access_token" : "complete_cookie",
+                            access_token: "",
+                            password: "",
+                            cookie_json: null,
+                            cookie_file_name: "",
+                            image_concurrency: 5,
+                          })
                         }
                       />
                       <span className="provider-choice-mark" aria-hidden="true">
@@ -490,61 +1139,126 @@ export function AccountDialog({
                         </small>
                       </span>
                       <span className="provider-choice-state">
-                        {provider.enabled
+                        {isAvailable
                           ? isSelected
                             ? "已选"
                             : ""
-                          : "暂不可用"}
+                          : "未开放"}
                       </span>
                     </label>
                   );
                 })}
-              </div>
-            </fieldset>
-            {selected?.id === "leonardo" && (
-              <aside className="provider-access-panel">
-                <div className="provider-access-copy">
-                  <span>当前渠道</span>
-                  <strong>{selected.display_name}</strong>
-                  <small>
-                    {authLabel(selected.auth_type)} · 登录后复制 Cookie Header
-                  </small>
-                </div>
-                {!isEditing && (
-                  <button
-                    type="button"
-                    className="secondary account-login-button"
-                    onClick={() =>
-                      window.open(
-                        "https://app.leonardo.ai/auth/login",
-                        "_blank",
-                        "noopener,noreferrer",
-                      )
-                    }
-                  >
-                    <ExternalLink />
-                    打开登录页
-                  </button>
-                )}
-              </aside>
-            )}
-          </div>
+            </div>
+          </fieldset>
           {providers.isError && <p className="error">渠道配置加载失败，请重试。</p>}
           {!providers.isError && !selected && (
             <p className="error">正在加载渠道配置…</p>
           )}
         </section>
 
-        {(isEditing || selected?.id === "leonardo") && (
+        {!isEditing && selected?.id === "leonardo" && (
+          <section className="account-dialog-section account-auth-section">
+            <div className="account-section-heading account-auth-heading">
+              <KeyRound />
+              <div>
+                <strong>选择认证方式</strong>
+                <small>完整 Cookie 是主凭据；账号密码只在 Cookie 恢复失败时作为辅助。</small>
+              </div>
+              <button
+                type="button"
+                className="secondary account-login-button"
+                onClick={() => window.open("https://app.leonardo.ai/auth/login", "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink />打开登录页
+              </button>
+            </div>
+            <div className="account-auth-methods" role="radiogroup" aria-label="Leonardo 认证方式">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={v.auth_method === "complete_cookie"}
+                className={`account-auth-method${v.auth_method === "complete_cookie" ? " selected" : ""}`}
+                onClick={() => setV({ ...v, auth_method: "complete_cookie", password: "" })}
+              >
+                <span className="account-auth-icon"><FileJson /></span>
+                <span><strong>完整 Cookie</strong><small>导入浏览器 Cookie JSON，直接恢复平台会话</small></span>
+                <span className="account-auth-tag">推荐</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={v.auth_method === "complete_cookie_password"}
+                className={`account-auth-method${v.auth_method === "complete_cookie_password" ? " selected" : ""}`}
+                onClick={() => setV({ ...v, auth_method: "complete_cookie_password" })}
+              >
+                <span className="account-auth-icon"><ShieldCheck /></span>
+                <span><strong>Cookie + 密码恢复</strong><small>保留邮箱密码，必要时由浏览器重新登录</small></span>
+              </button>
+            </div>
+          </section>
+        )}
+
+        {!isEditing && selected?.id === "adobe" && (
+          <section className="account-dialog-section account-auth-section">
+            <div className="account-section-heading account-auth-heading">
+              <KeyRound />
+              <div>
+                <strong>选择认证方式</strong>
+                <small>Access Token 可立即使用；完整 Cookie 会在 AT 到期前自动续期。</small>
+              </div>
+              <button
+                type="button"
+                className="secondary account-login-button"
+                onClick={() => window.open("https://firefly.adobe.com/", "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink />打开 Firefly
+              </button>
+            </div>
+            <div className="account-auth-methods" role="radiogroup" aria-label="Adobe 认证方式">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={v.auth_method === "access_token"}
+                className={`account-auth-method${v.auth_method === "access_token" ? " selected" : ""}`}
+                onClick={() => setV({ ...v, auth_method: "access_token", cookie_json: null, cookie_file_name: "" })}
+              >
+                <span className="account-auth-icon"><KeyRound /></span>
+                <span><strong>Access Token</strong><small>直接校验 Profile、积分和模型价格，有效期通常约 24 小时</small></span>
+                <span className="account-auth-tag">立即接入</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={v.auth_method === "complete_cookie"}
+                className={`account-auth-method${v.auth_method === "complete_cookie" ? " selected" : ""}`}
+                onClick={() => setV({ ...v, auth_method: "complete_cookie", access_token: "" })}
+              >
+                <span className="account-auth-icon"><FileJson /></span>
+                <span><strong>完整 Cookie</strong><small>加密保存 Cookie JSON，由 Go worker 自动换取新 AT</small></span>
+                <span className="account-auth-tag">长期推荐</span>
+              </button>
+            </div>
+          </section>
+        )}
+
+        {(isEditing || selected?.id === "leonardo" || selected?.id === "adobe") && (
           <section className="account-dialog-section">
             <div className="account-section-heading">
               <ShieldCheck />
               <div>
-                <strong>{isEditing ? "账号信息" : "账号与凭据"}</strong>
+                <strong>{isEditing ? "账号信息" : "填写账号与凭据"}</strong>
                 <small>
                   {isEditing
-                    ? `${account?.has_login_credentials ? "自动登录已配置；留空密码保持不变。" : "补录密码后可在 Cookie 失效时自动重新登录。"}`
-                    : "Cookie 与可选登录密码会分别加密保存，不会在列表中回显。"}
+                    ? account?.provider_id === "adobe"
+                      ? "Adobe 凭据通过列表中的 Cookie 导入操作更新；这里仅调整账号和路由配置。"
+                      : `${account?.has_login_credentials ? "自动登录已配置；留空密码保持不变。" : "补录密码后可在 Cookie 失效时自动重新登录。"}`
+                  : selected?.id === "adobe" && v.auth_method === "access_token"
+                    ? "AT 只会加密保存；创建时同步读取 Adobe Profile、余额与 BKS 价格。"
+                  : selected?.id === "adobe"
+                    ? "上传 Adobe 域名的完整 Cookie JSON，创建时直接换取并验证 AT。"
+                  : v.auth_method === "complete_cookie_password"
+                  ? "Cookie JSON 与辅助登录密码会分别加密保存，不会在列表中回显。"
+                  : "上传完整 Cookie JSON；账号名称用于运营识别。"}
                 </small>
               </div>
             </div>
@@ -555,7 +1269,7 @@ export function AccountDialog({
                   required
                   autoFocus
                   maxLength={200}
-                  placeholder="例如：leonardo-main"
+                  placeholder={selected?.id === "adobe" ? "例如：adobe-main" : "例如：leonardo-main"}
                   value={v.name}
                   onChange={(e) => setV({ ...v, name: e.target.value })}
                 />
@@ -564,36 +1278,65 @@ export function AccountDialog({
                 邮箱
                 <input
                   type="email"
+                  required={!isEditing && v.auth_method === "complete_cookie_password"}
                   autoComplete="off"
                   placeholder="用于识别账号，可选"
                   value={v.email}
                   onChange={(e) => setV({ ...v, email: e.target.value })}
                 />
               </label>
-              <label>
-                {isEditing ? "新登录密码" : "登录密码（推荐）"}
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder={isEditing ? "留空表示不修改" : "用于会话失效后自动登录"}
-                  value={v.password}
-                  onChange={(e) => setV({ ...v, password: e.target.value })}
-                />
-              </label>
+              {(isEditing ? account?.provider_id === "leonardo" : selected?.id === "leonardo" && v.auth_method === "complete_cookie_password") && (
+                <label>
+                  {isEditing ? "新登录密码" : "辅助登录密码"}
+                  <input
+                    type="password"
+                    required={!isEditing && v.auth_method === "complete_cookie_password"}
+                    autoComplete="new-password"
+                    placeholder={isEditing ? "留空表示不修改" : "仅用于 Cookie 失效后的浏览器恢复"}
+                    value={v.password}
+                    onChange={(e) => setV({ ...v, password: e.target.value })}
+                  />
+                </label>
+              )}
             </div>
-            {!isEditing && (
-              <label>
-                Cookie Header
+            {!isEditing && selected?.id === "adobe" && v.auth_method === "access_token" && (
+              <label className="account-token-field">
+                Access Token
                 <textarea
                   required
-                  rows={4}
+                  rows={5}
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="cookie_name=value; another_cookie=value"
-                  value={v.cookie}
-                  onChange={(e) => setV({ ...v, cookie: e.target.value })}
+                  placeholder="粘贴 Adobe access_token（JWT）"
+                  value={v.access_token}
+                  onChange={(event) => setV({ ...v, access_token: event.target.value })}
                 />
-                <small className="field-help">从已登录 Leonardo 请求中复制完整 Cookie Header。</small>
+                <small className="field-help">令牌不会回显；创建完成后只保存 AES-GCM 密文。</small>
+              </label>
+            )}
+            {!isEditing && v.auth_method !== "access_token" && (
+              <label className={`account-cookie-drop${v.cookie_json ? " ready" : ""}`}>
+                <input
+                  required
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={async (event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (!file) return;
+                    try {
+                      const cookieJSON: unknown = JSON.parse(await file.text());
+                      setV({ ...v, cookie_json: cookieJSON, cookie_file_name: file.name });
+                    } catch {
+                      setV({ ...v, cookie_json: null, cookie_file_name: "" });
+                    }
+                  }}
+                />
+                <span className="account-cookie-drop-icon">{v.cookie_json ? <CheckCircle2 /> : <Upload />}</span>
+                <span>
+                  <strong>{v.cookie_file_name || "选择完整 Cookie JSON"}</strong>
+                  <small>{v.cookie_json ? selected?.id === "adobe" ? "文件已读取，提交后会直接换取并验证 AT" : "文件已读取，提交后会在浏览器中验证" : `Chrome/Patchright 导出的 ${selected?.id === "adobe" ? "Adobe" : "Leonardo"} Cookie 数组，支持 .json`}</small>
+                </span>
+                <span className="account-cookie-drop-action">{v.cookie_json ? "重新选择" : "选择文件"}</span>
               </label>
             )}
           </section>
@@ -651,7 +1394,7 @@ export function AccountDialog({
                 <input
                   type="number"
                   min={1}
-                  max={5}
+                  max={concurrencyMaximum}
                   value={v.image_concurrency}
                   onChange={(e) => setConcurrency(Number(e.target.value) || 1)}
                   aria-label="账号最大并发"
@@ -659,14 +1402,14 @@ export function AccountDialog({
                 <button
                   type="button"
                   onClick={() => setConcurrency(v.image_concurrency + 1)}
-                  disabled={v.image_concurrency >= 5}
+                  disabled={v.image_concurrency >= concurrencyMaximum}
                   aria-label="增加账号并发"
                   title="增加并发"
                 >
                   <Plus />
                 </button>
               </div>
-              <small className="field-help">图片、视频、音频共用该账号的生成槽位；默认 5，与 BASIC 实测上限一致。</small>
+              <small className="field-help">{selected?.id === "adobe" || account?.provider_id === "adobe" ? "Adobe 图片和视频共用槽位；支持 1–100，用于验证真实上游并发能力。" : "图片、视频、音频共用该账号的生成槽位；范围 1–5，与 BASIC 实测上限一致。"}</small>
             </div>
             <div className="account-concurrency-field">
               <span className="field-label">等待队列长度</span>
@@ -705,12 +1448,12 @@ export function AccountDialog({
             <label>
               代理地址
               <input
-                placeholder="http://、https:// 或 socks5://；留空使用服务器出口"
+                placeholder={selected?.id === "adobe" || account?.provider_id === "adobe" ? "http:// 或 https://；留空使用服务器出口" : "http://、https:// 或 socks5://；留空使用服务器出口"}
                 value={v.proxy_url}
                 onChange={(e) => setV({ ...v, proxy_url: e.target.value })}
               />
             </label>
-            <label>
+            {(selected?.id === "leonardo" || account?.provider_id === "leonardo") && <label>
               会话 Worker 组
               <input
                 required
@@ -720,7 +1463,7 @@ export function AccountDialog({
                 onChange={(e) => setV({ ...v, browser_worker_group: e.target.value })}
               />
               <small className="field-help">账号浏览器配置固定归属该组；多服务器部署时按代理出口或节点分组。</small>
-            </label>
+            </label>}
           </div>
           <div className="account-routing-summary">
             <span><strong>{v.image_concurrency}</strong><small>并发槽位</small></span>
@@ -737,7 +1480,9 @@ export function AccountDialog({
             <ShieldCheck />
             {isEditing
               ? "降低容量时不能小于当前执行或排队任务数"
-              : "创建时验证登录和余额"}
+              : selected?.id === "adobe"
+                ? "创建时验证 Profile、积分余额和实时价格，不会提交生成任务"
+                : "创建时验证登录和余额"}
           </span>
           <div>
             <button type="button" className="secondary" onClick={close}>取消</button>

@@ -116,7 +116,7 @@ func rerouteQueuedTaskTx(ctx context.Context, tx pgx.Tx, task domain.Task, oldAc
 		WHERE r.state='held' GROUP BY r.account_id
 	)
 	SELECT a.id FROM accounts a LEFT JOIN usage u ON u.account_id=a.id
-	WHERE a.provider_id=$1 AND a.id<>$2 AND a.status='active'
+	WHERE a.archived_at IS NULL AND a.provider_id=$1 AND a.id<>$2 AND a.status='active'
 	  AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
 	  AND a.access_token_expires_at IS NOT NULL AND a.access_token_expires_at>now()
 	  AND a.last_checked_at IS NOT NULL

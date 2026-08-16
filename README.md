@@ -42,7 +42,7 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Add an account with an auth
 
 ### Browser Login Capture
 
-An optional local helper can log in through an isolated Edge profile and export the Cookie header expected by the admin UI:
+An optional local helper can log in through an isolated Edge profile and export a complete Chrome/Patchright Cookie JSON array:
 
 ```powershell
 python -m venv .venv-login
@@ -52,9 +52,9 @@ $env:LEONARDO_PASSWORD = "password"
 .\.venv-login\Scripts\python.exe scripts\leonardo_login.py
 ```
 
-Sensitive output is written to `artifacts/leonardo-login/`, which is ignored by Git. Use `cookie-header.txt` when adding the account. The helper also records a HAR file and a sanitized API summary for debugging. Its isolated browser profile is stored in `artifacts/leonardo-profile/` so a valid session can be reused without entering the password again. Add `--solve-captcha` only when a visible Cloudflare challenge appears.
+Sensitive output is written to `artifacts/leonardo-login/`, which is ignored by Git. Use `cookies.json` when adding or recovering an account. It preserves the session token, `session_data` fragments, domain, path, expiry and security attributes required to restore a browser session. The helper also records a HAR file and a sanitized API summary for debugging. Its isolated browser profile is stored in `artifacts/leonardo-profile/` so a valid session can be reused without entering the password again. Add `--solve-captcha` only when a visible Cloudflare challenge appears.
 
-The helper also writes a root-readable `session-token.json`. Pass that object as the optional `session` field when creating an account through `POST /admin/api/accounts`. This avoids calling Leonardo's browser-protected session endpoint from the Go HTTP client.
+The administration API stages a complete Cookie JSON upload and validates it through the browser worker before replacing an existing session. It does not accept an AT or a Cookie Header for new account creation or recovery.
 
 For unattended runs, complete one headed login first, then reuse the authenticated profile in headless mode:
 
@@ -94,12 +94,12 @@ curl http://127.0.0.1:8080/v1/images/generations \
   -H "Authorization: Bearer $AIV2API_API_KEY" \
   -H "Idempotency-Key: image-example-001" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-image-2","prompt":"a red ceramic teapot on a white table","size":"1024x1024","quality":"low","n":1}'
+  -d '{"provider":"adobe","model":"gpt-image-2","prompt":"a red ceramic teapot on a white table","size":"1024x1024","quality":"low","n":1}'
 ```
 
 The response is a queued task. Poll `GET /v1/images/{id}` until `status=succeeded`, then read `result.data[].url`. Image tasks accept `response_format=url`; Base64 delivery and local output transcoding are not part of the asynchronous contract. For `gpt-image-2`, `quality=auto|low|medium|high` is accepted and `auto` is intentionally normalized to `low`: Leonardo defaults this model to the much more expensive `MEDIUM` tier.
 
-Public model aliases are intentionally limited to `gpt-image-2`, `nano-banana-2`, `nano-banana-pro`, and `seedream-5.0-pro`. Administrators can inspect Leonardo's complete current image-model catalog through `GET /admin/api/platform-models` or the Platform Models page. Credit cost and supported generation options vary by upstream model. Seedream 5.0 Pro accepts custom 768–2048px edges; it costs 45 credits normally and 90 credits when the Schema 2K threshold is met.
+Select the upstream only when creating or estimating a task: `provider=leonardo|adobe`, defaulting to `leonardo`. Polling and cancellation use only the returned task ID. Public model names remain provider-neutral: Adobe image routes use `gpt-image-2` or `nano-banana-2` together with `provider=adobe`; provider-prefixed model aliases are rejected. Adobe accounts and BKS price rules are isolated from Leonardo. Adobe GPT Image 2 exposes 1024x1024, 2048x2048, and 2880x2880 with low/medium/high quality; Adobe Nano Banana 2 exposes the current Firefly `gemini-flash@nano-banana-3` 1K/2K/4K size tiers. Both Adobe image models are asynchronous, fixed to `n=1`, and accept up to six multipart reference images.
 
 Image-to-image:
 
@@ -110,6 +110,7 @@ curl http://127.0.0.1:8080/v1/images/generations \
   -F "image[]=@product.png" \
   -F "image[]=@style-reference.png" \
   -F "prompt=turn this into a watercolor illustration" \
+  -F "provider=adobe" \
   -F "model=gpt-image-2" \
   -F "size=1024x1024" \
   -F "quality=low" \
@@ -125,10 +126,10 @@ curl http://127.0.0.1:8080/v1/videos/generations \
   -H "Authorization: Bearer $AIV2API_API_KEY" \
   -H "Idempotency-Key: video-example-001" \
   -H "Content-Type: application/json" \
-  -d '{"model":"seedance-2.0-fast","prompt":"a slow cinematic orbit around a glass sculpture","duration":4,"size":"1280x720","resolution":"720p"}'
+  -d '{"provider":"adobe","model":"seedance-2.0-fast","prompt":"a slow cinematic orbit around a glass sculpture","duration":4,"size":"1280x720","resolution":"720p"}'
 ```
 
-The response is a queued task. Poll `GET /v1/videos/{id}` until `status=succeeded`; the result contains an MP4 URL. Public video models are `flux-3-video`, `seedance-2.0`, `seedance-2.0-fast`, `seedance-2.0-mini`, `seedance-2.5`, `veo-3.1`, `veo-3.1-fast`, `kling-o3-omni`, `minimax-h3`, and `grok-imagine-1.5`. Seedance 2.5 maps to Leonardo `bytedance/seedance-2.5`, supports 4–30 seconds, twelve exact 480p/720p dimensions, native audio, up to 30 images, one start/end frame pair, 10 reference videos, and 10 reference audio files. Kling Video O3 Omni maps to Leonardo `kling-video-o-3`, defaults to 1080p at 5 seconds, supports 3–15 seconds, nine exact 720p/1080p/2160p dimensions, native audio, up to seven images, start/end frames, or one reference video plus up to four images. FLUX 3 Video maps to Leonardo `bfl/flux-3-video`, supports 5–20 seconds, fourteen exact 720p/1080p dimensions, synchronized native audio, start/end frames, and one video continuation reference. MiniMax H3 maps to Leonardo `hailuo-03`, generates fixed 1440p video at 5–15 seconds, and always includes native audio. Grok Imagine 1.5 is image-to-video only: multipart `start_frame` is required, `end_frame` and other reference fields are rejected, duration is 3–15 seconds, and native audio defaults to enabled. Video quantity is fixed at one.
+The response is a queued task. Poll `GET /v1/videos/{id}` until `status=succeeded`; the result contains an MP4 URL. Adobe video routes use provider-neutral model IDs with `provider=adobe`: `kling-o3-omni`, `veo-3.1`, `veo-3.1-fast`, `seedance-2.0`, and `seedance-2.0-fast`. They use the same durable asynchronous task and reservation flow as every other video route. Veo supports 4/6/8 seconds, Kling supports 5/10/15 seconds, and Seedance supports 4–15 seconds. Current Adobe routes keep native audio disabled; reference frames and model-supported image/video/audio uploads remain asynchronous multipart inputs. Video quantity is fixed at one.
 
 Video prompt limits are model-specific: Seedance and Grok Imagine 1.5 are 5,000 Unicode characters; Kling O3 Omni is 2,500; Veo 3.1/Fast are 9,999; MiniMax H3 is 2,000. `POST /v1/videos/estimate` includes native-audio and video-reference pricing modifiers. Kling O3 Omni costs 224, 280, or 420 credits per second at 720p, 1080p, or 2160p with native audio; a reference video costs 252 credits per input second and does not support 2160p. Grok dimensions map to fixed 480p, 720p, or 1080p price tiers at 100, 165, or 290 credits per second. Seedance and Grok accept `generate_audio=false`, but the current Leonardo schema price is unchanged by that flag.
 
@@ -139,7 +140,7 @@ curl http://127.0.0.1:8080/v1/audio/generations \
   -H "Authorization: Bearer $AIV2API_API_KEY" \
   -H "Idempotency-Key: audio-example-001" \
   -H "Content-Type: application/json" \
-  -d '{"model":"sound-effects-v2","prompt":"rain falling on a metal roof","duration":6,"loop":true,"prompt_influence":0.7,"n":1}'
+  -d '{"provider":"leonardo","model":"sound-effects-v2","prompt":"rain falling on a metal roof","duration":6,"loop":true,"prompt_influence":0.7,"n":1}'
 ```
 
 Poll `GET /v1/audio/{id}` until `status=succeeded`, then read `result.data[0].url`; cancel a queued task with `POST /v1/audio/{id}/cancel`. Curated models are `dialogue-v3` for text-to-speech, `music-v1` for music, and `sound-effects-v2` for sound effects. `dialogue-v3` accepts `voice`, `language`, and `prompt_influence`; `music-v1` accepts `duration_minutes=1..10` and `force_instrumental`; `sound-effects-v2` accepts `duration=1..22`, `loop`, and `prompt_influence`. Prompt limits are 5,000 Unicode characters for Dialogue and 9,999 for Music and Sound Effects. Quantity is `1..4`; every paid creation request requires `Idempotency-Key`.
@@ -176,7 +177,7 @@ Other endpoints:
 - `POST /v1/chat/completions`
 - `GET /healthz`, `GET /readyz`, `GET /metrics`
 
-Asynchronous image results are URL-only. Downloaded image data is limited by `LEO_MAX_IMAGE_BYTES` (25 MiB by default). Reference uploads accept PNG, JPEG, and WebP. Chat Completions accepts at most one Base64 PNG/JPEG/WebP data URL and rejects remote image URLs.
+Asynchronous image results are URL-only. Reference uploads are limited by `LEO_MAX_IMAGE_BYTES` (25 MiB by default) and accept PNG, JPEG, and WebP. Chat Completions accepts the same `provider` selector as image creation, accepts at most one Base64 PNG/JPEG/WebP data URL, and rejects remote image URLs.
 
 ## Configuration
 

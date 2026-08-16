@@ -24,18 +24,33 @@ type SystemCapacityConfig struct {
 
 type SystemCapacitySnapshot struct {
 	SystemCapacityConfig
-	Queued                  int     `json:"queued"`
-	Executing               int     `json:"executing"`
-	ExecutingImages         int     `json:"executing_images"`
-	ExecutingVideos         int     `json:"executing_videos"`
-	ExecutingAudio          int     `json:"executing_audio"`
-	EligibleAccounts        int     `json:"eligible_accounts"`
-	EligibleExecutionSlots  int     `json:"eligible_execution_slots"`
-	EligibleQueueSlots      int     `json:"eligible_queue_slots"`
-	EffectiveExecutionLimit int     `json:"effective_execution_limit"`
-	ExecutionHeadroom       int     `json:"execution_headroom"`
-	QueueHeadroom           int     `json:"queue_headroom"`
-	OldestQueuedSeconds     float64 `json:"oldest_queued_seconds"`
+	Queued                  int                        `json:"queued"`
+	Executing               int                        `json:"executing"`
+	ExecutingImages         int                        `json:"executing_images"`
+	ExecutingVideos         int                        `json:"executing_videos"`
+	ExecutingAudio          int                        `json:"executing_audio"`
+	EligibleAccounts        int                        `json:"eligible_accounts"`
+	EligibleExecutionSlots  int                        `json:"eligible_execution_slots"`
+	EligibleQueueSlots      int                        `json:"eligible_queue_slots"`
+	EffectiveExecutionLimit int                        `json:"effective_execution_limit"`
+	ExecutionHeadroom       int                        `json:"execution_headroom"`
+	QueueHeadroom           int                        `json:"queue_headroom"`
+	OldestQueuedSeconds     float64                    `json:"oldest_queued_seconds"`
+	Providers               []ProviderCapacitySnapshot `json:"providers"`
+}
+
+type ProviderCapacitySnapshot struct {
+	ProviderID             string `json:"provider_id"`
+	DisplayName            string `json:"display_name"`
+	Enabled                bool   `json:"enabled"`
+	Queued                 int    `json:"queued"`
+	Executing              int    `json:"executing"`
+	ExecutingImages        int    `json:"executing_images"`
+	ExecutingVideos        int    `json:"executing_videos"`
+	ExecutingAudio         int    `json:"executing_audio"`
+	EligibleAccounts       int    `json:"eligible_accounts"`
+	EligibleExecutionSlots int    `json:"eligible_execution_slots"`
+	EligibleQueueSlots     int    `json:"eligible_queue_slots"`
 }
 
 func (config SystemCapacityConfig) Validate() error {
@@ -117,13 +132,52 @@ func (s *Store) loadSystemCapacitySnapshot(ctx context.Context, config SystemCap
 		return SystemCapacitySnapshot{}, err
 	}
 	if err := s.DB.QueryRow(ctx, `SELECT count(*),COALESCE(sum(image_concurrency),0),COALESCE(sum(queue_capacity),0)
-		FROM accounts WHERE status='active' AND (cooldown_until IS NULL OR cooldown_until<=now())
+		FROM accounts WHERE archived_at IS NULL AND status='active' AND (cooldown_until IS NULL OR cooldown_until<=now())
 		  AND access_token_expires_at IS NOT NULL AND access_token_expires_at>now()
 		  AND last_checked_at IS NOT NULL`).Scan(
 		&snapshot.EligibleAccounts,
 		&snapshot.EligibleExecutionSlots,
 		&snapshot.EligibleQueueSlots,
 	); err != nil {
+		return SystemCapacitySnapshot{}, err
+	}
+	rows, err := s.DB.Query(ctx, `WITH task_stats AS (
+		SELECT provider_id,
+			count(*) FILTER (WHERE status='queued') AS queued,
+			count(*) FILTER (WHERE status IN ('reserving','uploading','submitted','polling')) AS executing,
+			count(*) FILTER (WHERE status IN ('reserving','uploading','submitted','polling') AND kind='image') AS executing_images,
+			count(*) FILTER (WHERE status IN ('reserving','uploading','submitted','polling') AND kind='video') AS executing_videos,
+			count(*) FILTER (WHERE status IN ('reserving','uploading','submitted','polling') AND kind='audio') AS executing_audio
+		FROM tasks WHERE status IN ('queued','reserving','uploading','submitted','polling') GROUP BY provider_id
+	), account_stats AS (
+		SELECT provider_id,count(*) AS eligible_accounts,COALESCE(sum(image_concurrency),0) AS execution_slots,
+			COALESCE(sum(queue_capacity),0) AS queue_slots
+		FROM accounts WHERE archived_at IS NULL AND status='active'
+			AND (cooldown_until IS NULL OR cooldown_until<=now())
+			AND access_token_expires_at IS NOT NULL AND access_token_expires_at>now()
+			AND last_checked_at IS NOT NULL GROUP BY provider_id
+	)
+	SELECT p.id,p.display_name,p.enabled,COALESCE(t.queued,0),COALESCE(t.executing,0),
+		COALESCE(t.executing_images,0),COALESCE(t.executing_videos,0),COALESCE(t.executing_audio,0),
+		COALESCE(a.eligible_accounts,0),COALESCE(a.execution_slots,0),COALESCE(a.queue_slots,0)
+	FROM providers p LEFT JOIN task_stats t ON t.provider_id=p.id
+	LEFT JOIN account_stats a ON a.provider_id=p.id ORDER BY p.priority,p.id`)
+	if err != nil {
+		return SystemCapacitySnapshot{}, err
+	}
+	defer rows.Close()
+	snapshot.Providers = make([]ProviderCapacitySnapshot, 0)
+	for rows.Next() {
+		var provider ProviderCapacitySnapshot
+		if err := rows.Scan(&provider.ProviderID, &provider.DisplayName, &provider.Enabled,
+			&provider.Queued, &provider.Executing, &provider.ExecutingImages, &provider.ExecutingVideos,
+			&provider.ExecutingAudio, &provider.EligibleAccounts, &provider.EligibleExecutionSlots,
+			&provider.EligibleQueueSlots); err != nil {
+			return SystemCapacitySnapshot{}, err
+		}
+		snapshot.Providers = append(snapshot.Providers, provider)
+	}
+	if err := rows.Err(); err != nil {
 		return SystemCapacitySnapshot{}, err
 	}
 	snapshot.EffectiveExecutionLimit = min(config.MaxExecuting, snapshot.EligibleExecutionSlots)

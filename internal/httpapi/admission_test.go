@@ -1,8 +1,17 @@
 package httpapi
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/leonardo2api/leonardo2api/internal/circuit"
+	"github.com/leonardo2api/leonardo2api/internal/domain"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestNormalizeIdempotencyKey(t *testing.T) {
@@ -32,5 +41,30 @@ func TestNormalizeIdempotencyKey(t *testing.T) {
 				t.Fatalf("normalizeIdempotencyKey() error = %v; want code %q", err, test.wantCode)
 			}
 		})
+	}
+}
+
+func TestAPIKeyAdmissionDefersProviderCircuitUntilRequestDecoded(t *testing.T) {
+	circuitClient := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: time.Millisecond})
+	t.Cleanup(func() { _ = circuitClient.Close() })
+	server := &Server{Circuit: circuit.Breaker{Redis: circuitClient}}
+
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	request.Header.Set("Idempotency-Key", "provider-aware-circuit")
+	request = request.WithContext(context.WithValue(request.Context(), apiKeyContext, domain.APIKey{ID: uuid.New()}))
+	response := httptest.NewRecorder()
+
+	server.apiKeyAdmission(next).ServeHTTP(response, request)
+
+	if !called {
+		t.Fatal("expected provider circuit admission to run after the request body is decoded")
+	}
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected handler status %d, got %d", http.StatusNoContent, response.Code)
 	}
 }

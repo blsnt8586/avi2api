@@ -31,6 +31,8 @@ export type Account = {
   session_refresh_job_status?: string;
   session_refresh_job_next_attempt_at?: string;
   has_login_credentials: boolean;
+  has_complete_cookie_json: boolean;
+  has_pending_cookie_json: boolean;
 };
 
 export type AccountsPage = {
@@ -46,14 +48,47 @@ export type OverviewResponse = {
   task_counts: Record<string, number>;
   task_total: number;
   failed_last_hour: number;
-  total_tokens: number;
-  reserved_tokens: number;
-  available_tokens: number;
-  video_protected_tokens: number;
-  video_ready_720p_15s: number;
-  video_ready_1080p_8s: number;
-  video_ready_1080p_10s: number;
-  top_accounts: Account[];
+  provider_summaries: ProviderOverview[];
+};
+
+export type ProviderOverview = {
+  provider_id: string;
+  display_name: string;
+  enabled: boolean;
+  credit_unit: string;
+  capabilities: string[];
+  accounts: number;
+  active_accounts: number;
+  attention_accounts: number;
+  total_credits: number;
+  reserved_credits: number;
+  available_credits: number;
+  execution_slots: number;
+  queue_slots: number;
+  executing_tasks: number;
+  queued_tasks: number;
+  failed_last_hour: number;
+  submission_uncertain: number;
+  task_total: number;
+  task_counts: Record<string, number>;
+  video_protected_credits?: number;
+  video_ready_720p_15s?: number;
+  video_ready_1080p_8s?: number;
+  video_ready_1080p_10s?: number;
+};
+
+export type ProviderCapacity = {
+  provider_id: string;
+  display_name: string;
+  enabled: boolean;
+  queued: number;
+  executing: number;
+  executing_images: number;
+  executing_videos: number;
+  executing_audio: number;
+  eligible_accounts: number;
+  eligible_execution_slots: number;
+  eligible_queue_slots: number;
 };
 
 export type SystemCapacity = {
@@ -79,6 +114,7 @@ export type SystemCapacity = {
   execution_headroom: number;
   queue_headroom: number;
   oldest_queued_seconds: number;
+  providers: ProviderCapacity[];
 };
 
 type SystemRuntime = {
@@ -102,9 +138,12 @@ export type Provider = {
   id: string;
   display_name: string;
   enabled: boolean;
+  adapter_registered?: boolean;
   auth_type: string;
   credit_unit: string;
   capabilities: string[];
+  catalog_sync: boolean;
+  models: Record<MediaKind, string[]>;
 };
 
 type TaskErrorDetails = {
@@ -125,6 +164,7 @@ type TaskErrorDetails = {
 
 export type Task = {
   id: string;
+  provider_id: string;
   account_id?: string;
   kind: string;
   status: string;
@@ -220,6 +260,7 @@ export type AuditLogsPage = {
 export type APIRequestLog = {
   id: number;
   request_id: string;
+  provider_id: string;
   api_key_prefix: string;
   account_id?: string;
   account_name?: string;
@@ -271,13 +312,18 @@ export type PlatformModelRow = {
 };
 
 export type PlatformModelsResponse = {
+  provider_id: string;
+  provider: Provider;
   schema_version: string;
   media_type?: string;
   synced_at?: string;
+  catalog_source: "upstream_schema" | "configured_models";
+  sync_supported: boolean;
   data: PlatformModelRow[];
 };
 
 export type ModelCostRecord = {
+  provider_id: string;
   model: string;
   kind: string;
   size?: string;
@@ -378,7 +424,7 @@ export type SalePricingQuoteResponse = {
   video_rates: SalePricingVideoRateQuote[];
 };
 
-type EstimateRow = { label: string; values: number[] };
+type EstimateRow = { label: string; values: Array<number | null> };
 
 export type PlatformEstimate = {
   model: string;
@@ -388,6 +434,7 @@ export type PlatformEstimate = {
 };
 
 export type ImageCostEstimate = {
+  provider: string;
   model: PublicModel;
   size: string;
   quality?: string;
@@ -405,6 +452,7 @@ export type ImageCostEstimate = {
 };
 
 export type VideoCostEstimate = {
+  provider: string;
   model: PublicVideoModel;
   duration: number;
   size: string;
@@ -458,7 +506,9 @@ export type CachedVideoResult = { task: PlaygroundTask; saved_at: number };
 export type CachedAudioResult = { task: PlaygroundTask; saved_at: number };
 
 export type PublicModel =
-  | "gpt-image-2"
+	| "gpt-image-2"
+	| "adobe:gpt-image-2"
+	| "adobe:nano-banana-2"
   | "nano-banana-2"
   | "nano-banana-pro"
   | "seedream-5.0-pro";
@@ -471,6 +521,7 @@ export type ImageSizeGroup = {
 };
 
 export type ImageCostMatrix = {
+  provider: string;
   model: PublicModel;
   qualities: Array<"fixed" | "low" | "medium" | "high">;
   rows: Array<{
@@ -484,6 +535,11 @@ export type ImageCostMatrix = {
 };
 
 export type PublicVideoModel =
+	| "adobe:kling-3.0-omni"
+	| "adobe:veo-3.1"
+	| "adobe:veo-3.1-fast"
+	| "adobe:seedance-2.0"
+	| "adobe:seedance-2.0-fast"
   | "flux-3-video"
   | "seedance-2.0"
   | "seedance-2.0-fast"

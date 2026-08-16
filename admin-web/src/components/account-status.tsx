@@ -14,6 +14,13 @@ export function accountOperationalState(account: Account) {
     ? new Date(account.access_token_expires_at).getTime()
     : 0;
   if (expiresAt <= now) {
+    if (account.provider_id === "adobe" && !account.session_refresh_enabled) {
+      return {
+        className: "invalid",
+        label: "AT 已过期",
+        detail: "导入新的 Adobe Access Token，或导入完整 Cookie 开启自动续期",
+      };
+    }
     return {
       className: "cooldown",
       label:
@@ -36,14 +43,14 @@ export function AccountStatusCell({ account }: { account: Account }) {
   );
 }
 
-export function sessionExpiryText(expiresAt?: string) {
-  if (!expiresAt) return "JWT 未获取";
+export function sessionExpiryText(expiresAt?: string, tokenLabel = "JWT") {
+  if (!expiresAt) return `${tokenLabel} 未获取`;
   const remaining = new Date(expiresAt).getTime() - Date.now();
-  if (remaining <= 0) return "JWT 已过期";
+  if (remaining <= 0) return `${tokenLabel} 已过期`;
   const minutes = Math.max(1, Math.ceil(remaining / 60_000));
   return minutes >= 60
-    ? `JWT ${Math.floor(minutes / 60)}时${minutes % 60}分`
-    : `JWT ${minutes} 分`;
+    ? `${tokenLabel} ${Math.floor(minutes / 60)}时${minutes % 60}分`
+    : `${tokenLabel} ${minutes} 分`;
 }
 
 export function sessionRefreshText(account: Account) {

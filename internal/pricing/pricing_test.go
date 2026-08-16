@@ -35,11 +35,54 @@ func TestImageEstimateDefaultsAndQuantity(t *testing.T) {
 	}
 }
 
+func TestAdobeGPTImageEstimateUsesBKSRule(t *testing.T) {
+	rules := fakeRules{"image|gpt-image-2|1024x1024|low||\x00": {
+		ID: 17, UnitTokens: 41, PriceVersion: "adobe-bks-live", Source: "adobe-bks",
+	}}
+	estimate, err := ImageForProvider(context.Background(), rules, "adobe", domain.ImageRequest{Model: imageopts.GPTImage2, Size: "1024x1024", Quality: "low", N: 1})
+	if err != nil || estimate.Tokens != 41 || estimate.UnitTokens != 41 || estimate.RuleID != 17 || estimate.Source != "adobe-bks" {
+		t.Fatalf("estimate=%+v err=%v", estimate, err)
+	}
+}
+
+func TestAdobeGPTImageEstimateAllowsZeroFairUseRule(t *testing.T) {
+	rules := fakeRules{"image|gpt-image-2|1024x1024|low||\x00": {
+		ID: 18, UnitTokens: 0, PriceVersion: "adobe-bks-fair-use", Source: "adobe-bks",
+	}}
+	estimate, err := ImageForProvider(context.Background(), rules, "adobe", domain.ImageRequest{Model: imageopts.GPTImage2, Size: "1024x1024", Quality: "low", N: 1})
+	if err != nil || estimate.Tokens != 0 || estimate.UnitTokens != 0 || estimate.RuleID != 18 {
+		t.Fatalf("estimate=%+v err=%v", estimate, err)
+	}
+}
+
 func TestVideoEstimateDefaults(t *testing.T) {
 	rules := fakeRules{"video|seedance-2.0-mini|||720p|\b": {ID: 9, UnitTokens: 1280, PriceVersion: "schema-1.247.2", Source: "leonardo-schema"}}
 	estimate, err := Video(context.Background(), rules, domain.VideoRequest{Model: "seedance-2.0-mini"})
 	if err != nil || estimate.Tokens != 1280 || estimate.UnitTokens != 1280 || estimate.RuleID != 9 || estimate.PriceVersion != "schema-1.247.2" || estimate.Source != "leonardo-schema" {
 		t.Fatalf("estimate=%+v err=%v", estimate, err)
+	}
+}
+
+func TestAdobeKlingVideoEstimateSelectsWorkflowRule(t *testing.T) {
+	rules := fakeRules{
+		"video|kling-3.0-omni||t2v|720p|\x05": {ID: 70, UnitTokens: 100},
+		"video|kling-3.0-omni||i2v|720p|\x05": {ID: 71, UnitTokens: 120},
+		"video|kling-3.0-omni||rtv|720p|\x05": {ID: 72, UnitTokens: 140},
+	}
+	tests := []struct {
+		name string
+		req  domain.VideoRequest
+		id   int64
+	}{
+		{name: "text", req: domain.VideoRequest{Model: "kling-3.0-omni"}, id: 70},
+		{name: "frame", req: domain.VideoRequest{Model: "kling-3.0-omni", StartFrame: &domain.SourceMedia{Path: "start.png"}}, id: 71},
+		{name: "reference images", req: domain.VideoRequest{Model: "kling-3.0-omni", ReferenceImages: []domain.SourceMedia{{Path: "ref.png"}}}, id: 72},
+	}
+	for _, test := range tests {
+		estimate, err := VideoForProvider(context.Background(), rules, "adobe", test.req)
+		if err != nil || estimate.RuleID != test.id {
+			t.Fatalf("%s estimate=%+v err=%v", test.name, estimate, err)
+		}
 	}
 }
 

@@ -60,6 +60,36 @@ def worker_args(root: Path) -> argparse.Namespace:
 
 
 class SessionWorkerTests(unittest.TestCase):
+    def test_complete_cookie_conversion_adapts_chrome_export_fields(self) -> None:
+        cookies = worker_module.cookie_json_to_patchright(
+            [
+                {
+                    "name": "session_token",
+                    "value": "secret",
+                    "domain": ".leonardo.ai",
+                    "expirationDate": 1800000000,
+                    "hostOnly": False,
+                    "httpOnly": True,
+                    "sameSite": "no_restriction",
+                    "storeId": "0",
+                }
+            ]
+        )
+        self.assertEqual(
+            cookies,
+            [
+                {
+                    "name": "session_token",
+                    "value": "secret",
+                    "domain": ".leonardo.ai",
+                    "path": "/",
+                    "expires": 1800000000,
+                    "httpOnly": True,
+                    "sameSite": "None",
+                }
+            ],
+        )
+
     def test_cookie_header_conversion_preserves_equals(self) -> None:
         cookies = worker_module.cookie_header_to_patchright(
             "next-auth.session-token=abc==; theme=dark; malformed"
@@ -79,6 +109,24 @@ class SessionWorkerTests(unittest.TestCase):
                 },
             ],
         )
+
+    def test_complete_cookie_json_preserves_browser_attributes(self) -> None:
+        cookies = worker_module.cookie_json_to_patchright(
+            [
+                {
+                    "name": "__Secure-better-auth.session_token",
+                    "value": "abc==",
+                    "domain": ".leonardo.ai",
+                    "path": "/",
+                    "httpOnly": True,
+                    "secure": True,
+                    "sameSite": "Lax",
+                    "expires": 1800000000,
+                }
+            ]
+        )
+        self.assertEqual(cookies[0]["domain"], ".leonardo.ai")
+        self.assertEqual(cookies[0]["expires"], 1800000000)
 
     def test_private_json_uses_owner_only_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -200,6 +248,10 @@ class SessionWorkerTests(unittest.TestCase):
             self.assertEqual(headed_env["LEONARDO_PASSWORD"], "fixture-password")
             self.assertNotIn("fixture@example.com", headed_command)
             self.assertNotIn("fixture-password", headed_command)
+            self.assertEqual(
+                headed_command[headed_command.index("--cookie-json-source") + 1],
+                "browser",
+            )
             self.assertFalse((root / "output" / "job-id").exists())
 
     def test_headless_success_skips_headed_browser(self) -> None:
@@ -231,6 +283,40 @@ class SessionWorkerTests(unittest.TestCase):
             self.assertEqual(len(commands), 1)
             self.assertIn("--headless", commands[0])
             self.assertTrue(client.posts[-1][0].endswith("/complete"))
+
+    def test_complete_cookie_json_source_is_forwarded_to_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worker = worker_module.SessionWorker(worker_args(root))
+            commands: list[list[str]] = []
+
+            def run_command(_client, _env, command, _job_id, _lease_token):
+                commands.append(command)
+                return 0
+
+            worker.run_command = run_command
+            client = FakeClient()
+            worker.execute_job(
+                client,
+                {},
+                {
+                    "job": {"id": "job-id", "account_id": "account-id", "lease_token": "lease-token"},
+                    "browser_profile_key": "profile-key",
+                    "cookie_json_source": "pending",
+                    "cookie_json_fingerprint": "fixture-fingerprint",
+                    "cookie_json": [
+                        {
+                            "name": "__Secure-better-auth.session_token",
+                            "value": "value",
+                            "domain": ".leonardo.ai",
+                        }
+                    ],
+                },
+            )
+
+            self.assertIn("--cookie-json-source", commands[0])
+            self.assertEqual(commands[0][commands[0].index("--cookie-json-source") + 1], "pending")
+            self.assertEqual(commands[0][commands[0].index("--cookie-json-fingerprint") + 1], "fixture-fingerprint")
 
     def test_additional_verification_is_reported_as_terminal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -13,13 +13,22 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { APIKeyRecord, APIKeysPage } from "../shared/types";
+import type { APIKeyRecord, APIKeysPage, Provider } from "../shared/types";
 import { Metric } from "../components/metric";
 import { Pagination as UIPagination, QueryStatus, TableSkeleton } from "../components/ui";
 import { api } from "../shared/api";
-import { keyModelGroups } from "../shared/catalog";
+import { providerDisplayName, providerModelGroups } from "../shared/providers";
 
-const allKeyModels = keyModelGroups.flatMap((group) => group.models);
+const permissionID = (providerID: string, model: string) => `${providerID}:${model}`;
+function permissionLabel(permission: string, providers: Provider[]) {
+  const separator = permission.indexOf(":");
+  if (separator < 0) return permission;
+  const provider = permission.slice(0, separator);
+  const model = permission.slice(separator + 1);
+	return `${providerDisplayName(provider, providers)} · ${model}`;
+}
+
+type KeyModelGroup = ReturnType<typeof providerModelGroups>[number];
 
 export function Keys({ setKey }: { setKey: (v: string) => void }) {
   const client = useQueryClient();
@@ -27,7 +36,12 @@ export function Keys({ setKey }: { setKey: (v: string) => void }) {
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<APIKeyRecord | null>(null);
+	const [deleteTarget, setDeleteTarget] = useState<APIKeyRecord | null>(null);
+	const providers = useQuery({
+		queryKey: ["providers"],
+		queryFn: () => api<Provider[]>("/admin/api/providers"),
+	});
+	const keyModelGroups = providerModelGroups(providers.data || []);
   const keys = useQuery({
     queryKey: ["api-keys-page", page, pageSize, search],
     queryFn: () =>
@@ -113,7 +127,7 @@ export function Keys({ setKey }: { setKey: (v: string) => void }) {
               <span>
                 <strong>{k.allowed_models?.length || 0} 个模型</strong>
                 <small>
-                  {(k.allowed_models || []).slice(0, 2).join("、")}
+				  {(k.allowed_models || []).slice(0, 2).map((permission) => permissionLabel(permission, providers.data || [])).join("、")}
                   {k.allowed_models?.length > 2 ? "…" : ""}
                 </small>
               </span>
@@ -177,7 +191,8 @@ export function Keys({ setKey }: { setKey: (v: string) => void }) {
         }}
       />
       {showCreate && (
-        <CreateKeyDialog
+		<CreateKeyDialog
+		  groups={keyModelGroups}
           close={() => setShowCreate(false)}
           done={(key) => {
             setShowCreate(false);
@@ -202,13 +217,16 @@ export function Keys({ setKey }: { setKey: (v: string) => void }) {
 }
 
 function CreateKeyDialog({
-  close,
+	groups,
+	close,
   done,
 }: {
-  close: () => void;
+	groups: KeyModelGroup[];
+	close: () => void;
   done: (key: string) => void;
 }) {
-  const [form, setForm] = useState({
+	const allKeyModels = groups.flatMap((group) => group.models.map((model) => permissionID(group.provider_id, model)));
+	const [form, setForm] = useState({
     name: "",
     description: "",
     concurrency_limit: 20,
@@ -324,20 +342,20 @@ function CreateKeyDialog({
               已选择 {form.allowed_models.length} / {allKeyModels.length}
             </span>
           </div>
-          {keyModelGroups.map((group) => (
+		  {groups.map((group) => (
             <fieldset key={group.label}>
               <legend>{group.label}</legend>
               <div>
                 {group.models.map((model) => (
-                  <label className="check-chip" key={model}>
+                  <label className="check-chip" key={permissionID(group.provider_id, model)}>
                     <input
                       type="checkbox"
-                      checked={form.allowed_models.includes(model)}
-                      onChange={() => toggleModel(model)}
+                      checked={form.allowed_models.includes(permissionID(group.provider_id, model))}
+                      onChange={() => toggleModel(permissionID(group.provider_id, model))}
                     />
                     <span>
                       <Check />
-                      {model}
+					  {model}
                     </span>
                   </label>
                 ))}

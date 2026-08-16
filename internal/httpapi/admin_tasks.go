@@ -16,6 +16,7 @@ func (s *Server) adminTasks(w http.ResponseWriter, r *http.Request) {
 	pageSizeText := r.URL.Query().Get("page_size")
 	filterRequested := r.URL.Query().Get("search") != "" || r.URL.Query().Get("status") != "" ||
 		r.URL.Query().Get("kind") != "" || r.URL.Query().Get("model") != "" ||
+		r.URL.Query().Get("provider") != "" ||
 		r.URL.Query().Get("from") != "" || r.URL.Query().Get("to") != ""
 	if pageText == "" && pageSizeText == "" && !filterRequested {
 		tasks, err := s.Store.ListAdminTasks(r.Context(), 200)
@@ -54,6 +55,13 @@ func (s *Server) adminTasks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_kind", "kind must be image, video or audio")
 		return
 	}
+	providerID := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
+	if providerID != "" {
+		if _, err := s.configuredProvider(r.Context(), providerID, ""); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_provider", "provider is not configured")
+			return
+		}
+	}
 	createdFrom, createdTo, err := parseAdminTimeRange(r.URL.Query().Get("from"), r.URL.Query().Get("to"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_time_range", err.Error())
@@ -61,7 +69,7 @@ func (s *Server) adminTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	t, total, err := s.Store.ListAdminTasksPageFiltered(r.Context(), page, pageSize, store.TaskPageFilter{
 		Search: r.URL.Query().Get("search"), Status: status, Kind: kind, Model: r.URL.Query().Get("model"),
-		CreatedFrom: createdFrom, CreatedTo: createdTo,
+		ProviderID: providerID, CreatedFrom: createdFrom, CreatedTo: createdTo,
 	})
 	if err != nil {
 		writeError(w, 500, "database_error", err.Error())
@@ -140,4 +148,58 @@ func (s *Server) adminConfirmTaskNotSubmitted(w http.ResponseWriter, r *http.Req
 		"reason": "administrator_confirmed_no_upstream_generation",
 	})
 	writeJSON(w, 200, map[string]any{"id": id, "status": domain.TaskFailed, "reservation_state": "released"})
+}
+
+type uncertainTaskCleanupResult struct {
+	ID           uuid.UUID `json:"id"`
+	Resolved     bool      `json:"resolved"`
+	ErrorCode    string    `json:"error_code,omitempty"`
+	ErrorMessage string    `json:"error_message,omitempty"`
+}
+
+func (s *Server) adminFailSubmissionUncertainTasks(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []uuid.UUID `json:"ids"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if len(req.IDs) < 1 || len(req.IDs) > 100 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "ids must contain between 1 and 100 task ids")
+		return
+	}
+
+	seen := make(map[uuid.UUID]struct{}, len(req.IDs))
+	results := make([]uncertainTaskCleanupResult, 0, len(req.IDs))
+	resolved := 0
+	for _, id := range req.IDs {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result := uncertainTaskCleanupResult{ID: id}
+		confirmed, err := s.Store.ConfirmSubmissionNotCreated(r.Context(), id)
+		if err != nil {
+			result.ErrorCode = "task_reconciliation_failed"
+			result.ErrorMessage = err.Error()
+		} else if !confirmed {
+			result.ErrorCode = "task_not_reconcilable"
+			result.ErrorMessage = "task is no longer submission_uncertain"
+		} else {
+			result.Resolved = true
+			resolved++
+			s.writeAudit(r.Context(), s.Config.AdminUsername, "task.submission_not_created", id.String(), map[string]any{
+				"batch":  true,
+				"result": "failed",
+				"reason": "administrator_confirmed_no_upstream_generation",
+			})
+		}
+		results = append(results, result)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"resolved": resolved,
+		"skipped":  len(results) - resolved,
+		"results":  results,
+	})
 }
