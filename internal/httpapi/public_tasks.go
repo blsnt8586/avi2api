@@ -30,7 +30,7 @@ type publicTaskResponse struct {
 func newPublicTaskResponse(task domain.Task) publicTaskResponse {
 	return publicTaskResponse{
 		ID: task.ID, Kind: task.Kind, Status: publicTaskStatus(task.Status), Progress: task.Progress,
-		QueuePosition: task.QueuePosition, Model: task.Model, Prompt: task.Prompt,
+		QueuePosition: task.QueuePosition, Model: publicMediaModelID(requestProvider(task.ProviderID), task.Model), Prompt: task.Prompt,
 		Result: task.Result, ErrorCode: task.ErrorCode,
 		ErrorMessage: task.ErrorMessage, ErrorDetails: sanitizePublicErrorDetails(task.ErrorDetails),
 		RetryCount: task.RetryCount, CancelRequested: task.CancelRequested,

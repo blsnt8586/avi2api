@@ -53,16 +53,25 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	promptLimits := promptContract["limits"].(map[string]any)
 	wantPromptLimits := modelconstraints.AllPromptLimits()
 	for model, limit := range wantPromptLimits {
-		actual := promptLimits[model]
+		actual := promptLimits["leonardo/"+model]
 		if actual == nil {
-			actual = promptLimits["adobe:"+model]
+			actual = promptLimits["adobe/"+model]
+		}
+		if actual == nil {
+			// Leonardo models retired from the public catalog remain in the
+			// backend constraint table for historical requests, but are not
+			// part of the public OpenAPI contract.
+			continue
 		}
 		if actual != float64(limit) {
 			t.Errorf("OpenAPI prompt limit for %s=%v, want %d", model, actual, limit)
 		}
 	}
 	for route, rawLimit := range promptLimits {
-		model := strings.TrimPrefix(route, "adobe:")
+		model := route
+		if slash := strings.IndexByte(model, '/'); slash >= 0 {
+			model = model[slash+1:]
+		}
 		limit, ok := wantPromptLimits[model]
 		if !ok || rawLimit != float64(limit) {
 			t.Errorf("OpenAPI prompt route %s=%v has no matching backend limit", route, rawLimit)
@@ -99,23 +108,30 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	if modes["none"]["content_type"] != "application/json" || len(modes["none"]["required_media"].([]any)) != 0 {
 		t.Fatalf("no-reference mode is unclear: %+v", modes["none"])
 	}
-	if containsOpenAPIValue(modes["none"]["models"].([]any), "grok-imagine-1.5") {
-		t.Fatalf("Grok Imagine 1.5 must not be documented as text-to-video: %+v", modes["none"])
+	for _, model := range []string{"leonardo/gemini-omni-flash", "leonardo/happy-horse-1.1", "leonardo/kling-3.0", "leonardo/kling-3.0-turbo", "leonardo/kling-o3-omni", "leonardo/hailuo-2.3", "leonardo/wan-2.7"} {
+		if !containsOpenAPIValue(modes["none"]["models"].([]any), model) {
+			t.Fatalf("current Leonardo video model %s is missing from no-reference docs: %+v", model, modes["none"])
+		}
+	}
+	for _, model := range []string{"flux-3-video", "seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5", "veo-3.1", "veo-3.1-fast", "minimax-h3", "grok-imagine-1.5"} {
+		if containsOpenAPIValue(modes["none"]["models"].([]any), model) {
+			t.Fatalf("retired Leonardo model %s must be hidden from no-reference docs: %+v", model, modes["none"])
+		}
 	}
 	frameRequired := modes["frame"]["required_media"].([]any)
 	frameOptional := modes["frame"]["optional_media"].([]any)
 	if !containsOpenAPIValue(frameRequired, "start_frame") || containsOpenAPIValue(frameRequired, "end_frame") || !containsOpenAPIValue(frameOptional, "end_frame") {
 		t.Fatalf("frame mode must require start_frame and keep end_frame optional: %+v", modes["frame"])
 	}
-	if !containsOpenAPIValue(modes["frame"]["models"].([]any), "grok-imagine-1.5") || !strings.Contains(modes["frame"]["rule"].(string), "rejects end_frame") {
-		t.Fatalf("Grok Imagine 1.5 frame exception is missing: %+v", modes["frame"])
+	if containsOpenAPIValue(modes["frame"]["models"].([]any), "grok-imagine-1.5") {
+		t.Fatalf("Grok Imagine 1.5 must be hidden from frame docs: %+v", modes["frame"])
 	}
 	videoModels := modes["video"]["models"].([]any)
-	if len(videoModels) != 8 || !containsOpenAPIValue(videoModels, "flux-3-video") || !containsOpenAPIValue(videoModels, "seedance-2.5") || !containsOpenAPIValue(videoModels, "adobe:seedance-2.0") || !containsOpenAPIValue(videoModels, "adobe:seedance-2.0-fast") || !containsOpenAPIValue(videoModels, "kling-o3-omni") || containsOpenAPIValue(videoModels, "minimax-h3") {
+	if len(videoModels) != 3 || !containsOpenAPIValue(videoModels, "leonardo/kling-o3-omni") || !containsOpenAPIValue(videoModels, "adobe/seedance-2.0") || !containsOpenAPIValue(videoModels, "adobe/seedance-2.0-fast") {
 		t.Fatalf("video-reference mode models are incomplete: %+v", modes["video"])
 	}
-	if !strings.Contains(modes["audio"]["rule"].(string), "MiniMax H3 requires an ordinary image") {
-		t.Fatalf("audio-reference dependencies are unclear: %+v", modes["audio"])
+	if len(modes["audio"]["models"].([]any)) != 2 || !containsOpenAPIValue(modes["audio"]["models"].([]any), "adobe/seedance-2.0") || !containsOpenAPIValue(modes["audio"]["models"].([]any), "adobe/seedance-2.0-fast") {
+		t.Fatalf("audio-reference models are unclear: %+v", modes["audio"])
 	}
 	combinations, ok := videoCreate["x-reference-combinations"].(map[string]any)
 	if !ok || combinations["mode_field"] != false || combinations["inferred_from"] != "multipart file fields" {
@@ -126,7 +142,7 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 		t.Fatalf("frame reference exclusions are incomplete: %+v", combinations)
 	}
 	rawCombinationRules, ok := combinations["rules"].([]any)
-	if !ok || len(rawCombinationRules) != 10 {
+	if !ok || len(rawCombinationRules) != 5 {
 		t.Fatalf("video reference combinations are incomplete: %+v", combinations["rules"])
 	}
 	combinationRules := make(map[string]map[string]any)
@@ -136,54 +152,33 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 			combinationRules[rawModel.(string)] = rule
 		}
 	}
-	seedanceCombinations := combinationRules["seedance-2.0"]["combinable_reference_fields"].([]any)
-	seedanceAudioDependencies := combinationRules["seedance-2.0"]["audio_requires_any"].([]any)
-	if !containsOpenAPIValue(seedanceCombinations, "image") || !containsOpenAPIValue(seedanceCombinations, "video") || !containsOpenAPIValue(seedanceCombinations, "audio") || !containsOpenAPIValue(seedanceAudioDependencies, "image") || !containsOpenAPIValue(seedanceAudioDependencies, "video") {
-		t.Fatalf("Seedance reference combinations are unclear: %+v", combinationRules["seedance-2.0"])
+	if combinationRules["leonardo/flux-3-video"] != nil || combinationRules["leonardo/seedance-2.0"] != nil || combinationRules["leonardo/grok-imagine-1.5"] != nil {
+		t.Fatalf("retired Leonardo reference rules must be hidden: %+v", combinationRules)
 	}
-	seedance25 := combinationRules["seedance-2.5"]
-	if seedance25 == nil || seedance25["max_reference_images"] != float64(30) || seedance25["max_reference_videos"] != float64(10) || seedance25["max_reference_audios"] != float64(10) || seedance25["max_reference_media_duration_seconds"] != 30.2 {
-		t.Fatalf("Seedance 2.5 reference combinations are incomplete: %+v", seedance25)
+	o3Combinations := combinationRules["leonardo/kling-o3-omni"]["combinable_reference_fields"].([]any)
+	if !containsOpenAPIValue(o3Combinations, "image") || !containsOpenAPIValue(o3Combinations, "video") || combinationRules["leonardo/kling-o3-omni"]["video_reference_max_images"] != float64(4) {
+		t.Fatalf("Kling O3 Omni reference combinations are unclear: %+v", combinationRules["leonardo/kling-o3-omni"])
 	}
-	if combinationRules["flux-3-video"] == nil {
-		t.Fatal("FLUX 3 Video reference combinations are missing")
+	if combinationRules["leonardo/minimax-h3"] != nil || combinationRules["leonardo/grok-imagine-1.5"] != nil {
+		t.Fatalf("retired MiniMax/Grok reference rules must be hidden: %+v", combinationRules)
 	}
-	fluxCombinations := combinationRules["flux-3-video"]["combinable_reference_fields"].([]any)
-	if len(fluxCombinations) != 1 || !containsOpenAPIValue(fluxCombinations, "video") || !containsOpenAPIValue(combinationRules["flux-3-video"]["alternative_reference_fields"].([]any), "start_frame") {
-		t.Fatalf("FLUX 3 Video reference combinations are unclear: %+v", combinationRules["flux-3-video"])
-	}
-	o3Combinations := combinationRules["kling-o3-omni"]["combinable_reference_fields"].([]any)
-	if !containsOpenAPIValue(o3Combinations, "image") || !containsOpenAPIValue(o3Combinations, "video") || combinationRules["kling-o3-omni"]["video_reference_max_images"] != float64(4) {
-		t.Fatalf("Kling O3 Omni reference combinations are unclear: %+v", combinationRules["kling-o3-omni"])
-	}
-	h3Combinations := combinationRules["minimax-h3"]["combinable_reference_fields"].([]any)
-	h3AudioDependencies := combinationRules["minimax-h3"]["audio_requires_all"].([]any)
-	if !containsOpenAPIValue(h3Combinations, "image") || !containsOpenAPIValue(h3Combinations, "audio") || !containsOpenAPIValue(h3AudioDependencies, "image") {
-		t.Fatalf("MiniMax H3 reference combinations are unclear: %+v", combinationRules["minimax-h3"])
-	}
-	grokCombinations := combinationRules["grok-imagine-1.5"]["combinable_reference_fields"].([]any)
-	grokRequired := combinationRules["grok-imagine-1.5"]["required_reference_fields"].([]any)
-	grokUnsupported := combinationRules["grok-imagine-1.5"]["unsupported_reference_fields"].([]any)
-	if len(grokCombinations) != 1 || !containsOpenAPIValue(grokCombinations, "start_frame") || !containsOpenAPIValue(grokRequired, "start_frame") || !containsOpenAPIValue(grokUnsupported, "end_frame") {
-		t.Fatalf("Grok Imagine 1.5 reference contract is unclear: %+v", combinationRules["grok-imagine-1.5"])
-	}
-	adobeCombinations := combinationRules["adobe:veo-3.1-fast"]["combinable_reference_fields"].([]any)
+	adobeCombinations := combinationRules["adobe/veo-3.1-fast"]["combinable_reference_fields"].([]any)
 	if !containsOpenAPIValue(adobeCombinations, "start_frame") || !containsOpenAPIValue(adobeCombinations, "end_frame") {
-		t.Fatalf("Adobe Veo frame contract is unclear: %+v", combinationRules["adobe:veo-3.1-fast"])
+		t.Fatalf("Adobe Veo frame contract is unclear: %+v", combinationRules["adobe/veo-3.1-fast"])
 	}
-	adobeSeedanceCombinations := combinationRules["adobe:seedance-2.0"]["combinable_reference_fields"].([]any)
-	if !containsOpenAPIValue(adobeSeedanceCombinations, "image") || !containsOpenAPIValue(adobeSeedanceCombinations, "video") || !containsOpenAPIValue(adobeSeedanceCombinations, "audio") || combinationRules["adobe:seedance-2.0"]["max_reference_media"] != float64(12) {
-		t.Fatalf("Adobe Seedance reference contract is unclear: %+v", combinationRules["adobe:seedance-2.0"])
+	adobeSeedanceCombinations := combinationRules["adobe/seedance-2.0"]["combinable_reference_fields"].([]any)
+	if !containsOpenAPIValue(adobeSeedanceCombinations, "image") || !containsOpenAPIValue(adobeSeedanceCombinations, "video") || !containsOpenAPIValue(adobeSeedanceCombinations, "audio") || combinationRules["adobe/seedance-2.0"]["max_reference_media"] != float64(12) {
+		t.Fatalf("Adobe Seedance reference contract is unclear: %+v", combinationRules["adobe/seedance-2.0"])
 	}
-	if combinationRules["adobe:kling-3.0-omni"] == nil || combinationRules["adobe:veo-3.1"] == nil {
-		t.Fatalf("Adobe Kling or Veo reference contract is missing: kling=%+v veo=%+v", combinationRules["adobe:kling-3.0-omni"], combinationRules["adobe:veo-3.1"])
+	if combinationRules["adobe/kling-3.0-omni"] == nil || combinationRules["adobe/veo-3.1"] == nil {
+		t.Fatalf("Adobe Kling or Veo reference contract is missing: kling=%+v veo=%+v", combinationRules["adobe/kling-3.0-omni"], combinationRules["adobe/veo-3.1"])
 	}
 	components := document["components"].(map[string]any)
 	schemas := components["schemas"].(map[string]any)
 	chatRequest := schemas["ChatCompletionRequest"].(map[string]any)
 	chatProperties := chatRequest["properties"].(map[string]any)
-	if chatProperties["provider"] == nil {
-		t.Fatal("ChatCompletionRequest must expose provider selection")
+	if chatProperties["provider"] != nil || chatProperties["model"] == nil {
+		t.Fatal("ChatCompletionRequest must select the platform through model=platform/model")
 	}
 	imageReference := schemas["ImageReferenceRequest"].(map[string]any)
 	if imageReference["allOf"] != nil {
@@ -213,14 +208,14 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	}
 	imageSize := schemas["ImageSize"].(map[string]any)
 	modelRules := imageSize["x-model-rules"].(map[string]any)
-	if len(modelRules["gpt-image-2"].(map[string]any)["standard_presets"].([]any)) != 30 ||
-		len(modelRules["nano-banana-2,nano-banana-pro,adobe:nano-banana-2"].(map[string]any)["standard_presets"].([]any)) != 30 ||
-		len(modelRules["seedream-5.0-pro"].(map[string]any)["standard_presets"].([]any)) != 48 {
+	if len(modelRules["leonardo/gpt-image-2"].(map[string]any)["standard_presets"].([]any)) != 30 ||
+		len(modelRules["leonardo/nano-banana-2,leonardo/nano-banana-pro,adobe/nano-banana-2"].(map[string]any)["standard_presets"].([]any)) != 30 ||
+		len(modelRules["leonardo/seedream-5.0-pro"].(map[string]any)["standard_presets"].([]any)) != 48 {
 		t.Fatalf("image size presets are incomplete: %+v", modelRules)
 	}
-	gptSizeRule := modelRules["gpt-image-2"].(map[string]any)
-	nanoSizeRule := modelRules["nano-banana-2,nano-banana-pro,adobe:nano-banana-2"].(map[string]any)
-	seedreamSizeRule := modelRules["seedream-5.0-pro"].(map[string]any)
+	gptSizeRule := modelRules["leonardo/gpt-image-2"].(map[string]any)
+	nanoSizeRule := modelRules["leonardo/nano-banana-2,leonardo/nano-banana-pro,adobe/nano-banana-2"].(map[string]any)
+	seedreamSizeRule := modelRules["leonardo/seedream-5.0-pro"].(map[string]any)
 	if gptSizeRule["size_mode"] != "enumerated_edges" || gptSizeRule["custom_sizes"] != false ||
 		nanoSizeRule["size_mode"] != "enumerated_edges" || nanoSizeRule["custom_sizes"] != false ||
 		seedreamSizeRule["size_mode"] != "continuous_range" || seedreamSizeRule["custom_sizes"] != true {
@@ -254,33 +249,29 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 		}
 	}
 	for schemaName, limit := range map[string]float64{
-		"Flux3VideoRequest": 5000, "SeedanceVideoRequest": 5000, "Seedance25VideoRequest": 5000,
-		"Veo31VideoRequest": 9999, "KlingO3OmniVideoRequest": 2500, "MiniMaxH3VideoRequest": 2000,
-		"GrokImagine15ReferenceRequest": 5000,
-		"DialogueAudioRequest":          5000, "MusicAudioRequest": 9999, "SoundEffectsAudioRequest": 9999,
+		"KlingO3OmniVideoRequest": 2500,
+		"DialogueAudioRequest":    5000, "MusicAudioRequest": 9999, "SoundEffectsAudioRequest": 9999,
 	} {
 		properties := schemas[schemaName].(map[string]any)["properties"].(map[string]any)
 		if properties["prompt"].(map[string]any)["maxLength"] != limit {
 			t.Fatalf("%s prompt limit=%v, want %v", schemaName, properties["prompt"], limit)
 		}
 	}
-	flux3Video := schemas["Flux3VideoRequest"].(map[string]any)["properties"].(map[string]any)
-	flux3Size := schemas["Flux3VideoSize"].(map[string]any)
-	if flux3Video["duration"].(map[string]any)["maximum"] != float64(20) || len(flux3Size["enum"].([]any)) != 14 || flux3Size["x-resolution-by-size"].(map[string]any)["2520x1080"] != "1080p" {
-		t.Fatalf("FLUX 3 Video contract is incomplete: video=%+v size=%+v", flux3Video, flux3Size)
+	currentVideo := schemas["LeonardoCurrentVideoRequest"].(map[string]any)
+	currentModels := currentVideo["properties"].(map[string]any)["model"].(map[string]any)["enum"].([]any)
+	for _, model := range []string{"leonardo/gemini-omni-flash", "leonardo/happy-horse-1.1", "leonardo/kling-3.0", "leonardo/kling-3.0-turbo", "leonardo/kling-o3-omni", "leonardo/hailuo-2.3", "leonardo/wan-2.7"} {
+		if !containsOpenAPIValue(currentModels, model) {
+			t.Fatalf("current Leonardo video schema is missing %s: %+v", model, currentVideo)
+		}
 	}
-	flux3Reference := schemas["Flux3VideoReferenceRequest"].(map[string]any)["properties"].(map[string]any)
-	if flux3Reference["image"] != nil || flux3Reference["audio"] != nil || flux3Reference["video"].(map[string]any)["maxItems"] != float64(1) || !strings.Contains(flux3Reference["video"].(map[string]any)["description"].(string), "15.05 seconds") {
-		t.Fatalf("FLUX 3 Video reference limits are incomplete: %+v", flux3Reference)
+	for _, retiredSchema := range []string{"Flux3VideoRequest", "SeedanceVideoRequest", "SeedanceFastVideoRequest", "Seedance25VideoRequest", "Veo31VideoRequest", "MiniMaxH3VideoRequest", "GrokImagine15VideoEstimateRequest"} {
+		if containsOpenAPIRef(schemas["VideoRequest"], retiredSchema) || containsOpenAPIRef(schemas["VideoEstimateRequest"], retiredSchema) || containsOpenAPIRef(schemas["VideoReferenceRequest"], retiredSchema) {
+			t.Fatalf("retired Leonardo schema %s remains referenced by the public video contract", retiredSchema)
+		}
 	}
-	seedance25Video := schemas["Seedance25VideoRequest"].(map[string]any)["properties"].(map[string]any)
-	seedance25Size := schemas["Seedance25Size"].(map[string]any)
-	if seedance25Video["duration"].(map[string]any)["maximum"] != float64(30) || len(seedance25Size["enum"].([]any)) != 12 || seedance25Size["x-resolution-by-size"].(map[string]any)["640x640"] != "480p" || seedance25Size["x-resolution-by-size"].(map[string]any)["960x960"] != "720p" {
-		t.Fatalf("Seedance 2.5 video contract is incomplete: video=%+v size=%+v", seedance25Video, seedance25Size)
-	}
-	seedance25Reference := schemas["Seedance25ReferenceRequest"].(map[string]any)["properties"].(map[string]any)
-	if seedance25Reference["image"].(map[string]any)["maxItems"] != float64(30) || seedance25Reference["video"].(map[string]any)["maxItems"] != float64(10) || seedance25Reference["audio"].(map[string]any)["maxItems"] != float64(10) || !strings.Contains(seedance25Reference["audio"].(map[string]any)["description"].(string), "30.2 seconds") {
-		t.Fatalf("Seedance 2.5 reference limits are incomplete: %+v", seedance25Reference)
+	geminiReference := schemas["GeminiOmniFlashReferenceRequest"].(map[string]any)["properties"].(map[string]any)["image"].(map[string]any)
+	if geminiReference["maxItems"] != float64(5) {
+		t.Fatalf("Gemini Omni Flash reference image limit is incomplete: %+v", geminiReference)
 	}
 	o3Video := schemas["KlingO3OmniVideoRequest"].(map[string]any)["properties"].(map[string]any)
 	o3Size := schemas["KlingO3OmniSize"].(map[string]any)
@@ -291,43 +282,14 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	if o3Reference["image"].(map[string]any)["maxItems"] != float64(7) || o3Reference["video"].(map[string]any)["maxItems"] != float64(1) || o3Reference["audio"] != nil || !strings.Contains(o3Reference["video"].(map[string]any)["description"].(string), "3-10.05") {
 		t.Fatalf("Kling O3 Omni reference limits are incomplete: %+v", o3Reference)
 	}
-	h3Video := schemas["MiniMaxH3VideoRequest"].(map[string]any)["properties"].(map[string]any)
-	videoSizes := h3Video["size"].(map[string]any)["enum"].([]any)
-	if !containsOpenAPIValue(videoSizes, "3360x1440") || !containsOpenAPIValue(videoSizes, "1440x2560") || h3Video["generate_audio"].(map[string]any)["const"] != true {
-		t.Fatalf("MiniMax H3 video contract is incomplete: %+v", h3Video)
-	}
-	grokReference := schemas["GrokImagine15ReferenceRequest"].(map[string]any)
-	grokProperties := grokReference["properties"].(map[string]any)
-	grokRequiredFields := grokReference["required"].([]any)
-	if !containsOpenAPIValue(grokRequiredFields, "start_frame") || grokProperties["end_frame"] != nil || grokProperties["image"] != nil || grokProperties["video"] != nil || grokProperties["audio"] != nil {
-		t.Fatalf("Grok Imagine 1.5 must require only start-frame reference media: %+v", grokReference)
-	}
-	grokSize := schemas["GrokImagine15Size"].(map[string]any)
-	if len(grokSize["enum"].([]any)) != 9 || grokSize["x-resolution-by-size"].(map[string]any)["1424x1424"] != "1080p" {
-		t.Fatalf("Grok Imagine 1.5 size mapping is incomplete: %+v", grokSize)
-	}
-	veoReference := schemas["Veo31ReferenceRequest"].(map[string]any)
-	if len(veoReference["oneOf"].([]any)) != 2 {
-		t.Fatalf("Veo 3.1 references must separate ordinary images from frame guidance: %+v", veoReference)
-	}
 	videoReference := schemas["VideoReferenceRequest"].(map[string]any)
 	if !strings.Contains(videoReference["description"].(string), "end_frame is optional") {
 		t.Fatalf("video reference requirement summary is unclear: %+v", videoReference)
-	}
-	for _, schemaName := range []string{"Veo31FastReferenceRequest"} {
-		required := schemas[schemaName].(map[string]any)["required"].([]any)
-		if !containsOpenAPIValue(required, "start_frame") || containsOpenAPIValue(required, "end_frame") {
-			t.Fatalf("%s must require start_frame and keep end_frame optional: %v", schemaName, required)
-		}
 	}
 	for _, removed := range []string{"GeminiVideoRequest", "GeminiReferenceRequest", "Veo31LiteVideoRequest", "Veo31LiteReferenceRequest", "KlingVideoRequest", "KlingReferenceRequest"} {
 		if schemas[removed] != nil {
 			t.Fatalf("removed video model schema %s remains public", removed)
 		}
-	}
-	seedanceReference := schemas["SeedanceReferenceRequest"].(map[string]any)["properties"].(map[string]any)
-	if !strings.Contains(seedanceReference["audio"].(map[string]any)["description"].(string), "15 seconds") {
-		t.Fatalf("Seedance audio reference duration limit is missing: %+v", seedanceReference["audio"])
 	}
 	voices := schemas["DialogueAudioRequest"].(map[string]any)["properties"].(map[string]any)["voice"].(map[string]any)["enum"].([]any)
 	if len(voices) != 21 || !containsOpenAPIValue(voices, "george") || !containsOpenAPIValue(voices, "bill") {
@@ -359,6 +321,28 @@ func containsOpenAPIValue(values []any, want string) bool {
 	for _, value := range values {
 		if value == want {
 			return true
+		}
+	}
+	return false
+}
+
+func containsOpenAPIRef(value any, schemaName string) bool {
+	needle := "#/components/schemas/" + schemaName
+	switch v := value.(type) {
+	case map[string]any:
+		if ref, ok := v["$ref"].(string); ok && ref == needle {
+			return true
+		}
+		for _, child := range v {
+			if containsOpenAPIRef(child, schemaName) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if containsOpenAPIRef(child, schemaName) {
+				return true
+			}
 		}
 	}
 	return false

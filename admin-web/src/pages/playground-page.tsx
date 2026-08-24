@@ -33,6 +33,7 @@ import { api, idempotencyKey, publicAPI } from "../shared/api";
 import { clearPlaygroundCache, useCachedResult, useSessionState } from "../shared/cache";
 import { assertPromptLength } from "../shared/text";
 import {
+	generationRoute,
   isRegisteredProviderID,
   modelDisplayID,
   modelProviderID,
@@ -176,6 +177,7 @@ function ChatPlayground({ apiKey, providers }: { apiKey: string; providers: Prov
   const [prompt, setPrompt] = useSessionState("chat-prompt", "生成一张白色背景上的产品摄影，柔和棚拍光线");
 	const selectableModels = imageModelsByProvider[provider];
 	const effectiveModel = providerImageModel(provider, model);
+	const publicModel = generationRoute(effectiveModel).model;
   React.useEffect(() => {
     if (!selectableModels.includes(model) && selectableModels[0]) setModel(selectableModels[0]);
   }, [model, selectableModels, setModel]);
@@ -186,8 +188,7 @@ function ChatPlayground({ apiKey, providers }: { apiKey: string; providers: Prov
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey() },
         body: JSON.stringify({
-		  provider,
-          model,
+		  model: publicModel,
           stream: false,
           messages: [{ role: "user", content: prompt }],
         }),
@@ -301,8 +302,7 @@ function ImagePlayground({ apiKey, providers, initialModel, initialProvider }: {
       if (mode === "edit" && !files.length)
         throw new Error("图生图至少需要 1 张参考图");
       const common = {
-		provider,
-        model,
+		model: generationRoute(effectiveModel).model,
         prompt: prompt.trim(),
         size,
 		n: provider === "adobe" || model === "gpt-image-2" ? 1 : count,
@@ -680,8 +680,7 @@ function VideoPlayground({ apiKey, providers, initialModel, initialProvider }: {
       if (referenceMode && !hasReference)
         throw new Error("多模态参考模式至少需要上传 1 个参考文件");
       const fields = {
-		provider,
-        model,
+		model: generationRoute(effectiveModel).model,
         prompt: prompt.trim(),
         duration,
         size,
@@ -1067,7 +1066,7 @@ function AudioPlayground({ apiKey, initialModel }: { apiKey: string; initialMode
       if (!apiKey.trim()) throw new Error("请先填写 API Key");
       if (!prompt.trim()) throw new Error("请输入音频描述");
       assertPromptLength(prompt, model, audioModelDocs[model].promptMax);
-      const common = { provider: "leonardo", model, prompt: prompt.trim(), n: count };
+		const common = { model: `leonardo/${model}`, prompt: prompt.trim(), n: count };
       const body =
         model === "dialogue-v3"
           ? { ...common, voice, language, prompt_influence: promptInfluence }

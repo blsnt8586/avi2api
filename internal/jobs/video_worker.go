@@ -113,7 +113,7 @@ func (w *Worker) processVideo(parent context.Context, id uuid.UUID) error {
 		mode = "RESOLUTION_" + strings.TrimSuffix(strings.ToUpper(req.Resolution), "P")
 	}
 	resolution := ""
-	if req.Model == "flux-3-video" {
+	if req.Model == "flux-3-video" || spec.UsesResolutionField {
 		resolution = req.Resolution
 	}
 	client, err := leonardo.New(account.ProxyURL, account.UserAgent, w.Store.GetSettingString(ctx, "schema_version", w.Config.SchemaVersion))

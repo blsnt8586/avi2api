@@ -99,8 +99,7 @@ function imageParametersForModel(
     );
   }
   parameters.push(
-	["provider", "string", "可选", "任务创建时选择上游平台。", `${generationRoute(model).provider}；查询任务时不传`],
-	["model", "string", "必填", "生成模型。", generationRoute(model).model],
+	["model", "string", "必填", "平台与生成模型。", `${generationRoute(model).model}；格式为 平台/模型`],
     ["prompt", "string", "必填", endpoint === "reference" ? "图片修改要求。" : "图片内容描述。", `1–${imageModelDocs[model].promptMax.toLocaleString()} 个 Unicode 字符`],
     ["size", "string", "可选", "输出尺寸。", imageModelDocs[model].size],
 		["n", "integer", "可选", "生成数量。", model === "gpt-image-2" || model.startsWith("adobe-") ? "固定为 1" : "1–4；默认 1"],
@@ -120,19 +119,12 @@ function imageParametersForModel(
 function chatParametersForModel(model: PublicModel): DocParameter[] {
 	const route = generationRoute(model);
   return [
-	[
-	  "provider",
-	  "string",
-	  "可选",
-	  "任务创建时选择上游平台。",
-	  `${route.provider}；查询任务时不传`,
-	],
     [
       "model",
       "string",
       "可选",
-      "图片模型。",
-		`${route.model}；默认 gpt-image-2`,
+	  "平台与图片模型。",
+		`${route.model}；格式为 平台/模型，默认 leonardo/gpt-image-2`,
     ],
     [
       "messages",
@@ -211,7 +203,7 @@ function quickStartExample() {
 
 const imageResponseExample = `{\n  "created": 1784851200,\n  "data": [\n    {\n      "url": "https://cdn.example.com/generated/image.png",\n      "revised_prompt": "一张白色背景上的产品摄影"\n    }\n  ]\n}`;
 
-const taskCreatedExample = `{\n  "id": "2b42f834-15dd-49ce-9c75-854302db18d0",\n  "kind": "video",\n  "status": "queued",\n  "progress": 0,\n  "queue_position": 6,\n  "model": "seedance-2.0-fast",\n  "prompt": "一颗玻璃球缓慢旋转",\n  "retry_count": 0,\n  "cancel_requested": false,\n  "created_at": "2026-07-24T08:00:00Z",\n  "updated_at": "2026-07-24T08:00:00Z"\n}`;
+const taskCreatedExample = `{\n  "id": "2b42f834-15dd-49ce-9c75-854302db18d0",\n  "kind": "video",\n  "status": "queued",\n  "progress": 0,\n  "queue_position": 6,\n  "model": "leonardo/kling-o3-omni",\n  "prompt": "一颗玻璃球缓慢旋转",\n  "retry_count": 0,\n  "cancel_requested": false,\n  "created_at": "2026-07-24T08:00:00Z",\n  "updated_at": "2026-07-24T08:00:00Z"\n}`;
 
 const errorResponseExample = `{\n  "error": {\n    "message": "all eligible account queues are full",\n    "type": "account_queue_full",\n    "code": "account_queue_full"\n  }\n}`;
 
@@ -469,7 +461,7 @@ export function APIDocs() {
           <div>
             <span className="eyebrow">Provider API</span>
             <h2>{providerDisplayName(providerID, providers.data || [])} 接口</h2>
-            <p>{providerDefinition(providerID, currentProvider).description}。平台仅在创建任务时选择，后续查询和取消只使用任务 ID。</p>
+            <p>{providerDefinition(providerID, currentProvider).description}。创建请求通过 <code>model=平台/模型</code> 自动路由，后续查询和取消只使用任务 ID。</p>
           </div>
           <ProviderSwitcher
             providers={providers.data || []}
@@ -504,10 +496,10 @@ function ImageDocs({ providerID }: { providerID: string }) {
   const sizeGroups = imageSizeGroups[model];
   const matrixSizes = sizeGroups.flatMap((group) => [group.small, group.medium, group.large]).filter((size): size is string => Boolean(size));
   const matrixQuery = useQuery({
-    queryKey: ["public-image-cost-matrix", route.provider, route.model],
+    queryKey: ["public-image-cost-matrix", route.model],
     queryFn: () => api<ImageCostMatrix>("/api-docs/image-cost-matrix", {
       method: "POST",
-      body: JSON.stringify({ provider: route.provider, model: route.model, sizes: matrixSizes }),
+      body: JSON.stringify({ model: route.model, sizes: matrixSizes }),
     }),
     staleTime: 5 * 60 * 1000,
 	enabled: supported,
@@ -846,7 +838,6 @@ function VideoCostCalculator({ model }: { model: PublicVideoModel }) {
       api<VideoCostEstimate>("/api-docs/video-estimate", {
         method: "POST",
         body: JSON.stringify({
-          provider: route.provider,
           model: route.model,
           duration,
           size,
@@ -1014,8 +1005,7 @@ function videoParametersForMode(model: PublicVideoModel, mode: VideoMode): DocPa
   const spec = videoModelDocs[model];
   const fixedVeoImage = model === "veo-3.1" && mode === "image";
   const parameters: DocParameter[] = [
-	["provider", "string", "可选", "任务创建时选择上游平台。", `${generationRoute(model).provider}；查询任务时不传`],
-	["model", "string", "必填", "视频模型。", generationRoute(model).model],
+	["model", "string", "必填", "平台与视频模型。", `${generationRoute(model).model}；格式为 平台/模型`],
     ["prompt", "string", "必填", "视频内容和镜头描述。", `1–${spec.promptMax.toLocaleString()} 个 Unicode 字符`],
     ["duration", "integer", fixedVeoImage ? "固定" : "可选", "视频时长。", fixedVeoImage ? "固定为 8 秒" : `${spec.duration}；默认 ${spec.defaultDuration} 秒`],
     ["size", "string", fixedVeoImage ? "固定" : "可选", "画面方向和尺寸。", fixedVeoImage ? "固定为 1280x720" : modelVideoSizes(model).map((item) => item.value).join("、")],
@@ -1299,8 +1289,7 @@ function VideoDocs({ providerID }: { providerID: string }) {
 
 function audioParametersForModel(model: PublicAudioModel): DocParameter[] {
   const parameters: DocParameter[] = [
-	["provider", "string", "可选", "任务创建时选择上游平台。", "当前音频固定为 leonardo；查询任务时不传"],
-    ["model", "string", model === "sound-effects-v2" ? "可选" : "必填", "音频模型。", `${model}${model === "sound-effects-v2" ? "；默认 sound-effects-v2" : ""}`],
+	["model", "string", "必填", "平台与音频模型。", `leonardo/${model}；格式为 平台/模型`],
     ["prompt", "string", "必填", "朗读文本、音乐描述或音效描述。", `1–${audioModelDocs[model].promptMax.toLocaleString()} 个 Unicode 字符`],
     ["n", "integer", "可选", "生成数量。", "1–4；默认 1"],
   ];
@@ -1329,10 +1318,10 @@ function audioParametersForModel(model: PublicAudioModel): DocParameter[] {
 function audioGenerationExample(model: PublicAudioModel) {
   const body =
     model === "dialogue-v3"
-      ? '{\n    "provider": "leonardo",\n    "model": "dialogue-v3",\n    "prompt": "Welcome to the Leonardo media studio.",\n    "voice": "george",\n    "language": "en",\n    "prompt_influence": 0.5,\n    "n": 1\n  }'
+      ? '{\n    "model": "leonardo/dialogue-v3",\n    "prompt": "Welcome to the Leonardo media studio.",\n    "voice": "george",\n    "language": "en",\n    "prompt_influence": 0.5,\n    "n": 1\n  }'
       : model === "music-v1"
-        ? '{\n    "provider": "leonardo",\n    "model": "music-v1",\n    "prompt": "Warm cinematic piano and strings, slow build, no vocals",\n    "duration_minutes": 1,\n    "force_instrumental": true,\n    "n": 1\n  }'
-        : '{\n    "provider": "leonardo",\n    "model": "sound-effects-v2",\n    "prompt": "Rain falling on a metal roof, seamless ambient loop",\n    "duration": 6,\n    "loop": true,\n    "prompt_influence": 0.7,\n    "n": 1\n  }';
+        ? '{\n    "model": "leonardo/music-v1",\n    "prompt": "Warm cinematic piano and strings, slow build, no vocals",\n    "duration_minutes": 1,\n    "force_instrumental": true,\n    "n": 1\n  }'
+        : '{\n    "model": "leonardo/sound-effects-v2",\n    "prompt": "Rain falling on a metal roof, seamless ambient loop",\n    "duration": 6,\n    "loop": true,\n    "prompt_influence": 0.7,\n    "n": 1\n  }';
   return `curl $BASE_URL/v1/audio/generations \\\n+  -H "Authorization: Bearer $AIV2API_API_KEY" \\\n+  -H "Content-Type: application/json" \\\n+  -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\\n+  -d '${body}'`.replaceAll(
     "\n+",
     "\n",
@@ -1468,7 +1457,7 @@ function asyncImageExample(model: PublicModel) {
   -H "Authorization: Bearer $AIV2API_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
-  -d '{\n    "provider": "${route.provider}",\n    "model": "${route.model}",\n    "prompt": "一张白色背景上的产品摄影，柔和棚拍光线",\n    "size": "1024x1024",${quality}\n    "n": 1,\n    "response_format": "url"\n  }'`;
+  -d '{\n    "model": "${route.model}",\n    "prompt": "一张白色背景上的产品摄影，柔和棚拍光线",\n    "size": "1024x1024",${quality}\n    "n": 1,\n    "response_format": "url"\n  }'`;
 }
 
 function asyncImageTaskResponseExample(model: PublicModel) {
@@ -1502,7 +1491,7 @@ function chatCompletionExample(model: PublicModel) {
   -H "Authorization: Bearer $AIV2API_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
-  -d '{\n    "provider": "${route.provider}",\n    "model": "${route.model}",\n    "stream": false,\n    "messages": [\n      {\n        "role": "user",\n        "content": "生成一张白色背景上的红色陶瓷方块产品照"\n      }\n    ]\n  }'`;
+  -d '{\n    "model": "${route.model}",\n    "stream": false,\n    "messages": [\n      {\n        "role": "user",\n        "content": "生成一张白色背景上的红色陶瓷方块产品照"\n      }\n    ]\n  }'`;
 }
 
 function editExample(model: PublicModel) {
@@ -1518,7 +1507,6 @@ function editExample(model: PublicModel) {
   -F "image[]=@product.png" \\
   -F "image[]=@style-reference.jpg" \\
   -F "prompt=保留产品结构，转换为干净的水彩插画" \\
-  -F "provider=${route.provider}" \\
   -F "model=${route.model}" \\
   -F "size=1024x1024"${quality} \\
   -F "n=1" \\
@@ -1539,10 +1527,9 @@ function videoModeExample(model: PublicVideoModel, mode: VideoMode) {
   -H "Authorization: Bearer $AIV2API_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: YOUR_IDEMPOTENCY_KEY" \\
-  -d '{\n    "provider": "${route.provider}",\n    "model": "${route.model}",\n    "prompt": "一颗玻璃球在白色摄影棚中缓慢旋转，电影级光线",\n    "duration": ${spec.defaultDuration},\n    "size": "${selectedSize}",\n    "resolution": "${selectedResolution}"${audio}\n  }'`;
+  -d '{\n    "model": "${route.model}",\n    "prompt": "一颗玻璃球在白色摄影棚中缓慢旋转，电影级光线",\n    "duration": ${spec.defaultDuration},\n    "size": "${selectedSize}",\n    "resolution": "${selectedResolution}"${audio}\n  }'`;
   }
   const fields = [
-    `provider=${route.provider}`,
     `model=${route.model}`,
     "prompt=让主体自然向镜头走来，保持外观和动作连贯",
     `duration=${spec.defaultDuration}`,

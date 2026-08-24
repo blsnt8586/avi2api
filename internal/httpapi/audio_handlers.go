@@ -14,7 +14,6 @@ import (
 )
 
 type publicAudioJSONRequest struct {
-	Provider          string   `json:"provider,omitempty"`
 	Model             string   `json:"model"`
 	Prompt            string   `json:"prompt"`
 	N                 int      `json:"n,omitempty"`
@@ -29,7 +28,7 @@ type publicAudioJSONRequest struct {
 
 func (req publicAudioJSONRequest) domainRequest() domain.AudioRequest {
 	return domain.AudioRequest{
-		Provider: req.Provider, Model: req.Model, Prompt: req.Prompt, N: req.N, Duration: req.Duration,
+		Model: req.Model, Prompt: req.Prompt, N: req.N, Duration: req.Duration,
 		DurationMinutes: req.DurationMinutes, ForceInstrumental: req.ForceInstrumental,
 		Loop: req.Loop, Voice: req.Voice, Language: req.Language,
 		PromptInfluence: req.PromptInfluence,
@@ -56,10 +55,7 @@ func (s *Server) createAudioTask(r *http.Request, req domain.AudioRequest) (doma
 	if req.Prompt == "" {
 		return domain.Task{}, false, errors.New("prompt is required")
 	}
-	if req.Model == "" {
-		req.Model = "sound-effects-v2"
-	}
-	route, err := s.resolveMediaModel("audio", req.Provider, req.Model)
+	route, err := s.resolveMediaModel("audio", req.Model)
 	if err != nil {
 		return domain.Task{}, false, err
 	}
@@ -108,7 +104,7 @@ func (s *Server) createAudioTask(r *http.Request, req domain.AudioRequest) (doma
 	if err := s.admitDailyQuota(r.Context(), key.ID, req.N); err != nil {
 		return domain.Task{}, false, err
 	}
-	task, created, err := s.Store.CreateReservedTaskForProviderWithHashRequest(r.Context(), key.ID, providerConfig.ProviderID, "audio", route.PublicModel, req.Prompt, req, req, idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
+	task, created, err := s.Store.CreateReservedTaskForProviderWithHashRequest(r.Context(), key.ID, providerConfig.ProviderID, "audio", route.InternalModel, req.Prompt, req, req, idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
 	noteRequestTask(r, task)
 	if err != nil {
 		s.rollbackDailyQuota(r.Context(), key.ID, req.N)

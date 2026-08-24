@@ -81,28 +81,29 @@ func TestNormalizeAdobeAccountConcurrency(t *testing.T) {
 
 func TestResolveMediaModel(t *testing.T) {
 	tests := []struct {
-		kind, provider, model                  string
+		kind, model                            string
 		wantProvider, wantPublic, wantInternal string
 		wantErr                                bool
 	}{
-		{kind: "image", model: "gpt-image-2", wantProvider: "leonardo", wantPublic: "gpt-image-2", wantInternal: "gpt-image-2"},
-		{kind: "image", provider: "adobe", model: "gpt-image-2", wantProvider: "adobe", wantPublic: "gpt-image-2", wantInternal: "gpt-image-2"},
-		{kind: "video", provider: "adobe", model: "veo-3.1-fast", wantProvider: "adobe", wantPublic: "veo-3.1-fast", wantInternal: "veo-3.1-fast"},
-		{kind: "video", provider: "adobe", model: "kling-3.0-omni", wantProvider: "adobe", wantPublic: "kling-3.0-omni", wantInternal: "kling-3.0-omni"},
+		{kind: "image", model: "leonardo/gpt-image-2", wantProvider: "leonardo", wantPublic: "leonardo/gpt-image-2", wantInternal: "gpt-image-2"},
+		{kind: "image", model: "adobe/gpt-image-2", wantProvider: "adobe", wantPublic: "adobe/gpt-image-2", wantInternal: "gpt-image-2"},
+		{kind: "video", model: "adobe/veo-3.1-fast", wantProvider: "adobe", wantPublic: "adobe/veo-3.1-fast", wantInternal: "veo-3.1-fast"},
+		{kind: "video", model: "adobe/kling-3.0-omni", wantProvider: "adobe", wantPublic: "adobe/kling-3.0-omni", wantInternal: "kling-3.0-omni"},
+		{kind: "image", model: "gpt-image-2", wantErr: true},
 		{kind: "image", model: "adobe-gpt-image-2", wantErr: true},
-		{kind: "audio", provider: "adobe", model: "music-v1", wantErr: true},
-		{kind: "image", provider: "unknown", model: "gpt-image-2", wantErr: true},
+		{kind: "audio", model: "adobe/music-v1", wantErr: true},
+		{kind: "image", model: "unknown/gpt-image-2", wantErr: true},
 	}
 	for _, tt := range tests {
-		route, err := (&Server{}).resolveMediaModel(tt.kind, tt.provider, tt.model)
+		route, err := (&Server{}).resolveMediaModel(tt.kind, tt.model)
 		if (err != nil) != tt.wantErr {
-			t.Fatalf("resolveMediaModel(%q, %q, %q) error = %v", tt.kind, tt.provider, tt.model, err)
+			t.Fatalf("resolveMediaModel(%q, %q) error = %v", tt.kind, tt.model, err)
 		}
 		if tt.wantErr {
 			continue
 		}
 		if route.Provider != tt.wantProvider || route.PublicModel != tt.wantPublic || route.InternalModel != tt.wantInternal {
-			t.Fatalf("resolveMediaModel(%q, %q, %q) = %#v", tt.kind, tt.provider, tt.model, route)
+			t.Fatalf("resolveMediaModel(%q, %q) = %#v", tt.kind, tt.model, route)
 		}
 	}
 }
@@ -715,10 +716,10 @@ func TestMediaModelPermissionScopesCanonicalModelByProvider(t *testing.T) {
 	}
 }
 
-func TestChatRequestPreservesProvider(t *testing.T) {
-	request := chatRequest{Provider: "adobe", Model: "gpt-image-2"}
+func TestChatRequestPreservesPlatformModelID(t *testing.T) {
+	request := chatRequest{Model: "adobe/gpt-image-2"}
 	image := request.imageRequest("fixture", nil)
-	if image.Provider != "adobe" || image.Model != "gpt-image-2" || image.ResponseFormat != "url" {
+	if image.Provider != "" || image.Model != "adobe/gpt-image-2" || image.ResponseFormat != "url" {
 		t.Fatalf("chat image request = %+v", image)
 	}
 }
@@ -732,18 +733,21 @@ func TestImageIdempotencyRequestIgnoresAssetPath(t *testing.T) {
 }
 
 func TestModelListForKeyFiltersDisallowedModels(t *testing.T) {
-	models := []store.ProviderModelConfig{{Model: domain.ModelConfig{ID: "gpt-image-2"}}, {Model: domain.ModelConfig{ID: "seedance-2.0-fast"}}}
-	filtered := modelListForKey("adobe", models, []string{"adobe:gpt-image-2"})
-	if len(filtered) != 1 || filtered[0]["id"] != "gpt-image-2" {
+	providers := []providerBusinessView{
+		{ID: "leonardo", Models: map[string][]string{"image": {"gpt-image-2"}, "video": {"veo-3.1-fast"}, "audio": {}}},
+		{ID: "adobe", Models: map[string][]string{"image": {"gpt-image-2"}, "video": {"veo-3.1-fast"}, "audio": {}}},
+	}
+	filtered := modelListForKey(providers, []string{"adobe:gpt-image-2"})
+	if len(filtered) != 1 || filtered[0]["id"] != "adobe/gpt-image-2" {
 		t.Fatalf("unexpected filtered models: %+v", filtered)
 	}
 	if filtered[0]["owned_by"] != "aiv2api" {
 		t.Fatalf("public model owner leaked provider identity: %+v", filtered[0])
 	}
-	if filtered[0]["provider"] != "adobe" {
-		t.Fatalf("public model must identify its provider: %+v", filtered[0])
+	if _, exists := filtered[0]["provider"]; exists {
+		t.Fatalf("public model must not expose a separate provider field: %+v", filtered[0])
 	}
-	if all := modelListForKey("adobe", models, []string{"*"}); len(all) != len(models) {
+	if all := modelListForKey(providers, []string{"*"}); len(all) != 4 {
 		t.Fatalf("wildcard should expose all models: %+v", all)
 	}
 }

@@ -52,7 +52,7 @@ func TestSpecsRejectUnsupportedCombinations(t *testing.T) {
 	if veo.SupportsDuration(5) || veo.SupportsResolution("480p") {
 		t.Fatal("Veo accepted an unsupported duration or resolution")
 	}
-	for _, removed := range []string{"gemini-omni-flash", "veo-3.1-lite", "kling-3.0"} {
+	for _, removed := range []string{"veo-3.1-lite"} {
 		if _, ok := Get(removed); ok {
 			t.Fatalf("removed model %s still has a public video spec", removed)
 		}

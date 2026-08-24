@@ -13,30 +13,27 @@
     "counting": "Unicode code points",
     "rejection": "HTTP 400 prompt_too_long before pricing, account routing, task creation, or credit reservation",
     "limits": {
-      "gpt-image-2": 9999,
-      "nano-banana-2": 9999,
-      "nano-banana-pro": 9999,
-      "seedream-5.0-pro": 9999,
-      "flux-3-video": 5000,
-      "seedance-2.0": 5000,
-      "seedance-2.0-fast": 5000,
-      "seedance-2.0-mini": 5000,
-      "seedance-2.5": 5000,
-      "veo-3.1": 9999,
-      "veo-3.1-fast": 9999,
-      "kling-o3-omni": 2500,
-      "minimax-h3": 2000,
-      "grok-imagine-1.5": 5000,
-      "dialogue-v3": 5000,
-      "music-v1": 9999,
-      "sound-effects-v2": 9999,
-      "adobe:gpt-image-2": 9999,
-      "adobe:nano-banana-2": 9999,
-      "adobe:kling-3.0-omni": 2500,
-      "adobe:veo-3.1": 9999,
-      "adobe:veo-3.1-fast": 9999,
-      "adobe:seedance-2.0": 5000,
-      "adobe:seedance-2.0-fast": 5000
+      "leonardo/gpt-image-2": 9999,
+      "leonardo/nano-banana-2": 9999,
+      "leonardo/nano-banana-pro": 9999,
+      "leonardo/seedream-5.0-pro": 9999,
+      "leonardo/kling-o3-omni": 2500,
+      "leonardo/dialogue-v3": 5000,
+      "leonardo/music-v1": 9999,
+      "leonardo/sound-effects-v2": 9999,
+      "adobe/gpt-image-2": 9999,
+      "adobe/nano-banana-2": 9999,
+      "adobe/kling-3.0-omni": 2500,
+      "adobe/veo-3.1": 9999,
+      "adobe/veo-3.1-fast": 9999,
+      "adobe/seedance-2.0": 5000,
+      "adobe/seedance-2.0-fast": 5000,
+      "leonardo/gemini-omni-flash": 5000,
+      "leonardo/happy-horse-1.1": 5000,
+      "leonardo/kling-3.0": 5000,
+      "leonardo/kling-3.0-turbo": 5000,
+      "leonardo/hailuo-2.3": 5000,
+      "leonardo/wan-2.7": 5000
     }
   },
   "servers": [
@@ -158,18 +155,7 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           }
-        },
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "query",
-            "required": false,
-            "description": "Platform catalog to list. Defaults to leonardo.",
-            "schema": {
-              "$ref": "#/components/schemas/GenerationProvider"
-            }
-          }
-        ]
+        }
       }
     },
     "/v1/images/estimate": {
@@ -221,7 +207,7 @@
         ],
         "operationId": "createImageGenerationTask",
         "summary": "Create an asynchronous image task",
-        "description": "Select provider only when creating the task. Use application/json for text-only generation or multipart/form-data with image/image[] for reference-image generation. Both forms return a durable task immediately; polling uses only the task ID. Results are URL-only.",
+        "description": "The model field uses platform/model and selects the upstream platform. Use application/json for text-only generation or multipart/form-data with image/image[] for reference-image generation. Both forms return a durable task immediately; polling uses only the task ID. Results are URL-only.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -314,27 +300,25 @@
         ],
         "operationId": "createVideo",
         "summary": "Create a video task",
-        "description": "Select provider only when creating the task. No-reference requests use application/json and reference-media requests use multipart/form-data. The API returns a durable task immediately; polling uses only the task ID.",
+        "description": "The model field uses platform/model and selects the upstream platform. No-reference requests use application/json and reference-media requests use multipart/form-data. The API returns a durable task immediately; polling uses only the task ID.",
         "x-generation-modes": [
           {
             "id": "none",
             "name": "No reference",
             "content_type": "application/json",
             "models": [
-              "flux-3-video",
-              "seedance-2.0",
-              "seedance-2.0-fast",
-              "seedance-2.0-mini",
-              "seedance-2.5",
-              "veo-3.1",
-              "veo-3.1-fast",
-              "kling-o3-omni",
-              "minimax-h3",
-              "adobe:kling-3.0-omni",
-              "adobe:veo-3.1",
-              "adobe:veo-3.1-fast",
-              "adobe:seedance-2.0",
-              "adobe:seedance-2.0-fast"
+              "leonardo/gemini-omni-flash",
+              "leonardo/happy-horse-1.1",
+              "leonardo/kling-3.0",
+              "leonardo/kling-3.0-turbo",
+              "leonardo/kling-o3-omni",
+              "leonardo/hailuo-2.3",
+              "leonardo/wan-2.7",
+              "adobe/kling-3.0-omni",
+              "adobe/veo-3.1",
+              "adobe/veo-3.1-fast",
+              "adobe/seedance-2.0",
+              "adobe/seedance-2.0-fast"
             ],
             "required_media": [],
             "rule": "Do not send image, start_frame, end_frame, video, or audio."
@@ -344,17 +328,11 @@
             "name": "Image reference",
             "content_type": "multipart/form-data",
             "models": [
-              "seedance-2.0",
-              "seedance-2.0-fast",
-              "seedance-2.0-mini",
-              "seedance-2.5",
-              "veo-3.1",
-              "kling-o3-omni",
-              "minimax-h3",
-              "adobe:kling-3.0-omni",
-              "adobe:veo-3.1",
-              "adobe:seedance-2.0",
-              "adobe:seedance-2.0-fast"
+              "leonardo/kling-o3-omni",
+              "adobe/kling-3.0-omni",
+              "adobe/veo-3.1",
+              "adobe/seedance-2.0",
+              "adobe/seedance-2.0-fast"
             ],
             "required_media": [
               "image or image[]"
@@ -366,21 +344,12 @@
             "name": "Start/end frame",
             "content_type": "multipart/form-data",
             "models": [
-              "flux-3-video",
-              "seedance-2.0",
-              "seedance-2.0-fast",
-              "seedance-2.0-mini",
-              "seedance-2.5",
-              "veo-3.1",
-              "veo-3.1-fast",
-              "kling-o3-omni",
-              "minimax-h3",
-              "grok-imagine-1.5",
-              "adobe:kling-3.0-omni",
-              "adobe:veo-3.1",
-              "adobe:veo-3.1-fast",
-              "adobe:seedance-2.0",
-              "adobe:seedance-2.0-fast"
+              "leonardo/kling-o3-omni",
+              "adobe/kling-3.0-omni",
+              "adobe/veo-3.1",
+              "adobe/veo-3.1-fast",
+              "adobe/seedance-2.0",
+              "adobe/seedance-2.0-fast"
             ],
             "required_media": [
               "start_frame"
@@ -398,14 +367,9 @@
             "name": "Video reference",
             "content_type": "multipart/form-data",
             "models": [
-              "flux-3-video",
-              "seedance-2.0",
-              "seedance-2.0-fast",
-              "seedance-2.0-mini",
-              "seedance-2.5",
-              "kling-o3-omni",
-              "adobe:seedance-2.0",
-              "adobe:seedance-2.0-fast"
+              "leonardo/kling-o3-omni",
+              "adobe/seedance-2.0",
+              "adobe/seedance-2.0-fast"
             ],
             "required_media": [
               "video or video[]"
@@ -417,13 +381,8 @@
             "name": "Audio reference",
             "content_type": "multipart/form-data",
             "models": [
-              "seedance-2.0",
-              "seedance-2.0-fast",
-              "seedance-2.0-mini",
-              "seedance-2.5",
-              "minimax-h3",
-              "adobe:seedance-2.0",
-              "adobe:seedance-2.0-fast"
+              "adobe/seedance-2.0",
+              "adobe/seedance-2.0-fast"
             ],
             "required_media": [
               "audio or audio[]",
@@ -445,57 +404,7 @@
           "rules": [
             {
               "models": [
-                "seedance-2.0",
-                "seedance-2.0-fast",
-                "seedance-2.0-mini"
-              ],
-              "combinable_reference_fields": [
-                "image",
-                "video",
-                "audio"
-              ],
-              "audio_requires_any": [
-                "image",
-                "video"
-              ]
-            },
-            {
-              "models": [
-                "seedance-2.5"
-              ],
-              "combinable_reference_fields": [
-                "image",
-                "video",
-                "audio"
-              ],
-              "audio_requires_any": [
-                "image",
-                "video"
-              ],
-              "max_reference_images": 30,
-              "max_reference_videos": 10,
-              "max_reference_audios": 10,
-              "max_reference_media_duration_seconds": 30.2
-            },
-            {
-              "models": [
-                "flux-3-video"
-              ],
-              "combinable_reference_fields": [
-                "video"
-              ],
-              "alternative_reference_fields": [
-                "start_frame",
-                "end_frame"
-              ],
-              "unsupported_reference_fields": [
-                "image",
-                "audio"
-              ]
-            },
-            {
-              "models": [
-                "kling-o3-omni"
+                "leonardo/kling-o3-omni"
               ],
               "combinable_reference_fields": [
                 "image",
@@ -512,36 +421,7 @@
             },
             {
               "models": [
-                "minimax-h3"
-              ],
-              "combinable_reference_fields": [
-                "image",
-                "audio"
-              ],
-              "audio_requires_all": [
-                "image"
-              ]
-            },
-            {
-              "models": [
-                "grok-imagine-1.5"
-              ],
-              "combinable_reference_fields": [
-                "start_frame"
-              ],
-              "required_reference_fields": [
-                "start_frame"
-              ],
-              "unsupported_reference_fields": [
-                "image",
-                "end_frame",
-                "video",
-                "audio"
-              ]
-            },
-            {
-              "models": [
-                "adobe:veo-3.1-fast"
+                "adobe/veo-3.1-fast"
               ],
               "combinable_reference_fields": [
                 "start_frame",
@@ -556,7 +436,7 @@
             },
             {
               "models": [
-                "adobe:veo-3.1"
+                "adobe/veo-3.1"
               ],
               "combinable_reference_fields": [
                 "image"
@@ -572,7 +452,7 @@
             },
             {
               "models": [
-                "adobe:kling-3.0-omni"
+                "adobe/kling-3.0-omni"
               ],
               "combinable_reference_fields": [
                 "image"
@@ -588,8 +468,8 @@
             },
             {
               "models": [
-                "adobe:seedance-2.0",
-                "adobe:seedance-2.0-fast"
+                "adobe/seedance-2.0",
+                "adobe/seedance-2.0-fast"
               ],
               "combinable_reference_fields": [
                 "image",
@@ -721,7 +601,7 @@
         ],
         "operationId": "createAudio",
         "summary": "Create an audio task",
-        "description": "Select provider only when creating the task. Adobe currently has no audio adapter, so audio uses provider=leonardo. Polling uses only the returned task ID.",
+        "description": "The model field uses platform/model and selects the upstream platform. Adobe currently has no audio adapter, so audio uses model=leonardo/model. Polling uses only the returned task ID.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -790,7 +670,7 @@
         ],
         "operationId": "createChatCompletion",
         "summary": "Create an image through Chat Completions compatibility",
-        "description": "Uses the final user message as the image prompt. Select the generation platform with provider. Accepts text and one Base64 image. Set stream=true for SSE.",
+        "description": "Uses the final user message as the image prompt. The model field uses platform/model. Accepts text and one Base64 image. Set stream=true for SSE.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -1165,8 +1045,7 @@
           "id",
           "object",
           "created",
-          "owned_by",
-          "provider"
+          "owned_by"
         ],
         "additionalProperties": false,
         "properties": {
@@ -1182,13 +1061,6 @@
           },
           "owned_by": {
             "const": "aiv2api"
-          },
-          "provider": {
-            "type": "string",
-            "enum": [
-              "leonardo",
-              "adobe"
-            ]
           }
         }
       },
@@ -1205,9 +1077,9 @@
         "type": "string",
         "default": "1024x1024",
         "pattern": "^(auto|[1-9][0-9]*x[1-9][0-9]*)$",
-        "description": "auto or WIDTHxHEIGHT. gpt-image-2 requires Leonardo width/height enums, ratio <= 3:1, and 655360..8294400 pixels. gpt-image-2 on provider=adobe exposes Adobe 1K, 2K, and 4K square tiers. Nano Banana 2/Pro and nano-banana-2 on provider=adobe use the enumerated 1K/2K/4K size table. Seedream 5.0 Pro accepts custom integer edges from 768 through 2048 inclusive; its standard UI presets are enumerated in x-model-rules.",
+        "description": "auto or WIDTHxHEIGHT. gpt-image-2 requires Leonardo width/height enums, ratio <= 3:1, and 655360..8294400 pixels. gpt-image-2 on model=adobe/model exposes Adobe 1K, 2K, and 4K square tiers. Nano Banana 2/Pro and nano-banana-2 on model=adobe/model use the enumerated 1K/2K/4K size table. Seedream 5.0 Pro accepts custom integer edges from 768 through 2048 inclusive; its standard UI presets are enumerated in x-model-rules.",
         "x-model-rules": {
-          "gpt-image-2": {
+          "leonardo/gpt-image-2": {
             "size_mode": "enumerated_edges",
             "custom_sizes": false,
             "width_enum": [
@@ -1314,8 +1186,8 @@
               "3808x1632"
             ]
           },
-          "adobe:gpt-image-2": {
-            "size_mode": "provider_tiers",
+          "adobe/gpt-image-2": {
+            "size_mode": "platform_tiers",
             "custom_sizes": false,
             "standard_presets": [
               "1024x1024",
@@ -1328,7 +1200,7 @@
               "2880x2880": "4K"
             }
           },
-          "nano-banana-2,nano-banana-pro,adobe:nano-banana-2": {
+          "leonardo/nano-banana-2,leonardo/nano-banana-pro,adobe/nano-banana-2": {
             "size_mode": "enumerated_edges",
             "custom_sizes": false,
             "width_enum": [
@@ -1428,7 +1300,7 @@
               "6336x2688"
             ]
           },
-          "seedream-5.0-pro": {
+          "leonardo/seedream-5.0-pro": {
             "size_mode": "continuous_range",
             "minimum_edge": 768,
             "maximum_edge": 2048,
@@ -1533,16 +1405,15 @@
         "additionalProperties": false,
         "description": "Strict public image DTO. Leonardo-native prompt_enhance/style_ids, internal references, and Nano Banana 2 video_reference_base are not exposed and are rejected as unknown fields.",
         "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
           "model": {
             "type": "string",
             "enum": [
-              "gpt-image-2",
-              "nano-banana-2",
-              "nano-banana-pro",
-              "seedream-5.0-pro"
+              "leonardo/gpt-image-2",
+              "leonardo/nano-banana-2",
+              "leonardo/nano-banana-pro",
+              "leonardo/seedream-5.0-pro",
+              "adobe/gpt-image-2",
+              "adobe/nano-banana-2"
             ]
           },
           "prompt": {
@@ -1609,23 +1480,22 @@
         "description": "Image pricing inputs only. size accepts auto or a model-valid WIDTHxHEIGHT; quality is accepted only for gpt-image-2; n is the requested image quantity.",
         "examples": [
           {
-            "model": "gpt-image-2",
+            "model": "leonardo/gpt-image-2",
             "size": "1536x1024",
             "quality": "high",
             "n": 1
           }
         ],
         "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
           "model": {
             "type": "string",
             "enum": [
-              "gpt-image-2",
-              "nano-banana-2",
-              "nano-banana-pro",
-              "seedream-5.0-pro"
+              "leonardo/gpt-image-2",
+              "leonardo/nano-banana-2",
+              "leonardo/nano-banana-pro",
+              "leonardo/seedream-5.0-pro",
+              "adobe/gpt-image-2",
+              "adobe/nano-banana-2"
             ]
           },
           "size": {
@@ -1664,7 +1534,7 @@
         "additionalProperties": false,
         "examples": [
           {
-            "model": "gpt-image-2",
+            "model": "leonardo/gpt-image-2",
             "size": "1536x1024",
             "quality": "high",
             "quantity": 1,
@@ -1685,9 +1555,6 @@
           }
         ],
         "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
           "model": {
             "type": "string"
           },
@@ -1768,16 +1635,15 @@
         "additionalProperties": false,
         "description": "URL-only asynchronous image DTO. Leonardo-native fields not listed here are rejected.",
         "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
           "model": {
             "type": "string",
             "enum": [
-              "gpt-image-2",
-              "nano-banana-2",
-              "nano-banana-pro",
-              "seedream-5.0-pro"
+              "leonardo/gpt-image-2",
+              "leonardo/nano-banana-2",
+              "leonardo/nano-banana-pro",
+              "leonardo/seedream-5.0-pro",
+              "adobe/gpt-image-2",
+              "adobe/nano-banana-2"
             ]
           },
           "prompt": {
@@ -1829,16 +1695,15 @@
         "additionalProperties": false,
         "description": "URL-only asynchronous multipart image-reference request. Leonardo-native seed, prompt_enhance, style_ids, and Nano Banana 2 video references are not exposed.",
         "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
           "model": {
             "type": "string",
             "enum": [
-              "gpt-image-2",
-              "nano-banana-2",
-              "nano-banana-pro",
-              "seedream-5.0-pro"
+              "leonardo/gpt-image-2",
+              "leonardo/nano-banana-2",
+              "leonardo/nano-banana-pro",
+              "leonardo/seedream-5.0-pro",
+              "adobe/gpt-image-2",
+              "adobe/nano-banana-2"
             ]
           },
           "prompt": {
@@ -1897,156 +1762,6 @@
             "const": "auto"
           }
         }
-      },
-      "Flux3VideoSize": {
-        "type": "string",
-        "enum": [
-          "1470x630",
-          "1360x680",
-          "1280x720",
-          "1112x834",
-          "960x960",
-          "834x1112",
-          "720x1280",
-          "2520x1080",
-          "2160x1080",
-          "1920x1080",
-          "1440x1080",
-          "1440x1440",
-          "1080x1440",
-          "1080x1920"
-        ],
-        "default": "1280x720",
-        "description": "Exact Leonardo output dimensions. Each size is tied to the 720p or 1080p price tier.",
-        "x-resolution-by-size": {
-          "1470x630": "720p",
-          "1360x680": "720p",
-          "1280x720": "720p",
-          "1112x834": "720p",
-          "960x960": "720p",
-          "834x1112": "720p",
-          "720x1280": "720p",
-          "2520x1080": "1080p",
-          "2160x1080": "1080p",
-          "1920x1080": "1080p",
-          "1440x1080": "1080p",
-          "1440x1440": "1080p",
-          "1080x1440": "1080p",
-          "1080x1920": "1080p"
-        }
-      },
-      "Flux3VideoDimensionRules": {
-        "description": "Enforces the FLUX 3 Video size-to-resolution price tier mapping when both fields are present.",
-        "allOf": [
-          {
-            "if": {
-              "required": [
-                "size"
-              ],
-              "properties": {
-                "size": {
-                  "enum": [
-                    "1470x630",
-                    "1360x680",
-                    "1280x720",
-                    "1112x834",
-                    "960x960",
-                    "834x1112",
-                    "720x1280"
-                  ]
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "resolution": {
-                  "const": "720p"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "size"
-              ],
-              "properties": {
-                "size": {
-                  "enum": [
-                    "2520x1080",
-                    "2160x1080",
-                    "1920x1080",
-                    "1440x1080",
-                    "1440x1440",
-                    "1080x1440",
-                    "1080x1920"
-                  ]
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "resolution": {
-                  "const": "1080p"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "resolution"
-              ],
-              "properties": {
-                "resolution": {
-                  "const": "720p"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "size": {
-                  "enum": [
-                    "1470x630",
-                    "1360x680",
-                    "1280x720",
-                    "1112x834",
-                    "960x960",
-                    "834x1112",
-                    "720x1280"
-                  ]
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "resolution"
-              ],
-              "properties": {
-                "resolution": {
-                  "const": "1080p"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "size": {
-                  "enum": [
-                    "2520x1080",
-                    "2160x1080",
-                    "1920x1080",
-                    "1440x1080",
-                    "1440x1440",
-                    "1080x1440",
-                    "1080x1920"
-                  ]
-                }
-              }
-            }
-          }
-        ]
       },
       "KlingO3OmniSize": {
         "type": "string",
@@ -2218,192 +1933,10 @@
           }
         ]
       },
-      "GrokImagine15Size": {
-        "type": "string",
-        "enum": [
-          "736x400",
-          "400x736",
-          "544x544",
-          "1280x720",
-          "720x1280",
-          "960x960",
-          "1888x1072",
-          "1072x1888",
-          "1424x1424"
-        ],
-        "default": "736x400",
-        "description": "Exact Leonardo output dimensions. Each size is tied to one resolution price tier.",
-        "x-resolution-by-size": {
-          "736x400": "480p",
-          "400x736": "480p",
-          "544x544": "480p",
-          "1280x720": "720p",
-          "720x1280": "720p",
-          "960x960": "720p",
-          "1888x1072": "1080p",
-          "1072x1888": "1080p",
-          "1424x1424": "1080p"
-        }
-      },
-      "GrokImagine15DimensionRules": {
-        "description": "Enforces the Grok Imagine 1.5 size-to-resolution price tier mapping when both fields are present.",
-        "allOf": [
-          {
-            "if": {
-              "required": [
-                "size"
-              ],
-              "properties": {
-                "size": {
-                  "enum": [
-                    "736x400",
-                    "400x736",
-                    "544x544"
-                  ]
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "resolution": {
-                  "const": "480p"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "size"
-              ],
-              "properties": {
-                "size": {
-                  "enum": [
-                    "1280x720",
-                    "720x1280",
-                    "960x960"
-                  ]
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "resolution": {
-                  "const": "720p"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "size"
-              ],
-              "properties": {
-                "size": {
-                  "enum": [
-                    "1888x1072",
-                    "1072x1888",
-                    "1424x1424"
-                  ]
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "resolution": {
-                  "const": "1080p"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "resolution"
-              ],
-              "properties": {
-                "resolution": {
-                  "const": "480p"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "size": {
-                  "enum": [
-                    "736x400",
-                    "400x736",
-                    "544x544"
-                  ]
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "resolution"
-              ],
-              "properties": {
-                "resolution": {
-                  "const": "720p"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "size": {
-                  "enum": [
-                    "1280x720",
-                    "720x1280",
-                    "960x960"
-                  ]
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "resolution"
-              ],
-              "properties": {
-                "resolution": {
-                  "const": "1080p"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "size": {
-                  "enum": [
-                    "1888x1072",
-                    "1072x1888",
-                    "1424x1424"
-                  ]
-                }
-              }
-            }
-          }
-        ]
-      },
       "VideoRequest": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Flux3VideoRequest"
-          },
-          {
-            "$ref": "#/components/schemas/SeedanceVideoRequest"
-          },
-          {
-            "$ref": "#/components/schemas/SeedanceFastVideoRequest"
-          },
-          {
-            "$ref": "#/components/schemas/Seedance25VideoRequest"
-          },
-          {
-            "$ref": "#/components/schemas/Veo31VideoRequest"
+            "$ref": "#/components/schemas/LeonardoCurrentVideoRequest"
           },
           {
             "$ref": "#/components/schemas/AdobeKling30OmniVideoRequest"
@@ -2416,324 +1949,28 @@
           },
           {
             "$ref": "#/components/schemas/KlingO3OmniVideoRequest"
-          },
-          {
-            "$ref": "#/components/schemas/MiniMaxH3VideoRequest"
           }
         ]
       },
-      "Flux3VideoRequest": {
+      "LeonardoCurrentVideoRequest": {
         "type": "object",
         "required": [
           "model",
           "prompt"
         ],
         "additionalProperties": false,
+        "description": "Current Leonardo video catalog. Exact duration, size, and resolution combinations are validated by the gateway per model.",
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "const": "flux-3-video"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 5000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 5,
-            "maximum": 20,
-            "default": 8
-          },
-          "size": {
-            "$ref": "#/components/schemas/Flux3VideoSize"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "720p",
-              "1080p"
-            ],
-            "default": "720p"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true,
-            "description": "Controls native output audio. The current Leonardo tokens price is unchanged when false."
-          }
-        },
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Flux3VideoDimensionRules"
-          }
-        ]
-      },
-      "SeedanceVideoRequest": {
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "const": "seedance-2.0"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 5000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 4,
-            "maximum": 15,
-            "default": 8
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "1280x720",
-              "720x1280"
-            ],
-            "default": "1280x720"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p",
-              "1080p",
-              "2160p"
-            ],
-            "default": "720p"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true,
-            "description": "Accepted by Leonardo. The current schema price is unchanged when false."
-          }
-        }
-      },
-      "Seedance25Size": {
-        "type": "string",
-        "enum": [
-          "992x432",
-          "864x496",
-          "752x560",
-          "640x640",
-          "560x752",
-          "496x864",
-          "1470x630",
-          "1280x720",
-          "1112x834",
-          "960x960",
-          "834x1112",
-          "720x1280"
-        ],
-        "default": "1280x720",
-        "description": "Exact Leonardo output dimensions. Each size is tied to the 480p or 720p price tier.",
-        "x-resolution-by-size": {
-          "992x432": "480p",
-          "864x496": "480p",
-          "752x560": "480p",
-          "640x640": "480p",
-          "560x752": "480p",
-          "496x864": "480p",
-          "1470x630": "720p",
-          "1280x720": "720p",
-          "1112x834": "720p",
-          "960x960": "720p",
-          "834x1112": "720p",
-          "720x1280": "720p"
-        }
-      },
-      "Seedance25DimensionRules": {
-        "description": "Enforces Seedance 2.5 size-to-resolution price tier mapping when both fields are present.",
-        "allOf": [
-          {
-            "if": {
-              "required": [
-                "size"
-              ],
-              "properties": {
-                "size": {
-                  "enum": [
-                    "992x432",
-                    "864x496",
-                    "752x560",
-                    "640x640",
-                    "560x752",
-                    "496x864"
-                  ]
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "resolution": {
-                  "const": "480p"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "size"
-              ],
-              "properties": {
-                "size": {
-                  "enum": [
-                    "1470x630",
-                    "1280x720",
-                    "1112x834",
-                    "960x960",
-                    "834x1112",
-                    "720x1280"
-                  ]
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "resolution": {
-                  "const": "720p"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "resolution"
-              ],
-              "properties": {
-                "resolution": {
-                  "const": "480p"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "size": {
-                  "enum": [
-                    "992x432",
-                    "864x496",
-                    "752x560",
-                    "640x640",
-                    "560x752",
-                    "496x864"
-                  ]
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "resolution"
-              ],
-              "properties": {
-                "resolution": {
-                  "const": "720p"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "size": {
-                  "enum": [
-                    "1470x630",
-                    "1280x720",
-                    "1112x834",
-                    "960x960",
-                    "834x1112",
-                    "720x1280"
-                  ]
-                }
-              }
-            }
-          }
-        ]
-      },
-      "Seedance25VideoRequest": {
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "const": "seedance-2.5"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 5000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 4,
-            "maximum": 30,
-            "default": 8
-          },
-          "size": {
-            "$ref": "#/components/schemas/Seedance25Size"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p"
-            ],
-            "default": "720p"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true,
-            "description": "Controls native output audio. The current Leonardo tokens price is unchanged when false."
-          }
-        },
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Seedance25DimensionRules"
-          }
-        ]
-      },
-      "SeedanceFastVideoRequest": {
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
           "model": {
             "type": "string",
             "enum": [
-              "seedance-2.0-fast",
-              "seedance-2.0-mini"
+              "leonardo/gemini-omni-flash",
+              "leonardo/happy-horse-1.1",
+              "leonardo/kling-3.0",
+              "leonardo/kling-3.0-turbo",
+              "leonardo/kling-o3-omni",
+              "leonardo/hailuo-2.3",
+              "leonardo/wan-2.7"
             ]
           },
           "prompt": {
@@ -2743,83 +1980,22 @@
           },
           "duration": {
             "type": "integer",
-            "minimum": 4,
+            "minimum": 2,
             "maximum": 15,
-            "default": 8
+            "default": 5
           },
           "size": {
             "type": "string",
-            "enum": [
-              "1280x720",
-              "720x1280"
-            ],
-            "default": "1280x720"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p"
-            ],
-            "default": "720p"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true,
-            "description": "Accepted by Leonardo. The current schema price is unchanged when false."
-          }
-        }
-      },
-      "Veo31VideoRequest": {
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "type": "string",
-            "enum": [
-              "veo-3.1",
-              "veo-3.1-fast"
-            ]
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 9999
-          },
-          "duration": {
-            "type": "integer",
-            "enum": [
-              4,
-              6,
-              8
-            ],
-            "default": 8
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "1280x720",
-              "720x1280"
-            ],
-            "default": "1280x720"
+            "description": "Model-specific output dimensions; use the size/resolution combinations shown by the model catalog."
           },
           "resolution": {
             "type": "string",
             "enum": [
               "720p",
+              "768p",
               "1080p",
               "2160p"
-            ],
-            "default": "720p"
+            ]
           },
           "generate_audio": {
             "type": "boolean",
@@ -2831,21 +2007,13 @@
         "type": "object",
         "required": [
           "model",
-          "prompt",
-          "provider"
+          "prompt"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
             "type": "string",
-            "enum": [
-              "veo-3.1",
-              "veo-3.1-fast"
-            ]
+            "enum": []
           },
           "prompt": {
             "type": "string",
@@ -2885,17 +2053,12 @@
         "type": "object",
         "required": [
           "model",
-          "prompt",
-          "provider"
+          "prompt"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
-            "const": "kling-3.0-omni"
+            "const": "adobe/kling-3.0-omni"
           },
           "prompt": {
             "type": "string",
@@ -2947,17 +2110,12 @@
         "type": "object",
         "required": [
           "model",
-          "prompt",
-          "provider"
+          "prompt"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
-            "const": "seedance-2.0"
+            "const": "adobe/seedance-2.0"
           },
           "prompt": {
             "type": "string",
@@ -3009,17 +2167,12 @@
         "type": "object",
         "required": [
           "model",
-          "prompt",
-          "provider"
+          "prompt"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
-            "const": "seedance-2.0-fast"
+            "const": "adobe/seedance-2.0-fast"
           },
           "prompt": {
             "type": "string",
@@ -3068,13 +2221,8 @@
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
           "model": {
-            "const": "kling-o3-omni"
+            "const": "leonardo/kling-o3-omni"
           },
           "prompt": {
             "type": "string",
@@ -3110,71 +2258,10 @@
           }
         ]
       },
-      "MiniMaxH3VideoRequest": {
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "const": "minimax-h3"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 5,
-            "maximum": 15,
-            "default": 5
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "3360x1440",
-              "2560x1440",
-              "1920x1440",
-              "1440x1440",
-              "1440x1920",
-              "1440x2560"
-            ],
-            "default": "2560x1440"
-          },
-          "resolution": {
-            "const": "1440p",
-            "default": "1440p"
-          },
-          "generate_audio": {
-            "const": true,
-            "default": true
-          }
-        }
-      },
       "VideoEstimateRequest": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Flux3VideoEstimateRequest"
-          },
-          {
-            "$ref": "#/components/schemas/SeedanceVideoEstimateRequest"
-          },
-          {
-            "$ref": "#/components/schemas/SeedanceFastVideoEstimateRequest"
-          },
-          {
-            "$ref": "#/components/schemas/Seedance25VideoEstimateRequest"
-          },
-          {
-            "$ref": "#/components/schemas/Veo31VideoEstimateRequest"
+            "$ref": "#/components/schemas/LeonardoCurrentVideoEstimateRequest"
           },
           {
             "$ref": "#/components/schemas/AdobeKling30OmniVideoEstimateRequest"
@@ -3187,253 +2274,46 @@
           },
           {
             "$ref": "#/components/schemas/KlingO3OmniVideoEstimateRequest"
-          },
-          {
-            "$ref": "#/components/schemas/MiniMaxH3VideoEstimateRequest"
-          },
-          {
-            "$ref": "#/components/schemas/GrokImagine15VideoEstimateRequest"
           }
         ]
       },
-      "Flux3VideoEstimateRequest": {
+      "LeonardoCurrentVideoEstimateRequest": {
         "type": "object",
         "required": [
           "model"
         ],
         "additionalProperties": false,
+        "description": "Cost estimate for the current Leonardo video catalog. The gateway applies the model-specific active price rule.",
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "const": "flux-3-video"
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 5,
-            "maximum": 20,
-            "default": 8
-          },
-          "size": {
-            "$ref": "#/components/schemas/Flux3VideoSize"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "720p",
-              "1080p"
-            ],
-            "default": "720p"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          },
-          "has_video_reference": {
-            "type": "boolean",
-            "default": false
-          }
-        },
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Flux3VideoDimensionRules"
-          }
-        ]
-      },
-      "SeedanceVideoEstimateRequest": {
-        "type": "object",
-        "required": [
-          "model"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "const": "seedance-2.0"
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 4,
-            "maximum": 15,
-            "default": 8
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "1280x720",
-              "720x1280"
-            ],
-            "default": "1280x720"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p",
-              "1080p",
-              "2160p"
-            ],
-            "default": "720p"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          },
-          "has_video_reference": {
-            "type": "boolean",
-            "default": false
-          }
-        }
-      },
-      "Seedance25VideoEstimateRequest": {
-        "type": "object",
-        "required": [
-          "model"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "const": "seedance-2.5"
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 4,
-            "maximum": 30,
-            "default": 8
-          },
-          "size": {
-            "$ref": "#/components/schemas/Seedance25Size"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p"
-            ],
-            "default": "720p"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          },
-          "has_video_reference": {
-            "type": "boolean",
-            "default": false
-          }
-        },
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Seedance25DimensionRules"
-          }
-        ]
-      },
-      "SeedanceFastVideoEstimateRequest": {
-        "type": "object",
-        "required": [
-          "model"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
           "model": {
             "type": "string",
             "enum": [
-              "seedance-2.0-fast",
-              "seedance-2.0-mini"
+              "leonardo/gemini-omni-flash",
+              "leonardo/happy-horse-1.1",
+              "leonardo/kling-3.0",
+              "leonardo/kling-3.0-turbo",
+              "leonardo/kling-o3-omni",
+              "leonardo/hailuo-2.3",
+              "leonardo/wan-2.7"
             ]
           },
           "duration": {
             "type": "integer",
-            "minimum": 4,
+            "minimum": 2,
             "maximum": 15,
-            "default": 8
+            "default": 5
           },
           "size": {
-            "type": "string",
-            "enum": [
-              "1280x720",
-              "720x1280"
-            ],
-            "default": "1280x720"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p"
-            ],
-            "default": "720p"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          },
-          "has_video_reference": {
-            "type": "boolean",
-            "default": false
-          }
-        }
-      },
-      "Veo31VideoEstimateRequest": {
-        "type": "object",
-        "required": [
-          "model"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "type": "string",
-            "enum": [
-              "veo-3.1",
-              "veo-3.1-fast"
-            ]
-          },
-          "duration": {
-            "type": "integer",
-            "enum": [
-              4,
-              6,
-              8
-            ],
-            "default": 8
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "1280x720",
-              "720x1280"
-            ],
-            "default": "1280x720"
+            "type": "string"
           },
           "resolution": {
             "type": "string",
             "enum": [
               "720p",
+              "768p",
               "1080p",
               "2160p"
-            ],
-            "default": "720p"
+            ]
           },
           "generate_audio": {
             "type": "boolean",
@@ -3444,21 +2324,13 @@
       "AdobeVeo31FastVideoEstimateRequest": {
         "type": "object",
         "required": [
-          "model",
-          "provider"
+          "model"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
             "type": "string",
-            "enum": [
-              "veo-3.1",
-              "veo-3.1-fast"
-            ]
+            "enum": []
           },
           "duration": {
             "type": "integer",
@@ -3492,17 +2364,12 @@
       "AdobeKling30OmniVideoEstimateRequest": {
         "type": "object",
         "required": [
-          "model",
-          "provider"
+          "model"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
-            "const": "kling-3.0-omni"
+            "const": "adobe/kling-3.0-omni"
           },
           "duration": {
             "type": "integer",
@@ -3554,9 +2421,6 @@
             ],
             "additionalProperties": false,
             "properties": {
-              "provider": {
-                "$ref": "#/components/schemas/GenerationProvider"
-              },
               "model": {
                 "const": "seedance-2.0"
               },
@@ -3608,9 +2472,6 @@
             ],
             "additionalProperties": false,
             "properties": {
-              "provider": {
-                "$ref": "#/components/schemas/GenerationProvider"
-              },
               "model": {
                 "const": "seedance-2.0-fast"
               },
@@ -3658,13 +2519,8 @@
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
           "model": {
-            "const": "kling-o3-omni"
+            "const": "leonardo/kling-o3-omni"
           },
           "duration": {
             "type": "integer",
@@ -3736,95 +2592,6 @@
           }
         ]
       },
-      "MiniMaxH3VideoEstimateRequest": {
-        "type": "object",
-        "required": [
-          "model"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "const": "minimax-h3"
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 5,
-            "maximum": 15,
-            "default": 5
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "3360x1440",
-              "2560x1440",
-              "1920x1440",
-              "1440x1440",
-              "1440x1920",
-              "1440x2560"
-            ],
-            "default": "2560x1440"
-          },
-          "resolution": {
-            "const": "1440p",
-            "default": "1440p"
-          },
-          "generate_audio": {
-            "const": true,
-            "default": true
-          }
-        }
-      },
-      "GrokImagine15VideoEstimateRequest": {
-        "description": "Grok Imagine 1.5 cost estimate. size and resolution must belong to the same tier; either field may be omitted and is inferred by the gateway.",
-        "type": "object",
-        "required": [
-          "model"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
-          "model": {
-            "const": "grok-imagine-1.5"
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 3,
-            "maximum": 15,
-            "default": 6
-          },
-          "size": {
-            "$ref": "#/components/schemas/GrokImagine15Size"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p",
-              "1080p"
-            ],
-            "default": "480p"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true,
-            "description": "Controls native output audio. The current Leonardo tokens price is unchanged when false."
-          }
-        },
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/GrokImagine15DimensionRules"
-          }
-        ]
-      },
       "VideoEstimate": {
         "type": "object",
         "required": [
@@ -3843,9 +2610,6 @@
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
           "model": {
             "type": "string"
           },
@@ -3912,25 +2676,10 @@
         }
       },
       "VideoReferenceRequest": {
-        "description": "Multipart request with one or more model-supported reference fields; there is no mode field. Seedance may combine image, video, and audio; Kling O3 Omni accepts up to seven images, start/end frames, or one video plus up to four images; FLUX 3 Video accepts either start/end frames or one video continuation file; MiniMax H3 may combine image and audio. start_frame is required for frame input, end_frame is optional where supported and requires start_frame, and either frame field is exclusive with image, video, and audio. Grok Imagine 1.5 requires start_frame and rejects every other reference field. Audio requires the model-specific supporting reference documented on the audio property.",
+        "description": "Multipart request with model-supported reference fields; there is no mode field. Gemini Omni Flash accepts up to five ordinary images. Kling O3 Omni accepts up to seven images, start/end frames, or one video plus up to four images. Adobe reference combinations remain documented under their Adobe model IDs. start_frame is required for frame input, end_frame is optional where supported and requires start_frame, and frame fields are exclusive with ordinary image/video/audio references.",
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Flux3VideoReferenceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/SeedanceReferenceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/SeedanceFastReferenceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/Seedance25ReferenceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/Veo31ReferenceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/Veo31FastReferenceRequest"
+            "$ref": "#/components/schemas/GeminiOmniFlashReferenceRequest"
           },
           {
             "$ref": "#/components/schemas/AdobeKling30OmniReferenceRequest"
@@ -3946,30 +2695,20 @@
           },
           {
             "$ref": "#/components/schemas/KlingO3OmniReferenceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/MiniMaxH3ReferenceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/GrokImagine15ReferenceRequest"
           }
         ]
       },
-      "Flux3VideoReferenceRequest": {
+      "GeminiOmniFlashReferenceRequest": {
         "type": "object",
         "required": [
           "model",
           "prompt"
         ],
         "additionalProperties": false,
+        "description": "Gemini Omni Flash image-to-video reference request. Up to five ordinary image files are accepted.",
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
           "model": {
-            "const": "flux-3-video"
+            "const": "leonardo/gemini-omni-flash"
           },
           "prompt": {
             "type": "string",
@@ -3978,136 +2717,9 @@
           },
           "duration": {
             "type": "integer",
-            "minimum": 5,
-            "maximum": 20,
-            "default": 8
-          },
-          "size": {
-            "$ref": "#/components/schemas/Flux3VideoSize"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "720p",
-              "1080p"
-            ],
-            "default": "720p"
-          },
-          "start_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "end_frame": {
-            "type": "string",
-            "format": "binary",
-            "description": "Requires start_frame."
-          },
-          "video": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 1,
-            "description": "MP4, MOV, or WebM; file size must not exceed 50 MB and duration must not exceed 15.05 seconds.",
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          }
-        },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "end_frame": {}
-              },
-              "required": [
-                "end_frame"
-              ]
-            },
-            "then": {
-              "properties": {
-                "start_frame": {}
-              },
-              "required": [
-                "start_frame"
-              ]
-            }
-          },
-          {
-            "if": {
-              "anyOf": [
-                {
-                  "required": [
-                    "start_frame"
-                  ]
-                },
-                {
-                  "required": [
-                    "end_frame"
-                  ]
-                }
-              ]
-            },
-            "then": {
-              "not": {
-                "required": [
-                  "video"
-                ]
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "video"
-              ]
-            },
-            "then": {
-              "not": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "start_frame"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "end_frame"
-                    ]
-                  }
-                ]
-              }
-            }
-          }
-        ]
-      },
-      "SeedanceReferenceRequest": {
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
-          "model": {
-            "const": "seedance-2.0"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 5000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 4,
-            "maximum": 15,
-            "default": 8
+            "minimum": 3,
+            "maximum": 10,
+            "default": 5
           },
           "size": {
             "type": "string",
@@ -4118,733 +2730,15 @@
             "default": "1280x720"
           },
           "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p",
-              "1080p",
-              "2160p"
-            ],
+            "const": "720p",
             "default": "720p"
           },
           "image": {
             "type": "array",
-            "maxItems": 4,
+            "maxItems": 5,
             "items": {
-              "type": "string",
-              "format": "binary"
+              "$ref": "#/components/schemas/UploadedImagePart"
             }
-          },
-          "start_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "end_frame": {
-            "type": "string",
-            "format": "binary",
-            "description": "Requires start_frame."
-          },
-          "video": {
-            "type": "array",
-            "maxItems": 3,
-            "description": "MP4, MOV, or WebM; combined duration must not exceed 15 seconds.",
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "audio": {
-            "type": "array",
-            "maxItems": 1,
-            "description": "One file totaling no more than 15 seconds; requires image or video.",
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "reference_strength": {
-            "type": "string",
-            "enum": [
-              "LOW",
-              "MID",
-              "HIGH"
-            ],
-            "default": "MID"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          }
-        },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "end_frame": {}
-              },
-              "required": [
-                "end_frame"
-              ]
-            },
-            "then": {
-              "properties": {
-                "start_frame": {}
-              },
-              "required": [
-                "start_frame"
-              ]
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "start_frame": {},
-                "end_frame": {}
-              },
-              "anyOf": [
-                {
-                  "properties": {
-                    "start_frame": {}
-                  },
-                  "required": [
-                    "start_frame"
-                  ]
-                },
-                {
-                  "properties": {
-                    "end_frame": {}
-                  },
-                  "required": [
-                    "end_frame"
-                  ]
-                }
-              ]
-            },
-            "then": {
-              "not": {
-                "anyOf": [
-                  {
-                    "properties": {
-                      "image": {}
-                    },
-                    "required": [
-                      "image"
-                    ]
-                  },
-                  {
-                    "properties": {
-                      "video": {}
-                    },
-                    "required": [
-                      "video"
-                    ]
-                  },
-                  {
-                    "properties": {
-                      "audio": {}
-                    },
-                    "required": [
-                      "audio"
-                    ]
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "audio": {}
-              },
-              "required": [
-                "audio"
-              ]
-            },
-            "then": {
-              "properties": {
-                "image": {},
-                "video": {}
-              },
-              "anyOf": [
-                {
-                  "properties": {
-                    "image": {}
-                  },
-                  "required": [
-                    "image"
-                  ]
-                },
-                {
-                  "properties": {
-                    "video": {}
-                  },
-                  "required": [
-                    "video"
-                  ]
-                }
-              ]
-            }
-          }
-        ]
-      },
-      "SeedanceFastReferenceRequest": {
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
-          "model": {
-            "type": "string",
-            "enum": [
-              "seedance-2.0-fast",
-              "seedance-2.0-mini"
-            ]
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 5000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 4,
-            "maximum": 15,
-            "default": 8
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "1280x720",
-              "720x1280"
-            ],
-            "default": "1280x720"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p"
-            ],
-            "default": "720p"
-          },
-          "image": {
-            "type": "array",
-            "maxItems": 4,
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "start_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "end_frame": {
-            "type": "string",
-            "format": "binary",
-            "description": "Requires start_frame."
-          },
-          "video": {
-            "type": "array",
-            "maxItems": 3,
-            "description": "MP4, MOV, or WebM; combined duration must not exceed 15 seconds.",
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "audio": {
-            "type": "array",
-            "maxItems": 1,
-            "description": "One file totaling no more than 15 seconds; requires image or video.",
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "reference_strength": {
-            "type": "string",
-            "enum": [
-              "LOW",
-              "MID",
-              "HIGH"
-            ],
-            "default": "MID"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          }
-        },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "end_frame": {}
-              },
-              "required": [
-                "end_frame"
-              ]
-            },
-            "then": {
-              "properties": {
-                "start_frame": {}
-              },
-              "required": [
-                "start_frame"
-              ]
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "start_frame": {},
-                "end_frame": {}
-              },
-              "anyOf": [
-                {
-                  "properties": {
-                    "start_frame": {}
-                  },
-                  "required": [
-                    "start_frame"
-                  ]
-                },
-                {
-                  "properties": {
-                    "end_frame": {}
-                  },
-                  "required": [
-                    "end_frame"
-                  ]
-                }
-              ]
-            },
-            "then": {
-              "not": {
-                "anyOf": [
-                  {
-                    "properties": {
-                      "image": {}
-                    },
-                    "required": [
-                      "image"
-                    ]
-                  },
-                  {
-                    "properties": {
-                      "video": {}
-                    },
-                    "required": [
-                      "video"
-                    ]
-                  },
-                  {
-                    "properties": {
-                      "audio": {}
-                    },
-                    "required": [
-                      "audio"
-                    ]
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "audio": {}
-              },
-              "required": [
-                "audio"
-              ]
-            },
-            "then": {
-              "properties": {
-                "image": {},
-                "video": {}
-              },
-              "anyOf": [
-                {
-                  "properties": {
-                    "image": {}
-                  },
-                  "required": [
-                    "image"
-                  ]
-                },
-                {
-                  "properties": {
-                    "video": {}
-                  },
-                  "required": [
-                    "video"
-                  ]
-                }
-              ]
-            }
-          }
-        ]
-      },
-      "Seedance25ReferenceRequest": {
-        "description": "Seedance 2.5 multipart request. Ordinary image, video, and audio references may be combined. start_frame with optional end_frame is a separate mode and is exclusive with those reference fields. Audio requires at least one ordinary image or video reference.",
-        "type": "object",
-        "required": [
-          "model",
-          "prompt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
-          "model": {
-            "const": "seedance-2.5"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 5000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 4,
-            "maximum": 30,
-            "default": 8
-          },
-          "size": {
-            "$ref": "#/components/schemas/Seedance25Size"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p"
-            ],
-            "default": "720p"
-          },
-          "image": {
-            "type": "array",
-            "maxItems": 30,
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "start_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "end_frame": {
-            "type": "string",
-            "format": "binary",
-            "description": "Requires start_frame."
-          },
-          "video": {
-            "type": "array",
-            "maxItems": 10,
-            "description": "MP4, MOV, or WebM; combined duration must not exceed 30.2 seconds.",
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "audio": {
-            "type": "array",
-            "maxItems": 10,
-            "description": "Combined duration must not exceed 30.2 seconds; requires an ordinary image or video reference.",
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "reference_strength": {
-            "type": "string",
-            "enum": [
-              "LOW",
-              "MID",
-              "HIGH"
-            ],
-            "default": "MID"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          }
-        },
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Seedance25DimensionRules"
-          },
-          {
-            "if": {
-              "required": [
-                "end_frame"
-              ]
-            },
-            "then": {
-              "required": [
-                "start_frame"
-              ]
-            }
-          },
-          {
-            "if": {
-              "anyOf": [
-                {
-                  "required": [
-                    "start_frame"
-                  ]
-                },
-                {
-                  "required": [
-                    "end_frame"
-                  ]
-                }
-              ]
-            },
-            "then": {
-              "not": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "image"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "video"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "audio"
-                    ]
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "if": {
-              "required": [
-                "audio"
-              ]
-            },
-            "then": {
-              "anyOf": [
-                {
-                  "required": [
-                    "image"
-                  ]
-                },
-                {
-                  "required": [
-                    "video"
-                  ]
-                }
-              ]
-            }
-          }
-        ]
-      },
-      "Veo31ReferenceRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Veo31ImageReferenceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/Veo31FrameReferenceRequest"
-          }
-        ]
-      },
-      "Veo31ImageReferenceRequest": {
-        "type": "object",
-        "required": [
-          "model",
-          "prompt",
-          "image"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
-          "model": {
-            "const": "veo-3.1"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 9999
-          },
-          "duration": {
-            "const": 8,
-            "default": 8
-          },
-          "size": {
-            "const": "1280x720",
-            "default": "1280x720",
-            "description": "Ordinary image references require 16:9."
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "720p",
-              "1080p",
-              "2160p"
-            ],
-            "default": "720p"
-          },
-          "image": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 3,
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "reference_strength": {
-            "type": "string",
-            "enum": [
-              "LOW",
-              "MID",
-              "HIGH"
-            ],
-            "default": "MID"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          }
-        }
-      },
-      "Veo31FrameReferenceRequest": {
-        "description": "Frame-reference request. start_frame is required; end_frame is optional.",
-        "type": "object",
-        "required": [
-          "model",
-          "prompt",
-          "start_frame"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
-          "model": {
-            "const": "veo-3.1"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 9999
-          },
-          "duration": {
-            "type": "integer",
-            "enum": [
-              4,
-              6,
-              8
-            ],
-            "default": 8
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "1280x720",
-              "720x1280"
-            ],
-            "default": "1280x720"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "720p",
-              "1080p",
-              "2160p"
-            ],
-            "default": "720p"
-          },
-          "start_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "end_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
-          }
-        }
-      },
-      "Veo31FastReferenceRequest": {
-        "description": "Frame-reference request. start_frame is required; end_frame is optional.",
-        "type": "object",
-        "required": [
-          "model",
-          "prompt",
-          "start_frame"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
-          "model": {
-            "const": "veo-3.1-fast"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 9999
-          },
-          "duration": {
-            "type": "integer",
-            "enum": [
-              4,
-              6,
-              8
-            ],
-            "default": 8
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "1280x720",
-              "720x1280"
-            ],
-            "default": "1280x720"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "720p",
-              "1080p",
-              "2160p"
-            ],
-            "default": "720p"
-          },
-          "start_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "end_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true
           }
         }
       },
@@ -4854,17 +2748,12 @@
         "required": [
           "model",
           "prompt",
-          "start_frame",
-          "provider"
+          "start_frame"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
-            "const": "veo-3.1-fast"
+            "const": "adobe/veo-3.1-fast"
           },
           "prompt": {
             "type": "string",
@@ -4919,9 +2808,6 @@
             ],
             "additionalProperties": false,
             "properties": {
-              "provider": {
-                "$ref": "#/components/schemas/GenerationProvider"
-              },
               "model": {
                 "const": "veo-3.1"
               },
@@ -4986,9 +2872,6 @@
             ],
             "additionalProperties": false,
             "properties": {
-              "provider": {
-                "$ref": "#/components/schemas/GenerationProvider"
-              },
               "model": {
                 "const": "veo-3.1"
               },
@@ -5041,17 +2924,12 @@
         "type": "object",
         "required": [
           "model",
-          "prompt",
-          "provider"
+          "prompt"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
-            "const": "kling-3.0-omni"
+            "const": "adobe/kling-3.0-omni"
           },
           "prompt": {
             "type": "string",
@@ -5166,17 +3044,12 @@
         "type": "object",
         "required": [
           "model",
-          "prompt",
-          "provider"
+          "prompt"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
-            "const": "seedance-2.0"
+            "const": "adobe/seedance-2.0"
           },
           "prompt": {
             "type": "string",
@@ -5342,17 +3215,12 @@
         "type": "object",
         "required": [
           "model",
-          "prompt",
-          "provider"
+          "prompt"
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "adobe"
-          },
           "model": {
-            "const": "seedance-2.0-fast"
+            "const": "adobe/seedance-2.0-fast"
           },
           "prompt": {
             "type": "string",
@@ -5515,11 +3383,8 @@
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
           "model": {
-            "const": "kling-o3-omni"
+            "const": "leonardo/kling-o3-omni"
           },
           "prompt": {
             "type": "string",
@@ -5685,203 +3550,6 @@
           }
         ]
       },
-      "MiniMaxH3ReferenceRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/MiniMaxH3ImageReferenceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/MiniMaxH3FrameReferenceRequest"
-          }
-        ]
-      },
-      "MiniMaxH3ImageReferenceRequest": {
-        "type": "object",
-        "required": [
-          "model",
-          "prompt",
-          "image"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
-          "model": {
-            "const": "minimax-h3"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 5,
-            "maximum": 15,
-            "default": 5
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "3360x1440",
-              "2560x1440",
-              "1920x1440",
-              "1440x1440",
-              "1440x1920",
-              "1440x2560"
-            ],
-            "default": "2560x1440"
-          },
-          "resolution": {
-            "const": "1440p",
-            "default": "1440p"
-          },
-          "image": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 5,
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "audio": {
-            "type": "array",
-            "maxItems": 3,
-            "description": "Combined duration must not exceed 15 seconds.",
-            "items": {
-              "type": "string",
-              "format": "binary"
-            }
-          },
-          "reference_strength": {
-            "type": "string",
-            "enum": [
-              "LOW",
-              "MID",
-              "HIGH"
-            ],
-            "default": "MID"
-          },
-          "generate_audio": {
-            "const": true,
-            "default": true
-          }
-        }
-      },
-      "MiniMaxH3FrameReferenceRequest": {
-        "description": "Frame-reference request. start_frame is required; end_frame is optional.",
-        "type": "object",
-        "required": [
-          "model",
-          "prompt",
-          "start_frame"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
-          "model": {
-            "const": "minimax-h3"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 5,
-            "maximum": 15,
-            "default": 5
-          },
-          "size": {
-            "type": "string",
-            "enum": [
-              "3360x1440",
-              "2560x1440",
-              "1920x1440",
-              "1440x1440",
-              "1440x1920",
-              "1440x2560"
-            ],
-            "default": "2560x1440"
-          },
-          "resolution": {
-            "const": "1440p",
-            "default": "1440p"
-          },
-          "start_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "end_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "generate_audio": {
-            "const": true,
-            "default": true
-          }
-        }
-      },
-      "GrokImagine15ReferenceRequest": {
-        "description": "Grok Imagine 1.5 is image-to-video only. start_frame is required; end_frame, ordinary image references, reference video, and reference audio are unsupported.",
-        "type": "object",
-        "required": [
-          "model",
-          "prompt",
-          "start_frame"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
-          "model": {
-            "const": "grok-imagine-1.5"
-          },
-          "prompt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 5000
-          },
-          "duration": {
-            "type": "integer",
-            "minimum": 3,
-            "maximum": 15,
-            "default": 6
-          },
-          "size": {
-            "$ref": "#/components/schemas/GrokImagine15Size"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": [
-              "480p",
-              "720p",
-              "1080p"
-            ],
-            "default": "480p"
-          },
-          "start_frame": {
-            "type": "string",
-            "format": "binary"
-          },
-          "generate_audio": {
-            "type": "boolean",
-            "default": true,
-            "description": "Controls native output audio. The current Leonardo tokens price is unchanged when false."
-          }
-        },
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/GrokImagine15DimensionRules"
-          }
-        ]
-      },
       "AudioRequest": {
         "oneOf": [
           {
@@ -5903,13 +3571,8 @@
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
           "model": {
-            "const": "dialogue-v3"
+            "const": "leonardo/dialogue-v3"
           },
           "prompt": {
             "type": "string",
@@ -5970,13 +3633,8 @@
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
           "model": {
-            "const": "music-v1"
+            "const": "leonardo/music-v1"
           },
           "prompt": {
             "type": "string",
@@ -6008,14 +3666,9 @@
         ],
         "additionalProperties": false,
         "properties": {
-          "provider": {
-            "type": "string",
-            "const": "leonardo",
-            "default": "leonardo"
-          },
           "model": {
-            "const": "sound-effects-v2",
-            "default": "sound-effects-v2"
+            "const": "leonardo/sound-effects-v2",
+            "default": "leonardo/sound-effects-v2"
           },
           "prompt": {
             "type": "string",
@@ -6060,18 +3713,17 @@
           "seedream-5.0-pro": 9999
         },
         "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/GenerationProvider"
-          },
           "model": {
             "type": "string",
             "enum": [
-              "gpt-image-2",
-              "nano-banana-2",
-              "nano-banana-pro",
-              "seedream-5.0-pro"
+              "leonardo/gpt-image-2",
+              "leonardo/nano-banana-2",
+              "leonardo/nano-banana-pro",
+              "leonardo/seedream-5.0-pro",
+              "adobe/gpt-image-2",
+              "adobe/nano-banana-2"
             ],
-            "default": "gpt-image-2"
+            "default": "leonardo/gpt-image-2"
           },
           "stream": {
             "type": "boolean",
@@ -6573,7 +4225,7 @@
                     "type": "prompt_too_long",
                     "code": "prompt_too_long",
                     "details": {
-                      "model": "minimax-h3",
+                      "model": "leonardo/minimax-h3",
                       "actual_characters": 2001,
                       "max_characters": 2000
                     }

@@ -18,7 +18,7 @@ func TestParseAsyncImageMultipartReferences(t *testing.T) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	fields := map[string]string{
-		"provider": "adobe", "model": "gpt-image-2", "prompt": "restyle", "size": "1024x1024",
+		"model": "adobe/gpt-image-2", "prompt": "restyle", "size": "1024x1024",
 		"n": "1", "quality": "low", "response_format": "url", "reference_strength": "HIGH",
 	}
 	for key, value := range fields {
@@ -49,8 +49,8 @@ func TestParseAsyncImageMultipartReferences(t *testing.T) {
 	if len(parsed.ReferenceImages) != 1 || parsed.ReferenceStrength != "HIGH" || parsed.ResponseFormat != "url" {
 		t.Fatalf("unexpected request: %+v", parsed)
 	}
-	if parsed.Provider != "adobe" {
-		t.Fatalf("provider = %q, want adobe", parsed.Provider)
+	if parsed.Provider != "" {
+		t.Fatalf("public multipart parser must not populate provider: %q", parsed.Provider)
 	}
 	asset := parsed.ReferenceImages[0]
 	if asset.Path == "" || asset.SHA256 == "" || asset.MediaType != "image/png" {

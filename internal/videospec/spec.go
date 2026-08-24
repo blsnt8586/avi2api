@@ -26,13 +26,56 @@ type Spec struct {
 	SupportsGenerateAudio       bool
 	AlwaysGenerateAudio         bool
 	UsesResolutionMode          bool
+	UsesResolutionField         bool
 	UsesExactDimensions         bool
 	ResolutionBySize            map[string]string
 }
 
 var standardSizes = []string{"1280x720", "720x1280"}
 
+var standardHDVideoSizes = []string{"1280x720", "720x1280", "1920x1080", "1080x1920"}
+
+var standardUHDVideoSizes = []string{"1280x720", "720x1280", "1920x1080", "1080x1920", "3840x2160", "2160x3840"}
+
 var specs = map[string]Spec{
+	"gemini-omni-flash": {
+		DefaultDuration: 5, Durations: integerRange(3, 10), DefaultSize: "1280x720", Sizes: standardSizes,
+		DefaultResolution: "720p", Resolutions: []string{"720p"}, MaxReferenceImages: 5,
+		SupportsGenerateAudio: false, UsesResolutionMode: true,
+	},
+	"happy-horse-1.1": {
+		DefaultDuration: 5, Durations: integerRange(3, 15), DefaultSize: "1280x720", Sizes: standardHDVideoSizes,
+		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p"}, SupportsGenerateAudio: true,
+		UsesResolutionMode: true, ResolutionBySize: map[string]string{
+			"1280x720": "720p", "720x1280": "720p", "1920x1080": "1080p", "1080x1920": "1080p",
+		},
+	},
+	"kling-3.0": {
+		DefaultDuration: 5, Durations: integerRange(3, 15), DefaultSize: "1920x1080", Sizes: standardUHDVideoSizes,
+		DefaultResolution: "1080p", Resolutions: []string{"720p", "1080p", "2160p"}, SupportsGenerateAudio: true,
+		UsesResolutionMode: true, ResolutionBySize: map[string]string{
+			"1280x720": "720p", "720x1280": "720p", "1920x1080": "1080p", "1080x1920": "1080p", "3840x2160": "2160p", "2160x3840": "2160p",
+		},
+	},
+	"kling-3.0-turbo": {
+		DefaultDuration: 5, Durations: integerRange(3, 15), DefaultSize: "1280x720", Sizes: standardHDVideoSizes,
+		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p"}, SupportsGenerateAudio: true,
+		UsesResolutionMode: true, ResolutionBySize: map[string]string{
+			"1280x720": "720p", "720x1280": "720p", "1920x1080": "1080p", "1080x1920": "1080p",
+		},
+	},
+	"hailuo-2.3": {
+		DefaultDuration: 6, Durations: []int{6, 10}, DefaultSize: "1280x720", Sizes: standardHDVideoSizes,
+		DefaultResolution: "768p", Resolutions: []string{"768p", "1080p"}, UsesResolutionMode: true,
+		ResolutionBySize: map[string]string{"1280x720": "768p", "720x1280": "768p", "1920x1080": "1080p", "1080x1920": "1080p"},
+	},
+	"wan-2.7": {
+		DefaultDuration: 5, Durations: integerRange(2, 10), DefaultSize: "1280x720", Sizes: standardHDVideoSizes,
+		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p"}, SupportsGenerateAudio: true,
+		UsesResolutionField: true, ResolutionBySize: map[string]string{
+			"1280x720": "720p", "720x1280": "720p", "1920x1080": "1080p", "1080x1920": "1080p",
+		},
+	},
 	"adobe:veo-3.1": {
 		DefaultDuration: 8, Durations: []int{4, 6, 8}, DefaultSize: "1280x720", Sizes: []string{"1280x720", "720x1280", "1920x1080", "1080x1920"},
 		DefaultResolution: "720p", Resolutions: []string{"720p", "1080p"}, MaxReferenceImages: 3,

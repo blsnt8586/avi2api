@@ -65,7 +65,6 @@ export function ImageCostCalculator({ model }: { model: PublicModel }) {
       api<ImageCostEstimate>("/api-docs/image-estimate", {
         method: "POST",
         body: JSON.stringify({
-          provider: route.provider,
           model: route.model,
           size: size.trim(),
           quality: model === "gpt-image-2" || model === "adobe:gpt-image-2" ? quality : undefined,

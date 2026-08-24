@@ -21,7 +21,7 @@ import (
 )
 
 type imageEstimateRequest struct {
-	Provider string `json:"provider,omitempty"`
+	Provider string `json:"-"`
 	Model    string `json:"model"`
 	Size     string `json:"size,omitempty"`
 	Quality  string `json:"quality,omitempty"`
@@ -29,7 +29,6 @@ type imageEstimateRequest struct {
 }
 
 type imageEstimateResponse struct {
-	Provider          string   `json:"provider"`
 	Model             string   `json:"model"`
 	Size              string   `json:"size"`
 	Quality           string   `json:"quality,omitempty"`
@@ -47,7 +46,7 @@ type imageEstimateResponse struct {
 }
 
 type imageCostMatrixRequest struct {
-	Provider string   `json:"provider,omitempty"`
+	Provider string   `json:"-"`
 	Model    string   `json:"model"`
 	Sizes    []string `json:"sizes"`
 }
@@ -60,7 +59,6 @@ type imageCostMatrixRow struct {
 }
 
 type imageCostMatrixResponse struct {
-	Provider      string               `json:"provider"`
 	Model         string               `json:"model"`
 	Qualities     []string             `json:"qualities"`
 	Rows          []imageCostMatrixRow `json:"rows"`
@@ -69,7 +67,7 @@ type imageCostMatrixResponse struct {
 }
 
 type videoEstimateRequest struct {
-	Provider          string `json:"provider,omitempty"`
+	Provider          string `json:"-"`
 	Model             string `json:"model"`
 	Duration          int    `json:"duration,omitempty"`
 	Size              string `json:"size,omitempty"`
@@ -80,7 +78,6 @@ type videoEstimateRequest struct {
 }
 
 type videoEstimateResponse struct {
-	Provider          string   `json:"provider"`
 	Model             string   `json:"model"`
 	Duration          int      `json:"duration"`
 	Size              string   `json:"size"`
@@ -120,7 +117,7 @@ func (s *Server) publicImageCostMatrix(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	route, err := s.resolveMediaModel("image", req.Provider, req.Model)
+	route, err := s.resolveMediaModel("image", req.Model)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -141,7 +138,7 @@ func (s *Server) publicImageCostMatrix(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "estimate_failed", "image cost matrix is temporarily unavailable")
 		return
 	}
-	response.Provider, response.Model = route.Provider, route.PublicModel
+	response.Model = route.PublicModel
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -226,7 +223,7 @@ func estimateImageCostMatrix(ctx context.Context, source imageEstimateStore, req
 		}
 		rows = append(rows, row)
 	}
-	response := imageCostMatrixResponse{Provider: req.Provider, Model: model, Qualities: qualities, Rows: rows}
+	response := imageCostMatrixResponse{Model: model, Qualities: qualities, Rows: rows}
 	for version := range versions {
 		response.PriceVersions = append(response.PriceVersions, version)
 	}
@@ -253,7 +250,7 @@ func (s *Server) writeImageEstimate(w http.ResponseWriter, r *http.Request, enfo
 		}
 		allowedModels = key.AllowedModels
 	}
-	route, providerErr := s.resolveMediaModel("image", req.Provider, req.Model)
+	route, providerErr := s.resolveMediaModel("image", req.Model)
 	if providerErr != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", providerErr.Error())
 		return
@@ -278,7 +275,7 @@ func (s *Server) writeImageEstimate(w http.ResponseWriter, r *http.Request, enfo
 		writeError(w, http.StatusInternalServerError, "estimate_failed", "image cost estimate is temporarily unavailable")
 		return
 	}
-	estimate.Provider, estimate.Model = route.Provider, route.PublicModel
+	estimate.Model = route.PublicModel
 	noteImageRequest(r, domain.ImageRequest{Provider: route.Provider, Model: route.InternalModel, Size: estimate.Size, Quality: estimate.Quality, N: estimate.Quantity})
 	noteRequestEstimate(r, estimate.EstimatedTokens)
 	writeJSON(w, http.StatusOK, estimate)
@@ -344,7 +341,7 @@ func estimateImageCost(ctx context.Context, rules imageEstimateStore, req imageE
 		return imageEstimateResponse{}, err
 	}
 	response := imageEstimateResponse{
-		Provider: normalized.Provider, Model: normalized.Model, Size: normalized.Size, Quality: normalized.Quality,
+		Model: normalized.Model, Size: normalized.Size, Quality: normalized.Quality,
 		Quantity: normalized.N, UnitTokens: estimate.UnitTokens, EstimatedTokens: estimate.Tokens,
 		PricingAnchor: estimate.RuleSize, PriceVersion: estimate.PriceVersion, Source: estimate.Source,
 	}
@@ -402,7 +399,7 @@ func (s *Server) writeVideoEstimate(w http.ResponseWriter, r *http.Request, enfo
 		}
 		allowedModels = key.AllowedModels
 	}
-	route, providerErr := s.resolveMediaModel("video", req.Provider, req.Model)
+	route, providerErr := s.resolveMediaModel("video", req.Model)
 	if providerErr != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", providerErr.Error())
 		return
@@ -427,9 +424,9 @@ func (s *Server) writeVideoEstimate(w http.ResponseWriter, r *http.Request, enfo
 		writeError(w, http.StatusInternalServerError, "estimate_failed", "video cost estimate is temporarily unavailable")
 		return
 	}
-	estimate.Provider, estimate.Model = route.Provider, route.PublicModel
+	estimate.Model = route.PublicModel
 	noteVideoRequest(r, domain.VideoRequest{
-		Provider: estimate.Provider, Model: estimate.Model, Duration: estimate.Duration, Size: estimate.Size,
+		Provider: route.Provider, Model: route.InternalModel, Duration: estimate.Duration, Size: estimate.Size,
 		Resolution: estimate.Resolution, GenerateAudio: estimate.GenerateAudio,
 	})
 	noteRequestEstimate(r, estimate.EstimatedTokens)
@@ -530,7 +527,7 @@ func estimateVideoCost(ctx context.Context, rules imageEstimateStore, req videoE
 		}
 	}
 	return videoEstimateResponse{
-		Provider: request.Provider, Model: request.Model, Duration: request.Duration, Size: request.Size,
+		Model: request.Model, Duration: request.Duration, Size: request.Size,
 		Resolution: request.Resolution, GenerateAudio: request.GenerateAudio,
 		HasVideoReference: req.HasVideoReference, BaseTokens: estimate.UnitTokens,
 		ReferenceMode:   referenceMode,
@@ -598,10 +595,7 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	if strings.TrimSpace(req.Prompt) == "" {
 		return domain.Task{}, false, errors.New("prompt is required")
 	}
-	if req.Model == "" {
-		req.Model = "leonardo-auto"
-	}
-	route, err := s.resolveMediaModel("image", req.Provider, req.Model)
+	route, err := s.resolveMediaModel("image", req.Model)
 	if err != nil {
 		return domain.Task{}, false, err
 	}
@@ -694,7 +688,7 @@ func (s *Server) createTask(r *http.Request, req domain.ImageRequest) (domain.Ta
 	if err := s.admitDailyQuota(r.Context(), key.ID, images); err != nil {
 		return domain.Task{}, false, err
 	}
-	task, created, err := s.Store.CreateReservedTaskForProviderWithHashRequest(r.Context(), key.ID, providerConfig.ProviderID, "image", route.PublicModel, req.Prompt, req, imageIdempotencyRequest(req), idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
+	task, created, err := s.Store.CreateReservedTaskForProviderWithHashRequest(r.Context(), key.ID, providerConfig.ProviderID, "image", route.InternalModel, req.Prompt, req, imageIdempotencyRequest(req), idem, estimate.Tokens, estimate.RuleID, s.Config.TaskTimeout+time.Minute)
 	noteRequestTask(r, task)
 	if err != nil {
 		s.rollbackDailyQuota(r.Context(), key.ID, images)
@@ -889,7 +883,7 @@ func (s *Server) parseAsyncImageMultipart(r *http.Request) (domain.ImageRequest,
 		return domain.ImageRequest{}, errors.New("task asset storage is not configured")
 	}
 	req := domain.ImageRequest{
-		Provider: r.FormValue("provider"), Model: r.FormValue("model"), Prompt: r.FormValue("prompt"), Size: r.FormValue("size"),
+		Model: r.FormValue("model"), Prompt: r.FormValue("prompt"), Size: r.FormValue("size"),
 		ResponseFormat: r.FormValue("response_format"), Quality: r.FormValue("quality"),
 		OutputFormat: r.FormValue("output_format"), Background: r.FormValue("background"),
 		Moderation: r.FormValue("moderation"), ReferenceStrength: r.FormValue("reference_strength"),

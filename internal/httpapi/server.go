@@ -236,28 +236,31 @@ func (s *Server) apiAuth(next http.Handler) http.Handler {
 }
 
 func (s *Server) models(w http.ResponseWriter, r *http.Request) {
-	provider, err := s.businessProvider(r.Context(), r.URL.Query().Get("provider"), providers.Leonardo, "")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_provider", "provider is not configured")
-		return
-	}
-	models, err := s.Store.ListProviderModelConfigs(r.Context(), provider.ID)
+	providerViews, err := s.providerViews(r.Context(), false)
 	if err != nil {
 		writeError(w, 500, "database_error", err.Error())
 		return
 	}
 	key := r.Context().Value(apiKeyContext).(domain.APIKey)
-	data := modelListForKey(provider.ID, models, key.AllowedModels)
+	data := modelListForKey(providerViews, key.AllowedModels)
 	writeJSON(w, 200, map[string]any{"object": "list", "data": data})
 }
 
-func modelListForKey(providerID string, models []store.ProviderModelConfig, allowedModels []string) []map[string]any {
-	data := make([]map[string]any, 0, len(models))
-	for _, model := range models {
-		if !allowed(allowedModels, mediaModelPermission(providerID, model.Model.ID)) {
-			continue
+func modelListForKey(providerViews []providerBusinessView, allowedModels []string) []map[string]any {
+	data := make([]map[string]any, 0)
+	seen := make(map[string]bool)
+	for _, provider := range providerViews {
+		for _, kind := range []string{"image", "video", "audio"} {
+			for _, model := range provider.Models[kind] {
+				permission := mediaModelPermission(provider.ID, model)
+				publicID := publicMediaModelID(provider.ID, model)
+				if seen[publicID] || !allowed(allowedModels, permission) {
+					continue
+				}
+				seen[publicID] = true
+				data = append(data, map[string]any{"id": publicID, "object": "model", "created": 0, "owned_by": "aiv2api"})
+			}
 		}
-		data = append(data, map[string]any{"id": model.Model.ID, "provider": providerID, "object": "model", "created": 0, "owned_by": "aiv2api"})
 	}
 	return data
 }

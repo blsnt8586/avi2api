@@ -8,7 +8,9 @@ func TestPublicPromptLimits(t *testing.T) {
 		"flux-3-video": 5000, "seedance-2.0": 5000, "seedance-2.0-fast": 5000, "seedance-2.0-mini": 5000, "seedance-2.5": 5000,
 		"veo-3.1": 9999, "veo-3.1-fast": 9999, "kling-o3-omni": 2500, "minimax-h3": 2000, "grok-imagine-1.5": 5000,
 		"dialogue-v3": 5000, "music-v1": 9999, "sound-effects-v2": 9999,
-		"kling-3.0-omni": 2500,
+		"kling-3.0-omni":    2500,
+		"gemini-omni-flash": 5000, "happy-horse-1.1": 5000, "kling-3.0": 5000,
+		"kling-3.0-turbo": 5000, "hailuo-2.3": 5000, "wan-2.7": 5000,
 	}
 	if len(promptLimits) != len(want) {
 		t.Fatalf("prompt limits contain %d models, want %d: %v", len(promptLimits), len(want), promptLimits)

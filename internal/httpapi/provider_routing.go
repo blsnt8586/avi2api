@@ -16,35 +16,49 @@ type mediaModelRoute struct {
 	InternalModel string
 }
 
+const publicModelSeparator = "/"
+
+func publicMediaModelID(provider, model string) string {
+	return strings.ToLower(strings.TrimSpace(provider)) + publicModelSeparator + strings.TrimSpace(model)
+}
+
+func parsePublicMediaModelID(value string) (string, string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", "", errors.New("model is required and must use platform/model")
+	}
+	parts := strings.Split(value, publicModelSeparator)
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return "", "", errors.New("model must use platform/model, for example leonardo/gpt-image-2")
+	}
+	return strings.ToLower(strings.TrimSpace(parts[0])), strings.TrimSpace(parts[1]), nil
+}
+
 func mediaModelPermission(provider, model string) string {
 	return strings.ToLower(strings.TrimSpace(provider)) + ":" + strings.TrimSpace(model)
 }
 
 func allowedMediaModel(models []string, route mediaModelRoute) bool {
-	return allowed(models, mediaModelPermission(route.Provider, route.PublicModel))
+	return allowed(models, mediaModelPermission(route.Provider, route.InternalModel))
 }
 
-func (s *Server) resolveMediaModel(kind, provider, model string) (mediaModelRoute, error) {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	model = strings.TrimSpace(model)
-	if provider == "" {
-		provider = providers.Leonardo
-	}
-	if strings.HasPrefix(model, "adobe-") || strings.HasPrefix(model, "adobe:") {
-		return mediaModelRoute{}, errors.New("model must use its canonical ID; select Adobe with provider=adobe")
+func (s *Server) resolveMediaModel(kind, model string) (mediaModelRoute, error) {
+	provider, internalModel, err := parsePublicMediaModelID(model)
+	if err != nil {
+		return mediaModelRoute{}, err
 	}
 	registry := s.Providers
 	if registry == nil {
 		registry = providers.NewRegistry()
 	}
-	canonical, err := registry.ResolveModel(kind, provider, model)
+	canonical, err := registry.ResolveModel(kind, provider, internalModel)
 	if err != nil {
 		if errors.Is(err, providers.ErrUnsupported) {
 			return mediaModelRoute{}, errors.New("provider adapter is not registered")
 		}
 		return mediaModelRoute{}, err
 	}
-	return mediaModelRoute{Provider: provider, PublicModel: canonical, InternalModel: canonical}, nil
+	return mediaModelRoute{Provider: provider, PublicModel: publicMediaModelID(provider, canonical), InternalModel: canonical}, nil
 }
 
 type providerModelStore struct {

@@ -20,7 +20,7 @@ export const providerRegistry = {
     modelAliases: {},
     models: {
       image: ["gpt-image-2", "nano-banana-2", "nano-banana-pro", "seedream-5.0-pro"],
-      video: ["flux-3-video", "seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5", "veo-3.1", "veo-3.1-fast", "kling-o3-omni", "minimax-h3", "grok-imagine-1.5"],
+      video: ["gemini-omni-flash", "happy-horse-1.1", "kling-3.0", "kling-3.0-turbo", "kling-o3-omni", "hailuo-2.3", "wan-2.7"],
       audio: ["dialogue-v3", "music-v1", "sound-effects-v2"],
     },
   },
@@ -75,6 +75,8 @@ export function providerDisplayName(providerID: string, providers: Provider[] = 
 }
 
 export function modelDisplayID(model: string) {
+	const publicParts = model.split("/");
+	if (publicParts.length === 2 && publicParts[0] && publicParts[1]) return publicParts[1];
   for (const provider of Object.values(providerRegistry)) {
     const canonical = (provider.modelAliases as Record<string, string>)[model];
     if (canonical) return canonical;
@@ -101,6 +103,8 @@ export function providerSupports(provider: { capabilities: readonly string[] } |
 }
 
 export function modelProviderID(model: string) {
+	const publicParts = model.split("/");
+	if (publicParts.length === 2 && isRegisteredProviderID(publicParts[0])) return publicParts[0];
   for (const provider of Object.values(providerRegistry)) {
     if (([...provider.models.image, ...provider.models.video, ...provider.models.audio] as readonly string[]).includes(model)) return provider.id;
   }
@@ -114,7 +118,8 @@ export function modelsForProvider<T extends string>(models: readonly T[], provid
 export function generationRoute(model: string) {
   const providerID = modelProviderID(model);
   const provider = providerDefinition(providerID);
-  return { provider: providerID, model: provider.modelAliases[model] || model, internalModel: model };
+	const canonicalModel = provider.modelAliases[model] || modelDisplayID(model);
+	return { provider: providerID, model: `${providerID}/${canonicalModel}`, internalModel: model };
 }
 
 export function providerModelGroups(configured: Provider[] = []) {

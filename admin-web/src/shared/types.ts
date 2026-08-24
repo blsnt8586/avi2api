@@ -434,8 +434,7 @@ export type PlatformEstimate = {
 };
 
 export type ImageCostEstimate = {
-  provider: string;
-  model: PublicModel;
+  model: string;
   size: string;
   quality?: string;
   quantity: number;
@@ -452,8 +451,7 @@ export type ImageCostEstimate = {
 };
 
 export type VideoCostEstimate = {
-  provider: string;
-  model: PublicVideoModel;
+  model: string;
   duration: number;
   size: string;
   resolution: string;
@@ -521,8 +519,7 @@ export type ImageSizeGroup = {
 };
 
 export type ImageCostMatrix = {
-  provider: string;
-  model: PublicModel;
+  model: string;
   qualities: Array<"fixed" | "low" | "medium" | "high">;
   rows: Array<{
     size: string;
@@ -535,6 +532,12 @@ export type ImageCostMatrix = {
 };
 
 export type PublicVideoModel =
+	| "gemini-omni-flash"
+	| "happy-horse-1.1"
+	| "kling-3.0"
+	| "kling-3.0-turbo"
+	| "hailuo-2.3"
+	| "wan-2.7"
 	| "adobe:kling-3.0-omni"
 	| "adobe:veo-3.1"
 	| "adobe:veo-3.1-fast"

@@ -40,12 +40,16 @@ func TestPromptLimitsRunBeforeTaskAdmission(t *testing.T) {
 		model    string
 		kind     string
 	}{
-		{model: "gpt-image-2", kind: "image"}, {model: "nano-banana-2", kind: "image"}, {model: "nano-banana-pro", kind: "image"}, {model: "seedream-5.0-pro", kind: "image"},
-		{model: "flux-3-video", kind: "video"}, {model: "seedance-2.0", kind: "video"}, {model: "seedance-2.0-fast", kind: "video"}, {model: "seedance-2.0-mini", kind: "video"}, {model: "seedance-2.5", kind: "video"}, {model: "veo-3.1", kind: "video"}, {model: "veo-3.1-fast", kind: "video"}, {provider: "adobe", model: "kling-3.0-omni", kind: "video"}, {model: "kling-o3-omni", kind: "video"}, {model: "minimax-h3", kind: "video"}, {model: "grok-imagine-1.5", kind: "video"},
-		{model: "dialogue-v3", kind: "audio"}, {model: "music-v1", kind: "audio"}, {model: "sound-effects-v2", kind: "audio"},
+		{model: "leonardo/gpt-image-2", kind: "image"}, {model: "leonardo/nano-banana-2", kind: "image"}, {model: "leonardo/nano-banana-pro", kind: "image"}, {model: "leonardo/seedream-5.0-pro", kind: "image"},
+		{model: "leonardo/flux-3-video", kind: "video"}, {model: "leonardo/seedance-2.0", kind: "video"}, {model: "leonardo/seedance-2.0-fast", kind: "video"}, {model: "leonardo/seedance-2.0-mini", kind: "video"}, {model: "leonardo/seedance-2.5", kind: "video"}, {model: "leonardo/veo-3.1", kind: "video"}, {model: "leonardo/veo-3.1-fast", kind: "video"}, {model: "adobe/kling-3.0-omni", kind: "video"}, {model: "leonardo/kling-o3-omni", kind: "video"}, {model: "leonardo/minimax-h3", kind: "video"}, {model: "leonardo/grok-imagine-1.5", kind: "video"},
+		{model: "leonardo/dialogue-v3", kind: "audio"}, {model: "leonardo/music-v1", kind: "audio"}, {model: "leonardo/sound-effects-v2", kind: "audio"},
 	} {
 		t.Run(test.model, func(t *testing.T) {
-			limit, _ := modelconstraints.PromptLimit(test.model)
+			modelName := test.model
+			if slash := strings.IndexByte(modelName, '/'); slash >= 0 {
+				modelName = modelName[slash+1:]
+			}
+			limit, _ := modelconstraints.PromptLimit(modelName)
 			prompt := strings.Repeat("长", limit+1)
 			var err error
 			switch test.kind {

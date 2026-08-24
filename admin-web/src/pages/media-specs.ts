@@ -217,7 +217,37 @@ export const videoModelDocs: Record<
 		maxReferenceVideos: 3, maxReferenceAudios: 3, maxReferenceVideoDuration: 15, maxReferenceAudioDuration: 15,
 		supportsGenerateAudio: false, promptMax: 5000,
 	},
-  "flux-3-video": {
+	"gemini-omni-flash": {
+		name: "Gemini Omni Flash", role: "Google 快速视频", use: "适合文本或最多五张参考图的快速视频生成。",
+		duration: "3–10 秒", resolution: "720p", limits: ["最多 5 张参考图"], durationValues: Array.from({ length: 8 }, (_, index) => index + 3), defaultDuration: 5,
+		resolutions: ["720p"], maxReferenceImages: 5, supportsStartEnd: false, supportsVideoAudioReferences: false, supportsGenerateAudio: false, promptMax: 5000,
+	},
+	"happy-horse-1.1": {
+		name: "Happy Horse 1.1", role: "角色与多语言", use: "适合角色驱动场景和多语言音频视频。",
+		duration: "3–15 秒", resolution: "720p / 1080p", limits: ["当前按文本视频路径开放"], durationValues: Array.from({ length: 13 }, (_, index) => index + 3), defaultDuration: 5,
+		resolutions: ["720p", "1080p"], maxReferenceImages: 0, supportsStartEnd: false, supportsVideoAudioReferences: false, supportsGenerateAudio: true, promptMax: 5000,
+	},
+	"kling-3.0": {
+		name: "Kling 3", role: "Kling 主模型", use: "适合长时长、高一致性和原生音频视频。",
+		duration: "3–15 秒", resolution: "720p / 1080p / 2160p", limits: ["当前按文本视频路径开放"], durationValues: Array.from({ length: 13 }, (_, index) => index + 3), defaultDuration: 5,
+		resolutions: ["720p", "1080p", "2160p"], maxReferenceImages: 0, supportsStartEnd: false, supportsVideoAudioReferences: false, supportsGenerateAudio: true, promptMax: 5000,
+	},
+	"kling-3.0-turbo": {
+		name: "Kling 3 Turbo", role: "Kling 快速草稿", use: "适合快速预览和镜头方案验证。",
+		duration: "3–15 秒", resolution: "720p / 1080p", limits: ["当前按文本视频路径开放"], durationValues: Array.from({ length: 13 }, (_, index) => index + 3), defaultDuration: 5,
+		resolutions: ["720p", "1080p"], maxReferenceImages: 0, supportsStartEnd: false, supportsVideoAudioReferences: false, supportsGenerateAudio: true, promptMax: 5000,
+	},
+	"hailuo-2.3": {
+		name: "Hailuo 2.3", role: "MiniMax 高性价比", use: "适合高性价比的风格执行和短视频生成。",
+		duration: "6 / 10 秒", resolution: "768p / 1080p", limits: ["当前按文本视频路径开放"], durationValues: [6, 10], defaultDuration: 6,
+		resolutions: ["768p", "1080p"], maxReferenceImages: 0, supportsStartEnd: false, supportsVideoAudioReferences: false, supportsGenerateAudio: false, promptMax: 5000,
+	},
+	"wan-2.7": {
+		name: "Wan 2.7", role: "Alibaba 全模态", use: "适合平滑运动、场景一致性和多模态视频生成。",
+		duration: "2–10 秒", resolution: "720p / 1080p", limits: ["当前按文本视频路径开放"], durationValues: Array.from({ length: 9 }, (_, index) => index + 2), defaultDuration: 5,
+		resolutions: ["720p", "1080p"], maxReferenceImages: 0, supportsStartEnd: false, supportsVideoAudioReferences: false, supportsGenerateAudio: true, promptMax: 5000,
+	},
+	"flux-3-video": {
     name: "FLUX 3 Video",
     role: "原生音频长视频",
     use: "适合强提示词遵循、同步原生音频、首尾帧插值和既有视频续写。",
@@ -371,7 +401,7 @@ export const videoModelDocs: Record<
     promptMax: 9999,
   },
   "kling-o3-omni": {
-    name: "Kling Video O3 Omni",
+		name: "Kling 3 Omni",
     role: "全模态视频",
     use: "适合长视频、原生音频、多图角色一致性、首尾帧控制和视频续写。",
     duration: "3–15 秒",
