@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	Leonardo = "leonardo"
-	Adobe    = "adobe"
+	Leonardo        = "leonardo"
+	Adobe           = "adobe"
+	CreativeFabrica = "creativefabrica"
 )
 
 var ErrUnsupported = errors.New("provider adapter is not registered")
@@ -46,6 +47,20 @@ func NewRegistry() *Registry {
 				return "", fmt.Errorf("selected model is not available from provider %s", Adobe)
 			}
 			return spec.PublicID, nil
+		},
+	})
+	r.Register(Descriptor{
+		ID: CreativeFabrica, DisplayName: "Creative Fabrica Studio", AuthType: "cookie", Capabilities: []string{"image", "video"},
+		// Creative Fabrica publishes account-scoped model IDs. The database
+		// catalog is authoritative, so the registry only normalizes the value.
+		ResolveModel: func(kind, model string) (string, error) {
+			if kind != "image" && kind != "video" {
+				return "", fmt.Errorf("provider %s does not support %s generation", CreativeFabrica, kind)
+			}
+			if strings.TrimSpace(model) == "" {
+				return "", errors.New("model is required")
+			}
+			return strings.TrimSpace(model), nil
 		},
 	})
 	return r

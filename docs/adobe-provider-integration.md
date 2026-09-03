@@ -18,7 +18,8 @@ not copied into AIV2API.
   50,000 total credits, 0 used, and 50,000 available at the time of validation.
 - Adobe BKS is queried during account import to create provider-specific active
   price rules. Price rules are not shared with Leonardo.
-- Public models use canonical IDs such as `gpt-image-2` and `veo-3.1-fast` together with `provider=adobe`. Both use the
+- Public models use platform-qualified IDs such as `adobe/gpt-image-2` and `adobe/veo-3.1-fast`; the public request has no
+  separate `provider` field. Both use the
   same durable asynchronous task, lease, reservation, polling, and settlement
   system as the existing provider.
 
@@ -75,8 +76,8 @@ public async request
   -> existing terminal settlement and source cleanup
 ```
 
-`gpt-image-2` on provider Adobe currently exposes 1024x1024, 2048x2048, and 2880x2880
-pricing tiers with low, medium, and high quality. `veo-3.1-fast` on provider Adobe exposes
+`adobe/gpt-image-2` currently exposes 1024x1024, 2048x2048, and 2880x2880
+pricing tiers with low, medium, and high quality. `adobe/veo-3.1-fast` exposes
 4, 6, and 8 seconds at 720p or 1080p, landscape or portrait, with optional
 start/end frame guidance. Native audio is disabled in the current public model
 contract so its BKS price and upstream payload remain aligned. Firefly's

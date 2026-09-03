@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -415,6 +416,44 @@ func (c *Client) GetTokens(ctx context.Context, token, teamID, sub string) (Toke
 	return Tokens{Plan: u.Plan, Subscription: u.Subscription, Rollover: u.Rollover, Paid: u.Paid}, nil
 }
 
+// UserDetails is the account-level entitlement state exposed by Leonardo's
+// authenticated web GraphQL API. It is intentionally smaller than the full
+// browser payload: generation health only needs the account identity and the
+// provider's blocked/suspension flags.
+type UserDetails struct {
+	ID               string `json:"id"`
+	Blocked          bool   `json:"blocked"`
+	SuspensionStatus string `json:"suspensionStatus"`
+	UserDetails      []struct {
+		ID string `json:"id"`
+	} `json:"user_details"`
+}
+
+// GetUserDetails reads the same account status query used by the Leonardo web
+// application. Unlike a generation mutation or a cost-estimate mutation, it
+// has no generation side effect and remains valid when the account has no
+// generation entitlement.
+func (c *Client) GetUserDetails(ctx context.Context, token, teamID, sub string) (UserDetails, error) {
+	const q = `query GetUserDetails($userSub: String) {
+  users(where: {user_details: {cognitoId: {_eq: $userSub}}}) {
+    id
+    blocked
+    suspensionStatus
+    user_details { id }
+  }
+}`
+	var data struct {
+		Users []UserDetails `json:"users"`
+	}
+	if err := c.graphql(ctx, token, teamID, "GetUserDetails", q, map[string]any{"userSub": sub}, &data); err != nil {
+		return UserDetails{}, err
+	}
+	if len(data.Users) == 0 || data.Users[0].ID == "" || len(data.Users[0].UserDetails) == 0 {
+		return UserDetails{}, errors.New("user details query returned no users")
+	}
+	return data.Users[0], nil
+}
+
 type GenerateRequest struct {
 	Model                   string
 	Prompt                  string
@@ -424,6 +463,7 @@ type GenerateRequest struct {
 	InitImageID             string
 	InitStrength            *float64
 	Quality                 string
+	PromptEnhance           string
 	ImageReferences         []ImageReference
 }
 
@@ -444,6 +484,28 @@ type MediaReference struct {
 type GenerateResponse struct {
 	GenerationID  string
 	APICreditCost *float64
+	Cost          *GenerationCost
+}
+
+type GenerationCost struct {
+	Amount float64
+	Unit   string
+}
+
+func parseGenerationCostAmount(raw json.RawMessage) (float64, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	var amount float64
+	if err := json.Unmarshal(raw, &amount); err == nil {
+		return amount, true
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return 0, false
+	}
+	amount, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+	return amount, err == nil
 }
 
 type GenerateVideoRequest struct {
@@ -501,6 +563,9 @@ func BuildImageGenerationRequest(in GenerateRequest) CreateGenerationRequest {
 	}
 	if in.Quality != "" && in.Quality != "auto" {
 		params["quality"] = strings.ToUpper(in.Quality)
+	}
+	if strings.TrimSpace(in.PromptEnhance) != "" {
+		params["prompt_enhance"] = strings.ToUpper(strings.TrimSpace(in.PromptEnhance))
 	}
 	if len(in.ImageReferences) > 0 {
 		references := make([]map[string]any, 0, len(in.ImageReferences))
@@ -612,12 +677,16 @@ func BuildAudioGenerationRequest(in GenerateAudioRequest) CreateGenerationReques
 }
 
 func (c *Client) SubmitGeneration(ctx context.Context, token, teamID string, request CreateGenerationRequest) (GenerateResponse, error) {
-	const q = `mutation Generate($request: CreateGenerationRequest!) { generate(request:$request){apiCreditCost generationId} }`
+	const q = `mutation Generate($request: CreateGenerationRequest!) { generate(request:$request){apiCreditCost generationId cost { amount unit } } }`
 	vars := map[string]any{"request": request}
 	var data struct {
 		Generate struct {
 			APICreditCost *float64 `json:"apiCreditCost"`
 			GenerationID  string   `json:"generationId"`
+			Cost          *struct {
+				Amount json.RawMessage `json:"amount"`
+				Unit   string          `json:"unit"`
+			} `json:"cost"`
 		} `json:"generate"`
 	}
 	if err := c.graphql(ctx, token, teamID, "Generate", q, vars, &data); err != nil {
@@ -626,7 +695,13 @@ func (c *Client) SubmitGeneration(ctx context.Context, token, teamID string, req
 	if data.Generate.GenerationID == "" {
 		return GenerateResponse{}, errors.New("generate response has no generationId")
 	}
-	return GenerateResponse{GenerationID: data.Generate.GenerationID, APICreditCost: data.Generate.APICreditCost}, nil
+	var cost *GenerationCost
+	if data.Generate.Cost != nil {
+		if amount, ok := parseGenerationCostAmount(data.Generate.Cost.Amount); ok {
+			cost = &GenerationCost{Amount: amount, Unit: data.Generate.Cost.Unit}
+		}
+	}
+	return GenerateResponse{GenerationID: data.Generate.GenerationID, APICreditCost: data.Generate.APICreditCost, Cost: cost}, nil
 }
 
 func (c *Client) Generate(ctx context.Context, token, teamID string, in GenerateRequest) (GenerateResponse, error) {

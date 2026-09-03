@@ -273,6 +273,9 @@ func (s *Service) RefreshAccount(ctx context.Context, id uuid.UUID, force bool) 
 	if account.ProviderID == providers.Adobe {
 		return s.refreshAdobe(ctx, account, force)
 	}
+	if account.ProviderID == providers.CreativeFabrica {
+		return s.refreshCreativeFabrica(ctx, account, force)
+	}
 	return s.Refresh(ctx, id, force)
 }
 

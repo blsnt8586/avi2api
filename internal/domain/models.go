@@ -47,6 +47,11 @@ type Account struct {
 	ProtectedTokens                int64      `json:"protected_tokens"`
 	VideoReservedSlots             int        `json:"video_reserved_slots"`
 	Status                         string     `json:"status"`
+	GenerationPermissionStatus     string     `json:"generation_permission_status"`
+	GenerationPermissionCheckedAt  *time.Time `json:"generation_permission_checked_at,omitempty"`
+	GenerationPermissionModel      string     `json:"generation_permission_model,omitempty"`
+	GenerationPermissionErrorCode  string     `json:"generation_permission_error_code,omitempty"`
+	GenerationPermissionError      string     `json:"generation_permission_error,omitempty"`
 	CooldownUntil                  *time.Time `json:"cooldown_until,omitempty"`
 	LastError                      string     `json:"last_error,omitempty"`
 	LastCheckedAt                  *time.Time `json:"last_checked_at,omitempty"`

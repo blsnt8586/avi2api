@@ -4,8 +4,10 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/leonardo2api/leonardo2api/internal/cryptox"
+	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 )
 
@@ -63,6 +65,35 @@ func TestClassifySessionError(t *testing.T) {
 				t.Fatalf("status=%q cooldown=%v", status, cooldown)
 			}
 		})
+	}
+}
+
+func TestGenerationPermissionCheckDue(t *testing.T) {
+	checkedAt := time.Now().Add(-2 * time.Hour)
+	account := domain.Account{ProviderID: "leonardo", GenerationPermissionStatus: "verified", GenerationPermissionCheckedAt: &checkedAt}
+	if GenerationPermissionCheckDue(account, 24*time.Hour) {
+		t.Fatal("verified account should remain within the configured interval")
+	}
+	if !GenerationPermissionCheckDue(account, time.Hour) {
+		t.Fatal("verified account should be due after the interval")
+	}
+	rateLimited := account
+	rateLimited.GenerationPermissionStatus = "rate_limited"
+	if !GenerationPermissionCheckDue(rateLimited, 5*time.Minute) {
+		t.Fatal("rate-limited probe should retry on the short interval")
+	}
+}
+
+func TestGenerationPermissionBlockedClassification(t *testing.T) {
+	if !IsGenerationPermissionBlocked(&leonardo.HTTPError{Status: 403}) {
+		t.Fatal("HTTP 403 should mark generation permission as blocked")
+	}
+	gql := &leonardo.GraphQLError{Operation: "Generate", Message: "Access denied", Extensions: map[string]any{"code": "HttpException", "details": "statusCode=403"}}
+	if !IsGenerationPermissionBlocked(gql) {
+		t.Fatal("nested GraphQL 403 should mark generation permission as blocked")
+	}
+	if IsGenerationPermissionBlocked(errors.New("network timeout")) {
+		t.Fatal("network errors should remain transient")
 	}
 }
 

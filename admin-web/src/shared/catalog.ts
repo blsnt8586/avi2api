@@ -4,7 +4,6 @@ import type {
   MediaKind,
   ModelCostRecord,
   PlatformModel,
-  PublicModel,
 } from "./types";
 import { providerModelGroups, providerRegistry } from "./providers";
 
@@ -126,12 +125,14 @@ export function costEstimates(rules: CostRule[], kind: MediaKind) {
 export const imageModels = [
 	...providerRegistry.leonardo.models.image,
 	...providerRegistry.adobe.models.image,
+	...providerRegistry.creativefabrica.models.image,
 ] as const;
 
 export type PlaygroundImageModel = (typeof imageModels)[number];
 
 export function imageSizes(model: PlaygroundImageModel) {
-  return imageSizeGroups[model].flatMap((group) =>
+  const groups = imageSizeGroups[model] || nanoBananaSizeGroups;
+  return groups.flatMap((group) =>
     [group.small, group.medium, group.large].filter(
       (value): value is string => Boolean(value),
     ),
@@ -219,13 +220,16 @@ const seedream50ProSizeGroups: ImageSizeGroup[] = [
   { ratio: "6:5", small: "1152x960", medium: "1536x1280", large: "2016x1680" },
 ];
 
-export const imageSizeGroups: Record<PublicModel, ImageSizeGroup[]> = {
+export const imageSizeGroups: Record<string, ImageSizeGroup[]> = {
 	"gpt-image-2": gptImage2SizeGroups,
 	"adobe:gpt-image-2": [{ ratio: "1:1", small: "1024x1024", medium: "2048x2048", large: "2880x2880" }],
 	"adobe:nano-banana-2": nanoBananaSizeGroups,
   "nano-banana-2": nanoBananaSizeGroups,
   "nano-banana-pro": nanoBananaSizeGroups,
   "seedream-5.0-pro": seedream50ProSizeGroups,
+  ...Object.fromEntries(
+    providerRegistry.creativefabrica.models.image.map((model) => [model, nanoBananaSizeGroups]),
+  ),
 };
 
 export const keyModelGroups = providerModelGroups();

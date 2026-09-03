@@ -1,5 +1,7 @@
 package videospec
 
+import "strings"
+
 type Spec struct {
 	DefaultDuration             int
 	Durations                   []int
@@ -36,6 +38,36 @@ var standardSizes = []string{"1280x720", "720x1280"}
 var standardHDVideoSizes = []string{"1280x720", "720x1280", "1920x1080", "1080x1920"}
 
 var standardUHDVideoSizes = []string{"1280x720", "720x1280", "1920x1080", "1080x1920", "3840x2160", "2160x3840"}
+
+var creativeFabricaVideoSizes = []string{
+	"992x432", "864x496", "752x560", "640x640", "560x752", "496x864",
+	"1470x630", "1280x720", "1112x834", "960x960", "834x1112", "720x1280",
+	"2520x1080", "2160x1080", "1920x1080", "1440x1080", "1440x1440", "1080x1440", "1080x1920",
+}
+
+var creativeFabricaVideoResolutions = []string{"360p", "480p", "720p", "768p", "1080p", "2k", "4k"}
+
+var creativeFabricaVideoResolutionBySize = map[string]string{
+	"992x432": "480p", "864x496": "480p", "752x560": "480p", "640x640": "480p", "560x752": "480p", "496x864": "480p",
+	"1470x630": "720p", "1280x720": "720p", "1112x834": "720p", "960x960": "720p", "834x1112": "720p", "720x1280": "720p",
+	"2520x1080": "1080p", "2160x1080": "1080p", "1920x1080": "1080p", "1440x1080": "1080p", "1440x1440": "1080p", "1080x1440": "1080p", "1080x1920": "1080p",
+}
+
+// Creative Fabrica exposes account-scoped capabilities through its model
+// catalog.  The gateway keeps a deliberately broad baseline until that
+// account catalog is synchronized; unsupported combinations are still
+// rejected by the provider and become a normal upstream 4xx task failure.
+var creativeFabricaVideoModels = []string{
+	"alibaba_happy_horse_v1", "alibaba_happy_horse_v1_1", "alibaba_wan_2_7", "berry_1_0", "berry_1_0_pro",
+	"fal_ltx_2_3", "fal_pixverse_c1", "fal_pixverse_v6", "flux_3", "gemini_omni_flash", "gemini_omni_flash_1_1",
+	"gemini_omni_flash_1_1_video_extended", "grok_imagine_video", "grok_imagine_video_1_5", "heygen_avatar_5",
+	"kling_ai_v3", "kling_ai_v3_motion_control", "kling_ai_v3_turbo", "kling_v3_omni", "luma_ray_2", "luma_ray_3_2",
+	"minimax_hailuo_v3", "minimax_hailuo_v3_max", "mulerouter_wan_2_7_spicy", "pika_v2_5", "runway_gen_4_5",
+	"seedance_one_five_pro", "seedance_two_point_zero", "seedance_v2_5", "seedance_v2_fast", "seedance_v2_mini",
+	"veo_31_fast_generate_preview", "wan_3_0", "wan_3_0_prime",
+}
+
+var creativeFabricaVideoSpecs = buildCreativeFabricaVideoSpecs()
 
 var specs = map[string]Spec{
 	"gemini-omni-flash": {
@@ -216,12 +248,49 @@ func Get(model string) (Spec, bool) {
 }
 
 func GetForProvider(provider, model string) (Spec, bool) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	model = strings.ToLower(strings.TrimSpace(model))
 	key := model
-	if provider == "adobe" {
+	if provider == "adobe" || provider == "creativefabrica" {
 		key = provider + ":" + model
 	}
 	spec, ok := specs[key]
+	if !ok && provider == "creativefabrica" {
+		spec, ok = creativeFabricaVideoSpecs[model]
+	}
 	return spec, ok
+}
+
+func buildCreativeFabricaVideoSpecs() map[string]Spec {
+	resolutionBySize := make(map[string]string, len(creativeFabricaVideoResolutionBySize))
+	for size, resolution := range creativeFabricaVideoResolutionBySize {
+		resolutionBySize[size] = resolution
+	}
+	result := make(map[string]Spec, len(creativeFabricaVideoModels)*2)
+	for _, model := range creativeFabricaVideoModels {
+		spec := Spec{
+			DefaultDuration:       5,
+			Durations:             integerRange(3, 15),
+			DefaultSize:           "1280x720",
+			Sizes:                 append([]string(nil), creativeFabricaVideoSizes...),
+			DefaultResolution:     "720p",
+			Resolutions:           append([]string(nil), creativeFabricaVideoResolutions...),
+			MaxReferenceImages:    10,
+			SupportsStartEndFrame: true,
+			SupportsEndFrame:      true,
+			MaxReferenceVideos:    10,
+			MaxReferenceAudios:    10,
+			MaxReferenceItems:     30,
+			MaxVideoDuration:      30.2,
+			MaxAudioDuration:      30.2,
+			SupportsGenerateAudio: true,
+			UsesExactDimensions:   true,
+			ResolutionBySize:      resolutionBySize,
+		}
+		result["creativefabrica:"+model] = spec
+		result[model] = spec
+	}
+	return result
 }
 
 func (s Spec) SupportsDuration(duration int) bool {

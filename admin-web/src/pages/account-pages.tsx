@@ -48,7 +48,7 @@ import {
 } from "../components/account-status";
 import { Metric } from "../components/metric";
 import { api } from "../shared/api";
-import { providerCreditUnit } from "../shared/providers";
+import { providerCreditUnit, providerDefinition } from "../shared/providers";
 
 type ArchiveAccountsResponse = {
   archived: number;
@@ -65,9 +65,10 @@ type ArchiveBatchResponse = ArchiveAccountsResponse & {
   requestFailed: number;
 };
 
-type AdobePricingSyncResponse = {
+type ProviderPricingSyncResponse = {
   account: Account;
   pricing_rules_synced: number;
+  pricing_source?: string;
 };
 
 type BulkCookieImportStatus = "ready" | "invalid" | "importing" | "submitted" | "failed";
@@ -92,9 +93,10 @@ function accountNameFromFile(fileName: string) {
 }
 
 function accountSessionExpiryText(account: Account) {
+  const tokenLabel = account.provider_id === "adobe" ? "AT" : account.provider_id === "creativefabrica" ? "RPC" : "JWT";
   return sessionExpiryText(
     account.access_token_expires_at,
-    account.provider_id === "adobe" ? "AT" : "JWT",
+    tokenLabel,
   );
 }
 
@@ -102,24 +104,35 @@ function accountCredentialText(account: Account, compact = false) {
   if (account.has_pending_cookie_json) return "完整 Cookie 待验证";
   if (account.has_complete_cookie_json) {
     if (account.provider_id === "adobe") return compact ? "Cookie 自动续期" : "完整 Cookie · 自动续期";
+    if (account.provider_id === "creativefabrica") return compact ? "Cookie · RPC 自动续期" : "完整 Cookie · RPC 自动续期";
     return compact ? "完整 Cookie" : "完整 Cookie 已保存";
   }
   if (account.has_login_credentials) return compact ? "自动登录" : "自动登录已配置";
-  return account.provider_id === "adobe" ? "仅 Access Token" : sessionRefreshText(account);
+  if (account.provider_id === "adobe") return "仅 Access Token";
+  if (account.provider_id === "creativefabrica") return "仅 RPC Token";
+  return sessionRefreshText(account);
 }
 
-function validateCookieJSON(value: unknown, providerID: "leonardo" | "adobe") {
+function providerConcurrencyMaximum(providerID: string) {
+  return providerID === "adobe" ? 100 : 5;
+}
+
+function providerSupportsCookie(provider: Provider) {
+  return provider.enabled && provider.adapter_registered !== false && provider.auth_type.toLowerCase().includes("cookie");
+}
+
+function validateCookieJSON(value: unknown, providerID: string) {
   if (!Array.isArray(value)) return "必须是浏览器导出的 Cookie JSON 数组";
-	const maximum = providerID === "adobe" ? 128 : 64;
-	const minimum = providerID === "adobe" ? 1 : 2;
-	if (value.length < minimum || value.length > maximum) return `Cookie 数量必须在 ${minimum} 到 ${maximum} 条之间`;
+	const maximum = providerID === "leonardo" ? 64 : 128;
+	const minimum = providerID === "leonardo" ? 2 : 1;
+  if (value.length < minimum || value.length > maximum) return `Cookie 数量必须在 ${minimum} 到 ${maximum} 条之间`;
   const names = value.map((cookie) => {
     if (!cookie || typeof cookie !== "object") return "";
     const name = (cookie as { name?: unknown }).name;
     return typeof name === "string" ? name.trim().toLowerCase() : "";
   });
   if (names.some((name) => !name)) return "每条 Cookie 都必须包含 name";
-	if (providerID === "adobe") {
+	if (providerID === "adobe" || providerID === "creativefabrica") {
 		const invalidScope = value.some((cookie) => {
 		  const item = cookie as { domain?: unknown; url?: unknown };
 		  const domain = typeof item.domain === "string" ? item.domain.replace(/^\./, "").toLowerCase() : "";
@@ -127,9 +140,12 @@ function validateCookieJSON(value: unknown, providerID: "leonardo" | "adobe") {
 		  if (typeof item.url === "string") {
 			try { host = new URL(item.url).hostname.toLowerCase(); } catch { host = ""; }
 		  }
-		  return ![domain, host].some((value) => value === "adobe.com" || value.endsWith(".adobe.com") || value === "adobelogin.com" || value.endsWith(".adobelogin.com"));
+		  if (providerID === "adobe") {
+			return ![domain, host].some((value) => value === "adobe.com" || value.endsWith(".adobe.com") || value === "adobelogin.com" || value.endsWith(".adobelogin.com"));
+		  }
+		  return ![domain, host].some((value) => value === "creativefabrica.com" || value.endsWith(".creativefabrica.com"));
 		});
-		return invalidScope ? "Adobe Cookie 文件包含非 Adobe 域名" : "";
+		return invalidScope ? `${providerID === "adobe" ? "Adobe" : "Creative Fabrica"} Cookie 文件包含非平台域名` : "";
 	}
   if (!names.some((name) => name.includes("session_token")) || !names.some((name) => name.includes("session_data"))) {
     return "缺少 Leonardo session_token 或 session_data";
@@ -174,7 +190,7 @@ export function Accounts({
   const [bulkImportBusy, setBulkImportBusy] = useState(false);
 	const [bulkImportSummary, setBulkImportSummary] = useState("");
 	const [bulkImportItems, setBulkImportItems] = useState<BulkCookieImportItem[]>([]);
-	const [bulkImportProvider, setBulkImportProvider] = useState<"leonardo" | "adobe">("leonardo");
+	const [bulkImportProvider, setBulkImportProvider] = useState("leonardo");
   const [bulkImportConfig, setBulkImportConfig] = useState({
     imageConcurrency: 5,
     queueCapacity: 40,
@@ -220,6 +236,7 @@ export function Accounts({
   };
   const data = accounts.data?.data || [];
   const providerOptions = providers.data || [];
+  const cookieProviderOptions = providerOptions.filter(providerSupportsCookie);
   const filteredData = data;
   const total = accounts.data?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -231,14 +248,21 @@ export function Accounts({
       api(`/admin/api/accounts/${id}/session-refresh`, { method: "POST" }),
     onSuccess: refresh,
   });
+  const permissionCheck = useMutation({
+    mutationFn: (id: string) =>
+      api(`/admin/api/accounts/${id}/generation-permission`, { method: "POST" }),
+    onSuccess: refresh,
+    onError: (error) => setCleanupError(`生成权限检测失败：${error.message}`),
+  });
   const pricingSync = useMutation({
     mutationFn: (id: string) =>
-      api<AdobePricingSyncResponse>(`/admin/api/accounts/${id}/pricing-sync`, { method: "POST" }),
+      api<ProviderPricingSyncResponse>(`/admin/api/accounts/${id}/pricing-sync`, { method: "POST" }),
     onSuccess: (result) => {
-      setArchiveFeedback(`已同步 ${result.pricing_rules_synced} 条 Adobe BKS 价格规则。`);
+      const label = result.pricing_source === "creativefabrica-preset" ? "Creative Fabrica Coins" : "Adobe BKS";
+      setArchiveFeedback(`已同步 ${result.pricing_rules_synced} 条 ${label} 价格规则。`);
       refresh();
     },
-    onError: (error) => setCleanupError(`Adobe 价格同步失败：${error.message}`),
+    onError: (error) => setCleanupError(`平台价格同步失败：${error.message}`),
   });
   const importCookieJSON = useMutation({
     mutationFn: ({ id, cookieJSON }: { id: string; cookieJSON: unknown }) =>
@@ -339,9 +363,14 @@ export function Accounts({
     }
   };
   const openBulkImport = () => {
-	const nextProvider = providerFilter === "adobe" ? "adobe" : "leonardo";
-	setBulkImportProvider(nextProvider);
-	setBulkImportConfig((current) => ({ ...current, imageConcurrency: nextProvider === "adobe" ? 20 : 5 }));
+	  const availableIDs = cookieProviderOptions.map((provider) => provider.id);
+	  const nextProvider = availableIDs.includes(providerFilter)
+	    ? providerFilter
+	    : availableIDs.includes(bulkImportProvider)
+	      ? bulkImportProvider
+	      : availableIDs[0] || "leonardo";
+	  setBulkImportProvider(nextProvider);
+	  setBulkImportConfig((current) => ({ ...current, imageConcurrency: Math.min(providerConcurrencyMaximum(nextProvider), current.imageConcurrency || 5) }));
     setBulkImportItems([]);
     setBulkImportSummary("");
     setBulkImportOpen(true);
@@ -467,10 +496,10 @@ export function Accounts({
   ).length;
   const bulkImportConfigValid =
     bulkImportConfig.imageConcurrency >= 1 &&
-	bulkImportConfig.imageConcurrency <= (bulkImportProvider === "adobe" ? 100 : 5) &&
+	bulkImportConfig.imageConcurrency <= providerConcurrencyMaximum(bulkImportProvider) &&
     bulkImportConfig.queueCapacity >= 1 &&
     bulkImportConfig.queueCapacity <= 1000 &&
-	(bulkImportProvider === "adobe" || /^[A-Za-z0-9._-]{1,100}$/.test(bulkImportConfig.workerGroup.trim()));
+	(bulkImportProvider !== "leonardo" || /^[A-Za-z0-9._-]{1,100}$/.test(bulkImportConfig.workerGroup.trim()));
   const providerSummaries = overview.data?.provider_summaries || [];
   const selectedProviderSummary = providerFilter === "all"
     ? undefined
@@ -510,7 +539,7 @@ export function Accounts({
       <div className="account-operations-bar">
         <span>账号操作</span>
         <div>
-		  {(providerFilter === "all" || providerFilter === "leonardo" || providerFilter === "adobe") && (
+          {(providerFilter === "all" || providerFilter === "leonardo" || providerFilter === "adobe" || providerFilter === "creativefabrica") && (
 			<button type="button" className="secondary" onClick={openBulkImport}>
 			  <Upload />批量导入 Cookie
             </button>
@@ -680,11 +709,25 @@ export function Accounts({
               >
                 <RefreshCw className={m.isPending ? "spin" : ""} size={17} />
               </button>
-              {a.provider_id === "adobe" && (
+              {a.provider_id === "leonardo" && (
                 <button
                   className="icon"
-                  title="同步 Adobe 模型价格"
-                  aria-label={`同步 ${a.name} 的 Adobe 模型价格`}
+                  title="检测生成权限"
+                  aria-label={`检测 ${a.name} 的生成权限`}
+                  disabled={permissionCheck.isPending}
+                  onClick={() => {
+                    setCleanupError("");
+                    permissionCheck.mutate(a.id);
+                  }}
+                >
+                  <ShieldCheck className={permissionCheck.isPending && permissionCheck.variables === a.id ? "spin" : ""} size={17} />
+                </button>
+              )}
+              {(a.provider_id === "adobe" || a.provider_id === "creativefabrica") && (
+                <button
+                  className="icon"
+                  title={`同步 ${a.provider_id === "creativefabrica" ? "Creative Fabrica" : "Adobe"} 模型价格`}
+                  aria-label={`同步 ${a.name} 的平台模型价格`}
                   disabled={pricingSync.isPending}
                   onClick={() => {
                     setCleanupError("");
@@ -741,7 +784,17 @@ export function Accounts({
               <footer>
               <small>{accountSessionExpiryText(account)} · {accountCredentialText(account, true)}</small>
                 <span className="account-mobile-actions">
-                  {account.provider_id === "adobe" && (
+                  {account.provider_id === "leonardo" && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={permissionCheck.isPending}
+                      onClick={() => permissionCheck.mutate(account.id)}
+                    >
+                      <ShieldCheck size={15} />检测权限
+                    </Button>
+                  )}
+                  {(account.provider_id === "adobe" || account.provider_id === "creativefabrica") && (
                     <Button
                       variant="secondary"
                       size="sm"
@@ -813,22 +866,25 @@ export function Accounts({
 			</div>
 		  </div>
 		  <div className="segmented compact" role="group" aria-label="批量导入平台">
-			{(["leonardo", "adobe"] as const).map((providerID) => (
+			{cookieProviderOptions.map((provider) => {
+			  const providerID = provider.id;
+			  return (
 			  <button
 				type="button"
 				key={providerID}
 				className={bulkImportProvider === providerID ? "active" : ""}
 				disabled={bulkImportBusy}
-				onClick={() => {
-				  setBulkImportProvider(providerID);
+				 onClick={() => {
+				   setBulkImportProvider(providerID);
 				  setBulkImportItems([]);
 				  setBulkImportSummary("");
-				  setBulkImportConfig((current) => ({ ...current, imageConcurrency: providerID === "adobe" ? 20 : 5 }));
-				}}
+				   setBulkImportConfig((current) => ({ ...current, imageConcurrency: Math.min(providerConcurrencyMaximum(providerID), current.imageConcurrency || 5) }));
+				 }}
 			  >
-				{providerID === "adobe" ? "Adobe" : "Leonardo"}
+				 {provider.display_name}
 			  </button>
-			))}
+			  );
+			})}
 		  </div>
           <label
             className="account-bulk-cookie-drop"
@@ -853,12 +909,12 @@ export function Accounts({
             <span>{bulkImportItems.length}/{MAX_BULK_COOKIE_FILES}</span>
           </label>
 		  <div className="account-bulk-import-config">
-			<span><strong>{bulkImportProvider === "adobe" ? "Adobe" : "Leonardo"}</strong><small>平台</small></span>
+			<span><strong>{providerDefinition(bulkImportProvider, cookieProviderOptions.find((provider) => provider.id === bulkImportProvider)).shortName}</strong><small>平台</small></span>
             <label>并发槽位
               <input
                 type="number"
                 min={1}
-				max={bulkImportProvider === "adobe" ? 100 : 5}
+				 max={providerConcurrencyMaximum(bulkImportProvider)}
                 value={bulkImportConfig.imageConcurrency}
                 disabled={bulkImportBusy}
                 onChange={(event) => setBulkImportConfig((current) => ({ ...current, imageConcurrency: Number(event.target.value) || 1 }))}
@@ -919,7 +975,7 @@ export function Accounts({
             </div>
           )}
           {bulkImportSummary && <p className="account-bulk-import-summary">{bulkImportSummary}</p>}
-		  {!bulkImportConfigValid && <p className="error">并发范围为 1–{bulkImportProvider === "adobe" ? 100 : 5}，队列范围为 1–1000{bulkImportProvider === "leonardo" ? "，Worker 组只允许字母、数字、点、下划线和连字符" : ""}。</p>}
+			 {!bulkImportConfigValid && <p className="error">并发范围为 1–{providerConcurrencyMaximum(bulkImportProvider)}，队列范围为 1–1000{bulkImportProvider === "leonardo" ? "，Worker 组只允许字母、数字、点、下划线和连字符" : ""}。</p>}
           <footer>
             <button type="button" className="secondary" disabled={bulkImportBusy} onClick={() => setBulkImportOpen(false)}>关闭</button>
             <button type="button" disabled={bulkImportBusy || importableCount === 0 || !bulkImportConfigValid} onClick={() => void importCookieAccounts()}>
@@ -943,7 +999,7 @@ export function AccountDialog({
   done: () => void;
 }) {
   const isEditing = Boolean(account);
-  type AccountAuthMethod = "complete_cookie" | "complete_cookie_password" | "access_token";
+  type AccountAuthMethod = "complete_cookie" | "complete_cookie_password" | "access_token" | "email_password";
   const providers = useQuery({
     queryKey: ["providers"],
     queryFn: () => api<Provider[]>("/admin/api/providers"),
@@ -953,6 +1009,7 @@ export function AccountDialog({
     name: account?.name || "",
     email: account?.email || "",
     password: "",
+    otp: "",
     access_token: "",
     cookie_json: null as unknown,
     cookie_file_name: "",
@@ -963,12 +1020,22 @@ export function AccountDialog({
     protected_tokens: account?.protected_tokens || 0,
     video_reserved_slots: account?.video_reserved_slots || 0,
     browser_worker_group: account?.browser_worker_group || "default",
-    auth_method: (account?.provider_id === "adobe" ? "access_token" : account?.has_login_credentials ? "complete_cookie_password" : "complete_cookie") as AccountAuthMethod,
+    auth_method: (account?.provider_id === "adobe"
+      ? "access_token"
+      : account?.has_login_credentials
+        ? "complete_cookie_password"
+        : "complete_cookie") as AccountAuthMethod,
   }));
   const selected = providers.data?.find(
     (provider) => provider.id === v.provider_id,
   );
-  const concurrencyMaximum = (account?.provider_id || v.provider_id) === "adobe" ? 100 : 5;
+  const concurrencyMaximum = providerConcurrencyMaximum(account?.provider_id || v.provider_id);
+  const isCookieMethod = v.auth_method === "complete_cookie" || v.auth_method === "complete_cookie_password";
+  const isPasswordMethod = v.provider_id === "creativefabrica" && v.auth_method === "email_password";
+  const requiresPassword = !isEditing && (
+    (v.provider_id === "leonardo" && v.auth_method === "complete_cookie_password") ||
+    (v.provider_id === "creativefabrica" && (v.auth_method === "complete_cookie_password" || v.auth_method === "email_password"))
+  );
   const authLabel = (authType: string) => {
     if (authType === "browser_session") return "完整 Cookie";
     if (authType.includes("cookie")) return "Cookie 会话";
@@ -1002,10 +1069,13 @@ export function AccountDialog({
                 provider_id: v.provider_id,
                 name: v.name.trim(),
                 email: v.email.trim(),
-                ...(v.provider_id === "leonardo" && v.password ? { password: v.password } : {}),
+                ...((v.provider_id === "leonardo" || v.provider_id === "creativefabrica") && v.password ? { password: v.password } : {}),
+                ...(v.provider_id === "creativefabrica" && v.otp.trim() ? { otp: v.otp.trim() } : {}),
                 ...(v.provider_id === "adobe" && v.auth_method === "access_token"
                   ? { access_token: v.access_token.trim() }
-                  : { cookie_json: v.cookie_json }),
+                  : isCookieMethod
+                    ? { cookie_json: v.cookie_json }
+                    : {}),
                 proxy_url: v.proxy_url.trim(),
                 image_concurrency: v.image_concurrency,
                 queue_capacity: v.queue_capacity,
@@ -1021,9 +1091,9 @@ export function AccountDialog({
   const canSubmit = Boolean(
     (isEditing || selected) &&
       v.name.trim() &&
-      (isEditing || (v.provider_id === "adobe" && v.auth_method === "access_token" ? v.access_token.trim() : v.cookie_json)) &&
-      (v.provider_id !== "leonardo" || v.auth_method !== "complete_cookie_password" || isEditing || (v.email.trim() && v.password)) &&
-      (v.provider_id !== "leonardo" || !v.password || v.email.trim()) &&
+       (isEditing || (v.provider_id === "adobe" && v.auth_method === "access_token" ? v.access_token.trim() : isCookieMethod ? v.cookie_json : true)) &&
+       (!requiresPassword || (v.email.trim() && v.password)) &&
+       (!v.password || v.email.trim()) &&
       (v.provider_id !== "leonardo" || /^[A-Za-z0-9._-]{1,100}$/.test(v.browser_worker_group.trim())) &&
       v.image_concurrency >= 1 &&
       v.image_concurrency <= concurrencyMaximum &&
@@ -1104,7 +1174,7 @@ export function AccountDialog({
             <div className="provider-choice-grid">
                 {(providers.data || []).map((provider) => {
                   const isSelected = provider.id === v.provider_id;
-                  const isAvailable = provider.enabled && (provider.id === "leonardo" || provider.id === "adobe");
+                  const isAvailable = provider.enabled && provider.adapter_registered !== false;
                   return (
                     <label
                       key={provider.id}
@@ -1122,10 +1192,11 @@ export function AccountDialog({
                             provider_id: provider.id,
                             auth_method: provider.id === "adobe" ? "access_token" : "complete_cookie",
                             access_token: "",
+                            otp: "",
                             password: "",
                             cookie_json: null,
                             cookie_file_name: "",
-                            image_concurrency: 5,
+                            image_concurrency: providerConcurrencyMaximum(provider.id),
                           })
                         }
                       />
@@ -1241,24 +1312,80 @@ export function AccountDialog({
           </section>
         )}
 
-        {(isEditing || selected?.id === "leonardo" || selected?.id === "adobe") && (
+        {!isEditing && selected?.id === "creativefabrica" && (
+          <section className="account-dialog-section account-auth-section">
+            <div className="account-section-heading account-auth-heading">
+              <KeyRound />
+              <div>
+                <strong>选择认证方式</strong>
+                <small>完整 Cookie 优先；也可以使用邮箱密码登录，遇到邮箱验证时填写一次性验证码。</small>
+              </div>
+              <button
+                type="button"
+                className="secondary account-login-button"
+                onClick={() => window.open("https://studio.creativefabrica.com/", "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink />打开 Studio
+              </button>
+            </div>
+            <div className="account-auth-methods" role="radiogroup" aria-label="Creative Fabrica 认证方式">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={v.auth_method === "complete_cookie"}
+                className={`account-auth-method${v.auth_method === "complete_cookie" ? " selected" : ""}`}
+                onClick={() => setV({ ...v, auth_method: "complete_cookie", password: "", otp: "" })}
+              >
+                <span className="account-auth-icon"><FileJson /></span>
+                <span><strong>完整 Cookie</strong><small>导入 Studio Cookie JSON，并保存 ST、AT/RPC 等派生凭据</small></span>
+                <span className="account-auth-tag">推荐</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={v.auth_method === "complete_cookie_password"}
+                className={`account-auth-method${v.auth_method === "complete_cookie_password" ? " selected" : ""}`}
+                onClick={() => setV({ ...v, auth_method: "complete_cookie_password", otp: "" })}
+              >
+                <span className="account-auth-icon"><ShieldCheck /></span>
+                <span><strong>Cookie + 密码恢复</strong><small>保留邮箱密码，Cookie 失效后可回退到自动登录</small></span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={v.auth_method === "email_password"}
+                className={`account-auth-method${v.auth_method === "email_password" ? " selected" : ""}`}
+                onClick={() => setV({ ...v, auth_method: "email_password", cookie_json: null, cookie_file_name: "", access_token: "" })}
+              >
+                <span className="account-auth-icon"><KeyRound /></span>
+                <span><strong>邮箱密码登录</strong><small>首次登录通过邮箱验证码建立 Studio 会话</small></span>
+              </button>
+            </div>
+          </section>
+        )}
+
+        {(isEditing || selected?.id === "leonardo" || selected?.id === "adobe" || selected?.id === "creativefabrica") && (
           <section className="account-dialog-section">
             <div className="account-section-heading">
               <ShieldCheck />
               <div>
                 <strong>{isEditing ? "账号信息" : "填写账号与凭据"}</strong>
                 <small>
-                  {isEditing
-                    ? account?.provider_id === "adobe"
-                      ? "Adobe 凭据通过列表中的 Cookie 导入操作更新；这里仅调整账号和路由配置。"
-                      : `${account?.has_login_credentials ? "自动登录已配置；留空密码保持不变。" : "补录密码后可在 Cookie 失效时自动重新登录。"}`
-                  : selected?.id === "adobe" && v.auth_method === "access_token"
-                    ? "AT 只会加密保存；创建时同步读取 Adobe Profile、余额与 BKS 价格。"
-                  : selected?.id === "adobe"
-                    ? "上传 Adobe 域名的完整 Cookie JSON，创建时直接换取并验证 AT。"
-                  : v.auth_method === "complete_cookie_password"
-                  ? "Cookie JSON 与辅助登录密码会分别加密保存，不会在列表中回显。"
-                  : "上传完整 Cookie JSON；账号名称用于运营识别。"}
+                   {isEditing
+                     ? account?.provider_id === "adobe"
+                       ? "Adobe 凭据通过列表中的 Cookie 导入操作更新；这里仅调整账号和路由配置。"
+                       : `${account?.has_login_credentials ? "自动登录已配置；留空密码保持不变。" : "补录密码后可在 Cookie 失效时自动重新登录。"}`
+                   : selected?.id === "adobe" && v.auth_method === "access_token"
+                     ? "AT 只会加密保存；创建时同步读取 Adobe Profile、余额与 BKS 价格。"
+                   : selected?.id === "adobe"
+                     ? "上传 Adobe 域名的完整 Cookie JSON，创建时直接换取并验证 AT。"
+                   : selected?.id === "creativefabrica" && isPasswordMethod
+                     ? "邮箱和密码只在服务端加密保存；如果首次登录触发邮箱验证，填写验证码后重新提交。"
+                   : selected?.id === "creativefabrica"
+                     ? "上传 Creative Fabrica 域名的完整 Cookie JSON；服务端会换取并保存 ST、AT/RPC 等派生凭据。"
+                   : v.auth_method === "complete_cookie_password"
+                   ? "Cookie JSON 与辅助登录密码会分别加密保存，不会在列表中回显。"
+                   : "上传完整 Cookie JSON；账号名称用于运营识别。"}
                 </small>
               </div>
             </div>
@@ -1269,7 +1396,7 @@ export function AccountDialog({
                   required
                   autoFocus
                   maxLength={200}
-                  placeholder={selected?.id === "adobe" ? "例如：adobe-main" : "例如：leonardo-main"}
+                   placeholder={selected?.id === "adobe" ? "例如：adobe-main" : selected?.id === "creativefabrica" ? "例如：creativefabrica-main" : "例如：leonardo-main"}
                   value={v.name}
                   onChange={(e) => setV({ ...v, name: e.target.value })}
                 />
@@ -1278,24 +1405,38 @@ export function AccountDialog({
                 邮箱
                 <input
                   type="email"
-                  required={!isEditing && v.auth_method === "complete_cookie_password"}
+                   required={!isEditing && requiresPassword}
                   autoComplete="off"
                   placeholder="用于识别账号，可选"
                   value={v.email}
                   onChange={(e) => setV({ ...v, email: e.target.value })}
                 />
               </label>
-              {(isEditing ? account?.provider_id === "leonardo" : selected?.id === "leonardo" && v.auth_method === "complete_cookie_password") && (
+              {(isEditing ? (account?.provider_id === "leonardo" || account?.provider_id === "creativefabrica") : requiresPassword) && (
                 <label>
                   {isEditing ? "新登录密码" : "辅助登录密码"}
                   <input
                     type="password"
-                    required={!isEditing && v.auth_method === "complete_cookie_password"}
+                     required={!isEditing && requiresPassword}
                     autoComplete="new-password"
-                    placeholder={isEditing ? "留空表示不修改" : "仅用于 Cookie 失效后的浏览器恢复"}
+                     placeholder={isEditing ? "留空表示不修改" : v.provider_id === "creativefabrica" ? "用于邮箱密码登录或 Cookie 失效后的恢复" : "仅用于 Cookie 失效后的浏览器恢复"}
                     value={v.password}
                     onChange={(e) => setV({ ...v, password: e.target.value })}
                   />
+                </label>
+              )}
+              {!isEditing && selected?.id === "creativefabrica" && v.auth_method === "email_password" && (
+                <label>
+                  邮箱验证码（可选）
+                  <input
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={12}
+                    placeholder="首次提交未触发验证时留空"
+                    value={v.otp}
+                    onChange={(event) => setV({ ...v, otp: event.target.value })}
+                  />
+                  <small className="field-help">如果提交后返回“需要邮箱验证码”，从账号邮箱读取验证码，再填入后重新提交。</small>
                 </label>
               )}
             </div>
@@ -1314,7 +1455,7 @@ export function AccountDialog({
                 <small className="field-help">令牌不会回显；创建完成后只保存 AES-GCM 密文。</small>
               </label>
             )}
-            {!isEditing && v.auth_method !== "access_token" && (
+            {!isEditing && isCookieMethod && (
               <label className={`account-cookie-drop${v.cookie_json ? " ready" : ""}`}>
                 <input
                   required
@@ -1334,7 +1475,15 @@ export function AccountDialog({
                 <span className="account-cookie-drop-icon">{v.cookie_json ? <CheckCircle2 /> : <Upload />}</span>
                 <span>
                   <strong>{v.cookie_file_name || "选择完整 Cookie JSON"}</strong>
-                  <small>{v.cookie_json ? selected?.id === "adobe" ? "文件已读取，提交后会直接换取并验证 AT" : "文件已读取，提交后会在浏览器中验证" : `Chrome/Patchright 导出的 ${selected?.id === "adobe" ? "Adobe" : "Leonardo"} Cookie 数组，支持 .json`}</small>
+                  <small>
+                    {v.cookie_json
+                      ? selected?.id === "adobe"
+                        ? "文件已读取，提交后会直接换取并验证 AT"
+                        : selected?.id === "creativefabrica"
+                          ? "文件已读取，提交后会换取并验证 ST、AT/RPC"
+                          : "文件已读取，提交后会在浏览器中验证"
+                      : `Chrome/Patchright 导出的 ${selected?.id === "adobe" ? "Adobe" : selected?.id === "creativefabrica" ? "Creative Fabrica" : "Leonardo"} Cookie 数组，支持 .json`}
+                  </small>
                 </span>
                 <span className="account-cookie-drop-action">{v.cookie_json ? "重新选择" : "选择文件"}</span>
               </label>

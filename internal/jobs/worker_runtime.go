@@ -3,8 +3,11 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
+	"github.com/leonardo2api/leonardo2api/internal/accounts"
 	"github.com/leonardo2api/leonardo2api/internal/adobe"
+	"github.com/leonardo2api/leonardo2api/internal/creativefabrica"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 	"github.com/leonardo2api/leonardo2api/internal/metrics"
@@ -125,6 +128,10 @@ func (w *Worker) waitForProviderAccountSubmit(ctx context.Context, providerID st
 }
 
 func (w *Worker) recordAccountFailure(ctx context.Context, account domain.Account, err error) *time.Time {
+	if accounts.IsGenerationPermissionBlocked(err) {
+		_ = w.Store.SetGenerationPermission(ctx, account.ID, "blocked", "", "generation_permission_denied", accounts.SanitizedUpstreamError(err))
+		return nil
+	}
 	var sharedRetryAt *time.Time
 	if w.Circuit.Redis != nil && sharedCircuitFailure(err) {
 		if until, open, circuitErr := w.Circuit.RecordFailure(ctx, account.ProviderID, account.ProxyURL); circuitErr != nil {
@@ -134,7 +141,7 @@ func (w *Worker) recordAccountFailure(ctx context.Context, account domain.Accoun
 		}
 	}
 	if status, ok := upstreamHTTPStatus(err); ok {
-		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		if status == http.StatusUnauthorized || (status == http.StatusForbidden && account.ProviderID != providers.CreativeFabrica) {
 			_ = w.Store.SetAccountError(ctx, account.ID, "invalid", err.Error(), nil)
 			return nil
 		}
@@ -167,6 +174,29 @@ func (w *Worker) recordAccountFailure(ctx context.Context, account domain.Accoun
 			_ = w.Store.SetAccountError(ctx, account.ID, "rate_limited", err.Error(), &until)
 			return &until
 		}
+	}
+	var cfGQLErr *creativefabrica.GraphQLError
+	if errors.As(err, &cfGQLErr) {
+		for _, item := range cfGQLErr.Errors {
+			code := strings.ToUpper(strings.TrimSpace(fmt.Sprint(item.Extensions["code"])))
+			switch code {
+			case "UNAUTHENTICATED", "UNAUTHORIZED":
+				_ = w.Store.SetAccountError(ctx, account.ID, "invalid", accounts.SanitizedUpstreamError(err), nil)
+				return nil
+			case "RESOURCE_EXHAUSTED", "RATE_LIMITED", "RATE_LIMIT_EXCEEDED", "TOO_MANY_REQUESTS":
+				until := time.Now().Add(w.Config.Upstream429Cooldown)
+				if sharedRetryAt != nil && sharedRetryAt.After(until) {
+					until = *sharedRetryAt
+				}
+				_ = w.Store.SetAccountError(ctx, account.ID, "rate_limited", accounts.SanitizedUpstreamError(err), &until)
+				return &until
+			}
+		}
+	}
+	var cfRPCErr *creativefabrica.RPCError
+	if errors.As(err, &cfRPCErr) && accounts.IsCreativeFabricaAuthenticationRejected(err) {
+		_ = w.Store.SetAccountError(ctx, account.ID, "invalid", accounts.SanitizedUpstreamError(err), nil)
+		return nil
 	}
 	key := "leo:account:failures:" + account.ID.String()
 	count, redisErr := w.Redis.Incr(ctx, key).Result()
@@ -204,6 +234,26 @@ func sharedCircuitFailure(err error) bool {
 		}
 		return true
 	}
+	var cfGQLErr *creativefabrica.GraphQLError
+	if errors.As(err, &cfGQLErr) {
+		for _, item := range cfGQLErr.Errors {
+			code := strings.ToUpper(strings.TrimSpace(fmt.Sprint(item.Extensions["code"])))
+			switch code {
+			case "BAD_USER_INPUT", "INVALID_ARGUMENT", "FORBIDDEN", "UNAUTHENTICATED", "UNAUTHORIZED", "PERMISSION_DENIED":
+				continue
+			default:
+				return true
+			}
+		}
+		return false
+	}
+	var cfRPCErr *creativefabrica.RPCError
+	if errors.As(err, &cfRPCErr) {
+		if cfRPCErr.Status >= 400 && cfRPCErr.Status < 500 && cfRPCErr.Status != http.StatusRequestTimeout && cfRPCErr.Status != http.StatusTooManyRequests {
+			return false
+		}
+		return true
+	}
 	return true
 }
 
@@ -215,6 +265,14 @@ func upstreamHTTPStatus(err error) (int, bool) {
 	var adobeError *adobe.HTTPError
 	if errors.As(err, &adobeError) {
 		return adobeError.Status, true
+	}
+	var cfError *creativefabrica.HTTPError
+	if errors.As(err, &cfError) {
+		return cfError.Status, true
+	}
+	var cfRPCError *creativefabrica.RPCError
+	if errors.As(err, &cfRPCError) && cfRPCError.Status > 0 {
+		return cfRPCError.Status, true
 	}
 	return 0, false
 }
@@ -238,6 +296,29 @@ func submissionUncertain(err error) bool {
 			return false
 		}
 		return true
+	}
+	var cfGQLErr *creativefabrica.GraphQLError
+	if errors.As(err, &cfGQLErr) {
+		for _, item := range cfGQLErr.Errors {
+			code := strings.ToUpper(strings.TrimSpace(fmt.Sprint(item.Extensions["code"])))
+			switch code {
+			case "RATE_LIMITED", "RATE_LIMIT_EXCEEDED", "RESOURCE_EXHAUSTED":
+				return false
+			case "BAD_USER_INPUT", "INVALID_ARGUMENT", "FORBIDDEN", "UNAUTHENTICATED", "UNAUTHORIZED", "PERMISSION_DENIED":
+				return false
+			}
+		}
+		return true
+	}
+	var cfRPCErr *creativefabrica.RPCError
+	if errors.As(err, &cfRPCErr) {
+		if cfRPCErr.Status >= 400 && cfRPCErr.Status < 500 && cfRPCErr.Status != http.StatusRequestTimeout {
+			return false
+		}
+		code := strings.ToUpper(cfRPCErr.Code + " " + cfRPCErr.Message)
+		if strings.Contains(code, "RATE_LIMIT") || strings.Contains(code, "RESOURCE_EXHAUSTED") {
+			return false
+		}
 	}
 	// Once a mutation starts, transport, decode, empty-response and GraphQL
 	// failures do not prove that Leonardo rejected the generation.

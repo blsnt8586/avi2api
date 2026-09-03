@@ -132,7 +132,7 @@ func (s *Store) loadSystemCapacitySnapshot(ctx context.Context, config SystemCap
 		return SystemCapacitySnapshot{}, err
 	}
 	if err := s.DB.QueryRow(ctx, `SELECT count(*),COALESCE(sum(image_concurrency),0),COALESCE(sum(queue_capacity),0)
-		FROM accounts WHERE archived_at IS NULL AND status='active' AND (cooldown_until IS NULL OR cooldown_until<=now())
+		FROM accounts WHERE archived_at IS NULL AND status='active' AND (provider_id<>'leonardo' OR generation_permission_status='verified') AND (cooldown_until IS NULL OR cooldown_until<=now())
 		  AND access_token_expires_at IS NOT NULL AND access_token_expires_at>now()
 		  AND last_checked_at IS NOT NULL`).Scan(
 		&snapshot.EligibleAccounts,
@@ -152,7 +152,7 @@ func (s *Store) loadSystemCapacitySnapshot(ctx context.Context, config SystemCap
 	), account_stats AS (
 		SELECT provider_id,count(*) AS eligible_accounts,COALESCE(sum(image_concurrency),0) AS execution_slots,
 			COALESCE(sum(queue_capacity),0) AS queue_slots
-		FROM accounts WHERE archived_at IS NULL AND status='active'
+		FROM accounts WHERE archived_at IS NULL AND status='active' AND (provider_id<>'leonardo' OR generation_permission_status='verified')
 			AND (cooldown_until IS NULL OR cooldown_until<=now())
 			AND access_token_expires_at IS NOT NULL AND access_token_expires_at>now()
 			AND last_checked_at IS NOT NULL GROUP BY provider_id

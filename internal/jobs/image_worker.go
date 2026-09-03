@@ -11,6 +11,7 @@ import (
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 	"github.com/leonardo2api/leonardo2api/internal/metrics"
 	"github.com/leonardo2api/leonardo2api/internal/providers"
+	"strings"
 	"time"
 )
 
@@ -40,6 +41,8 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	switch task.ProviderID {
 	case providers.Adobe:
 		return w.processAdobeImage(ctx, id, leaseID, task, req, start)
+	case providers.CreativeFabrica:
+		return w.processCreativeFabricaImage(ctx, id, leaseID, task, req, start)
 	case providers.Leonardo:
 	default:
 		return w.fail(ctx, id, leaseID, "provider_unavailable", providers.ErrUnsupported)
@@ -110,6 +113,7 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	var defaults struct {
 		Width, Height, Quantity int
 		StyleIDs                []string `json:"style_ids"`
+		PromptEnhance           string   `json:"prompt_enhance"`
 	}
 	_ = json.Unmarshal(model.Defaults, &defaults)
 	if req.Size == "" && defaults.Width > 0 {
@@ -121,6 +125,10 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	styles := req.StyleIDs
 	if len(styles) == 0 {
 		styles = defaults.StyleIDs
+	}
+	promptEnhance := defaults.PromptEnhance
+	if promptEnhance == "" && strings.EqualFold(model.UpstreamModel, "gpt-image-2") {
+		promptEnhance = "AUTO"
 	}
 	schemaVersion := w.Store.GetSettingString(ctx, "schema_version", w.Config.SchemaVersion)
 	client, err := leonardo.New(account.ProxyURL, account.UserAgent, schemaVersion)
@@ -185,7 +193,7 @@ func (w *Worker) processImage(parent context.Context, id uuid.UUID) error {
 	upstreamRequest := leonardo.BuildImageGenerationRequest(leonardo.GenerateRequest{
 		Model: model.UpstreamModel, Prompt: req.Prompt, Width: width, Height: height,
 		Quantity: quantity, Public: public, StyleIDs: styles, ReferenceIDs: req.ReferenceIDs,
-		Quality: req.Quality, ImageReferences: imageReferences,
+		Quality: req.Quality, PromptEnhance: promptEnhance, ImageReferences: imageReferences,
 	})
 	upstreamDeadline := time.Now().Add(w.Config.TaskTimeout)
 	if err = w.prepareSubmission(ctx, id, leaseID, account.ID, upstreamRequest, upstreamDeadline); err != nil {

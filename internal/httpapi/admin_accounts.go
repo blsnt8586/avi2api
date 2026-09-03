@@ -239,6 +239,7 @@ func (s *Server) adminCreateAccount(w http.ResponseWriter, r *http.Request) {
 		Name               string                   `json:"name"`
 		Email              string                   `json:"email"`
 		Password           string                   `json:"password"`
+		OTP                string                   `json:"otp"`
 		AccessToken        string                   `json:"access_token"`
 		CookieJSON         json.RawMessage          `json:"cookie_json"`
 		ProxyURL           string                   `json:"proxy_url"`
@@ -314,6 +315,10 @@ func (s *Server) adminCreateAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", "access_token or cookie_json is required for Adobe accounts")
 		return
 	}
+	if req.ProviderID == providers.CreativeFabrica && len(req.CookieJSON) == 0 && (req.Email == "" || req.Password == "") {
+		writeError(w, 400, "invalid_request", "Creative Fabrica accounts require cookie_json or email and password")
+		return
+	}
 	var a domain.Account
 	switch req.ProviderID {
 	case providers.Adobe:
@@ -324,12 +329,38 @@ func (s *Server) adminCreateAccount(w http.ResponseWriter, r *http.Request) {
 		}
 	case providers.Leonardo:
 		a, err = s.Accounts.CreateWithCompleteCookieJSON(r.Context(), req.Name, req.Email, req.Password, req.CookieJSON, req.ProxyURL, req.BrowserWorkerGroup, req.ImageConcurrency, req.QueueCapacity, req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots)
+	case providers.CreativeFabrica:
+		if len(req.CookieJSON) > 0 {
+			a, err = s.Accounts.CreateCreativeFabricaWithCookieJSON(r.Context(), req.Name, req.Email, req.Password, req.CookieJSON, req.ProxyURL, req.ImageConcurrency, req.QueueCapacity, req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots)
+		} else {
+			a, err = s.Accounts.CreateCreativeFabricaWithCredentials(r.Context(), req.Name, req.Email, req.Password, req.OTP, req.ProxyURL, req.ImageConcurrency, req.QueueCapacity, req.RoutingRole, req.ProtectedTokens, req.VideoReservedSlots)
+		}
 	default:
 		writeError(w, 422, "provider_unavailable", "provider authentication adapter is not registered")
 		return
 	}
 	if err != nil {
+		var otpRequired *accounts.CreativeFabricaOTPRequiredError
+		if errors.As(err, &otpRequired) {
+			writeErrorDetails(w, http.StatusPreconditionRequired, "otp_required", "Creative Fabrica sent a verification code to the account email", map[string]any{
+				"provider_id":    providers.CreativeFabrica,
+				"challenge_type": otpRequired.Challenge.Type,
+				"message":        otpRequired.Challenge.Message,
+			})
+			return
+		}
 		writeError(w, 400, "account_invalid", err.Error())
+		return
+	}
+	if req.ProviderID == providers.CreativeFabrica {
+		s.writeAudit(r.Context(), s.Config.AdminUsername, "account.create", a.ID.String(), map[string]any{
+			"name": a.Name, "provider_id": a.ProviderID, "image_concurrency": a.ImageConcurrency,
+			"queue_capacity": a.QueueCapacity, "cookie_json_saved": a.HasCompleteCookieJSON,
+			"automatic_login_configured": a.HasLoginCredentials,
+		})
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"account": a, "status": "active", "pricing_status": "requires_provider_sync",
+		})
 		return
 	}
 	if req.ProviderID == providers.Adobe {
@@ -488,19 +519,39 @@ func (s *Server) adminUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Password != nil {
 		credentialEmail := updated.Email
-		if err := s.Accounts.SetLoginCredential(r.Context(), id, credentialEmail, *req.Password); err != nil {
+		if current.ProviderID == providers.CreativeFabrica {
+			if existing, credentialErr := s.Accounts.CreativeFabricaCredentials(r.Context(), id); credentialErr == nil && strings.TrimSpace(credentialEmail) == "" {
+				credentialEmail = existing.Email
+			}
+			if err := s.Accounts.SetCreativeFabricaLoginCredential(r.Context(), id, credentialEmail, *req.Password); err != nil {
+				writeError(w, 500, "credential_update_failed", err.Error())
+				return
+			}
+		} else if err := s.Accounts.SetLoginCredential(r.Context(), id, credentialEmail, *req.Password); err != nil {
 			writeError(w, 500, "credential_update_failed", err.Error())
 			return
 		}
 	} else if req.Email != nil && updated.HasLoginCredentials {
-		credential, credentialErr := s.Accounts.LoginCredential(r.Context(), id)
-		if credentialErr != nil {
-			writeError(w, 500, "credential_update_failed", credentialErr.Error())
-			return
-		}
-		if err := s.Accounts.SetLoginCredential(r.Context(), id, updated.Email, credential.Password); err != nil {
-			writeError(w, 500, "credential_update_failed", err.Error())
-			return
+		if current.ProviderID == providers.CreativeFabrica {
+			credential, credentialErr := s.Accounts.CreativeFabricaCredentials(r.Context(), id)
+			if credentialErr != nil {
+				writeError(w, 500, "credential_update_failed", credentialErr.Error())
+				return
+			}
+			if err := s.Accounts.SetCreativeFabricaLoginCredential(r.Context(), id, updated.Email, credential.Password); err != nil {
+				writeError(w, 500, "credential_update_failed", err.Error())
+				return
+			}
+		} else {
+			credential, credentialErr := s.Accounts.LoginCredential(r.Context(), id)
+			if credentialErr != nil {
+				writeError(w, 500, "credential_update_failed", credentialErr.Error())
+				return
+			}
+			if err := s.Accounts.SetLoginCredential(r.Context(), id, updated.Email, credential.Password); err != nil {
+				writeError(w, 500, "credential_update_failed", err.Error())
+				return
+			}
 		}
 	}
 	if req.Password != nil || (req.Email != nil && updated.HasLoginCredentials) {
@@ -552,7 +603,31 @@ func (s *Server) adminRefreshAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, a)
 }
 
-func (s *Server) adminSyncAdobeAccountPricing(w http.ResponseWriter, r *http.Request) {
+func (s *Server) adminCheckGenerationPermission(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "invalid account id")
+		return
+	}
+	account, err := s.Accounts.CheckGenerationPermission(r.Context(), id, true)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "account not found")
+		return
+	}
+	if err != nil && accounts.IsGenerationPermissionBlocked(err) {
+		s.writeAudit(r.Context(), s.Config.AdminUsername, "account.generation_permission_blocked", id.String(), nil)
+		writeJSON(w, http.StatusOK, account)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "generation_permission_check_failed", accounts.SanitizedUpstreamError(err))
+		return
+	}
+	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.generation_permission_verified", id.String(), map[string]any{"model": account.GenerationPermissionModel})
+	writeJSON(w, http.StatusOK, account)
+}
+
+func (s *Server) adminSyncAccountPricing(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_id", "invalid account id")
@@ -567,34 +642,55 @@ func (s *Server) adminSyncAdobeAccountPricing(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "database_error", err.Error())
 		return
 	}
-	if account.ProviderID != providers.Adobe {
-		writeError(w, http.StatusUnprocessableEntity, "provider_mismatch", "pricing sync is supported only for Adobe accounts")
-		return
-	}
-
 	account, err = s.Accounts.RefreshAccount(r.Context(), id, false)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "refresh_failed", err.Error())
 		return
 	}
-	account, token, err := s.Accounts.AdobeToken(r.Context(), account)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "token_unavailable", err.Error())
+	var rules int
+	var source string
+	switch account.ProviderID {
+	case providers.Adobe:
+		account, token, tokenErr := s.Accounts.AdobeToken(r.Context(), account)
+		if tokenErr != nil {
+			writeError(w, http.StatusBadRequest, "token_unavailable", tokenErr.Error())
+			return
+		}
+		rules, err = s.Accounts.SyncAdobePricing(r.Context(), account, token)
+		source = "adobe-bks"
+	case providers.CreativeFabrica:
+		account, token, tokenErr := s.Accounts.CreativeFabricaToken(r.Context(), account)
+		if tokenErr != nil {
+			writeError(w, http.StatusBadRequest, "token_unavailable", tokenErr.Error())
+			return
+		}
+		rules, err = s.Accounts.SyncCreativeFabricaPricing(r.Context(), account, token)
+		source = "creativefabrica-preset"
+	default:
+		writeError(w, http.StatusUnprocessableEntity, "provider_mismatch", "该平台暂未提供可同步的动态价格适配器")
 		return
 	}
-	rules, err := s.Accounts.SyncAdobePricing(r.Context(), account, token)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "pricing_sync_failed", err.Error())
 		return
 	}
 	s.writeAudit(r.Context(), s.Config.AdminUsername, "account.pricing_sync", id.String(), map[string]any{
-		"provider_id":          providers.Adobe,
+		"provider_id":          account.ProviderID,
+		"pricing_source":       source,
 		"pricing_rules_synced": rules,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"account":              account,
+		"provider_id":          account.ProviderID,
+		"pricing_source":       source,
 		"pricing_rules_synced": rules,
 	})
+}
+
+// Keep the old method name for callers compiled against the pre-provider
+// handler; the route now dispatches through the provider-aware implementation.
+func (s *Server) adminSyncAdobeAccountPricing(w http.ResponseWriter, r *http.Request) {
+	s.adminSyncAccountPricing(w, r)
 }
 
 func (s *Server) adminImportAccountSession(w http.ResponseWriter, r *http.Request) {
@@ -658,6 +754,16 @@ func (s *Server) adminImportAccountCookieJSON(w http.ResponseWriter, r *http.Req
 		}
 		s.writeAudit(r.Context(), s.Config.AdminUsername, "account.cookie_json_import", id.String(), map[string]any{"provider_id": providers.Adobe, "pricing_rules_synced": pricingRules})
 		writeJSON(w, http.StatusOK, map[string]any{"account": account, "status": "active", "pricing_rules_synced": pricingRules, "pricing_sync_error": pricingError})
+		return
+	}
+	if current.ProviderID == providers.CreativeFabrica {
+		account, importErr := s.Accounts.ImportCreativeFabricaCookieJSON(r.Context(), id, req.CookieJSON)
+		if importErr != nil {
+			writeError(w, 400, "cookie_import_failed", importErr.Error())
+			return
+		}
+		s.writeAudit(r.Context(), s.Config.AdminUsername, "account.cookie_json_import", id.String(), map[string]any{"provider_id": providers.CreativeFabrica})
+		writeJSON(w, http.StatusOK, map[string]any{"account": account, "status": "active", "pricing_status": "requires_provider_sync"})
 		return
 	}
 	account, err := s.Accounts.ImportCompleteCookieJSON(r.Context(), id, req.CookieJSON)

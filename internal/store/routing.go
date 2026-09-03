@@ -161,7 +161,9 @@ func (s *Store) createReservedTaskForProviderOnce(ctx context.Context, keyID uui
 		WHERE r.state='held' GROUP BY r.account_id
 	)
 	SELECT a.id FROM accounts a LEFT JOIN usage u ON u.account_id=a.id
-	WHERE a.archived_at IS NULL AND a.provider_id=$2 AND a.status='active' AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
+	WHERE a.archived_at IS NULL AND a.provider_id=$2 AND a.status='active'
+	  AND (a.provider_id<>'leonardo' OR a.generation_permission_status='verified')
+	  AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
 	  AND a.access_token_expires_at IS NOT NULL AND a.access_token_expires_at>now()
 	  AND a.last_checked_at IS NOT NULL
 	  AND (SELECT count(*) FROM tasks uncertain
@@ -271,7 +273,9 @@ func (s *Store) createReservedTaskForProviderOnce(ctx context.Context, keyID uui
 		    AND a.subscription_tokens+a.rollover_tokens+a.paid_tokens-COALESCE(u.reserved,0)>=a.protected_tokens
 		    THEN a.protected_tokens ELSE 0 END >=$1),false)
 		FROM accounts a LEFT JOIN usage u ON u.account_id=a.id
-		WHERE a.archived_at IS NULL AND a.provider_id=$2 AND a.status='active' AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
+		WHERE a.archived_at IS NULL AND a.provider_id=$2 AND a.status='active'
+		  AND (a.provider_id<>'leonardo' OR a.generation_permission_status='verified')
+		  AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
 		  AND a.access_token_expires_at IS NOT NULL AND a.access_token_expires_at>now()
 		  AND a.last_checked_at IS NOT NULL`
 		if scanErr := tx.QueryRow(ctx, diagnosticSQL, estimatedTokens, providerID, kind).Scan(&healthy, &enoughBalance); scanErr != nil {

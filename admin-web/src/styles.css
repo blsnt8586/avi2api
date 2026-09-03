@@ -575,7 +575,20 @@ h2 {
   align-items: center;
   gap: 8px;
   font-weight: 700;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
 }
+
+.account-permission-health {
+  color: var(--muted-text, #7d8798);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.account-permission-health.verified { color: #1f9d67; }
+.account-permission-health.blocked { color: #d95757; font-weight: 600; }
 
 .account-updated-cell {
   font-variant-numeric: tabular-nums;

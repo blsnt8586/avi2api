@@ -36,6 +36,100 @@
       "leonardo/wan-2.7": 5000
     }
   },
+  "x-provider-contracts": {
+    "creativefabrica": {
+      "display_name": "Creative Fabrica Studio",
+      "credit_unit": "coins",
+      "model_selection": "model=creativefabrica/{model}",
+      "authentication": {
+        "cookie_json": "浏览器导出的 Creative Fabrica 域名 Cookie JSON；服务端加密保存，并换取 ST、AT/RPC 等派生凭据。",
+        "email_password": "管理员账号导入时可使用邮箱和密码；如果 Studio 发起邮箱验证，先输入 OTP 再提交。",
+        "refresh": "优先使用完整 Cookie 和当前会话令牌，失效后回退到已保存的登录凭据。"
+      },
+      "pricing": "账号级 Coins 余额和模型价格由 Creative Fabrica 上游目录同步；不要把 Leonardo 积分或 Adobe BKS 与 Coins 混用。",
+      "image_reference": {
+        "content_type": "multipart/form-data",
+        "fields": ["image", "image[]"],
+        "max_items": 6
+      },
+      "video_reference": {
+        "content_type": "multipart/form-data",
+        "fields": ["image", "image[]", "start_frame", "end_frame", "video", "video[]", "audio", "audio[]"],
+        "max_images": 10,
+        "max_videos": 10,
+        "max_audios": 10,
+        "max_combined_items": 30,
+        "frames_are_exclusive": true
+      },
+      "image_models": [
+        "creativefabrica/flux-2-max",
+        "creativefabrica/flux-2-pro",
+        "creativefabrica/flux-2-klein",
+        "creativefabrica/grok",
+        "creativefabrica/ideogram-p-image",
+        "creativefabrica/ideogram-v4",
+        "creativefabrica/kling-image-o1",
+        "creativefabrica/kling-v2-1-image",
+        "creativefabrica/kling-v3-image",
+        "creativefabrica/kling-v3-omni-image",
+        "creativefabrica/nano-banana",
+        "creativefabrica/nano-banana-2",
+        "creativefabrica/nano-banana-flash-lite",
+        "creativefabrica/nano-banana-pro",
+        "creativefabrica/openai-gpt-image-2",
+        "creativefabrica/qwen-image-2-0-pro",
+        "creativefabrica/qwen-image-3",
+        "creativefabrica/qwen-image-3-pro",
+        "creativefabrica/qwen-image-edit-spicy",
+        "creativefabrica/recraft-v4",
+        "creativefabrica/recraft-v4-svg",
+        "creativefabrica/seedream-4-0",
+        "creativefabrica/seedream-4-5",
+        "creativefabrica/seedream-5-lite",
+        "creativefabrica/seedream-5-pro",
+        "creativefabrica/wan-2-7-pro-image",
+        "creativefabrica/z-image-spicy",
+        "creativefabrica/quiverai-arrow-1-1"
+      ],
+      "video_models": [
+        "creativefabrica/alibaba_happy_horse_v1",
+        "creativefabrica/alibaba_happy_horse_v1_1",
+        "creativefabrica/alibaba_wan_2_7",
+        "creativefabrica/berry_1_0",
+        "creativefabrica/berry_1_0_pro",
+        "creativefabrica/fal_ltx_2_3",
+        "creativefabrica/fal_pixverse_c1",
+        "creativefabrica/fal_pixverse_v6",
+        "creativefabrica/flux_3",
+        "creativefabrica/gemini_omni_flash",
+        "creativefabrica/gemini_omni_flash_1_1",
+        "creativefabrica/gemini_omni_flash_1_1_video_extended",
+        "creativefabrica/grok_imagine_video",
+        "creativefabrica/grok_imagine_video_1_5",
+        "creativefabrica/heygen_avatar_5",
+        "creativefabrica/kling_ai_v3",
+        "creativefabrica/kling_ai_v3_motion_control",
+        "creativefabrica/kling_ai_v3_turbo",
+        "creativefabrica/kling_v3_omni",
+        "creativefabrica/luma_ray_2",
+        "creativefabrica/luma_ray_3_2",
+        "creativefabrica/minimax_hailuo_v3",
+        "creativefabrica/minimax_hailuo_v3_max",
+        "creativefabrica/mulerouter_wan_2_7_spicy",
+        "creativefabrica/pika_v2_5",
+        "creativefabrica/runway_gen_4_5",
+        "creativefabrica/seedance_one_five_pro",
+        "creativefabrica/seedance_two_point_zero",
+        "creativefabrica/seedance_v2_5",
+        "creativefabrica/seedance_v2_fast",
+        "creativefabrica/seedance_v2_mini",
+        "creativefabrica/veo_31_fast_generate_preview",
+        "creativefabrica/wan_3_0",
+        "creativefabrica/wan_3_0_prime"
+      ],
+      "catalog": "账号同步前使用适配器目录；账号同步后以实时 Studio 模型目录和 Coins 价格为准。"
+    }
+  },
   "servers": [
     {
       "url": "/",
@@ -1066,10 +1160,11 @@
       },
       "GenerationProvider": {
         "type": "string",
-        "enum": [
+      "enum": [
           "leonardo",
-          "adobe"
-        ],
+          "adobe",
+          "creativefabrica"
+      ],
         "default": "leonardo",
         "description": "Selects the upstream platform at task creation or estimation time. Polling and cancellation use only the task ID."
       },
@@ -1077,7 +1172,7 @@
         "type": "string",
         "default": "1024x1024",
         "pattern": "^(auto|[1-9][0-9]*x[1-9][0-9]*)$",
-        "description": "auto or WIDTHxHEIGHT. gpt-image-2 requires Leonardo width/height enums, ratio <= 3:1, and 655360..8294400 pixels. gpt-image-2 on model=adobe/model exposes Adobe 1K, 2K, and 4K square tiers. Nano Banana 2/Pro and nano-banana-2 on model=adobe/model use the enumerated 1K/2K/4K size table. Seedream 5.0 Pro accepts custom integer edges from 768 through 2048 inclusive; its standard UI presets are enumerated in x-model-rules.",
+        "description": "auto or WIDTHxHEIGHT. Leonardo image models use their enumerated width/height schemas. Adobe image models use platform tiers. Creative Fabrica image models accept a 64..8192px canvas hint and map it to an upstream aspect-ratio enum; final output dimensions remain account/model controlled. Seedream 5.0 Pro accepts custom integer edges from 768 through 2048 inclusive; its standard UI presets are enumerated in x-model-rules.",
         "x-model-rules": {
           "leonardo/gpt-image-2": {
             "size_mode": "enumerated_edges",
@@ -1413,7 +1508,35 @@
               "leonardo/nano-banana-pro",
               "leonardo/seedream-5.0-pro",
               "adobe/gpt-image-2",
-              "adobe/nano-banana-2"
+              "adobe/nano-banana-2",
+              "creativefabrica/flux-2-max",
+              "creativefabrica/flux-2-pro",
+              "creativefabrica/flux-2-klein",
+              "creativefabrica/grok",
+              "creativefabrica/ideogram-p-image",
+              "creativefabrica/ideogram-v4",
+              "creativefabrica/kling-image-o1",
+              "creativefabrica/kling-v2-1-image",
+              "creativefabrica/kling-v3-image",
+              "creativefabrica/kling-v3-omni-image",
+              "creativefabrica/nano-banana",
+              "creativefabrica/nano-banana-2",
+              "creativefabrica/nano-banana-flash-lite",
+              "creativefabrica/nano-banana-pro",
+              "creativefabrica/openai-gpt-image-2",
+              "creativefabrica/qwen-image-2-0-pro",
+              "creativefabrica/qwen-image-3",
+              "creativefabrica/qwen-image-3-pro",
+              "creativefabrica/qwen-image-edit-spicy",
+              "creativefabrica/recraft-v4",
+              "creativefabrica/recraft-v4-svg",
+              "creativefabrica/seedream-4-0",
+              "creativefabrica/seedream-4-5",
+              "creativefabrica/seedream-5-lite",
+              "creativefabrica/seedream-5-pro",
+              "creativefabrica/wan-2-7-pro-image",
+              "creativefabrica/z-image-spicy",
+              "creativefabrica/quiverai-arrow-1-1"
             ]
           },
           "prompt": {
@@ -1495,7 +1618,35 @@
               "leonardo/nano-banana-pro",
               "leonardo/seedream-5.0-pro",
               "adobe/gpt-image-2",
-              "adobe/nano-banana-2"
+              "adobe/nano-banana-2",
+              "creativefabrica/flux-2-max",
+              "creativefabrica/flux-2-pro",
+              "creativefabrica/flux-2-klein",
+              "creativefabrica/grok",
+              "creativefabrica/ideogram-p-image",
+              "creativefabrica/ideogram-v4",
+              "creativefabrica/kling-image-o1",
+              "creativefabrica/kling-v2-1-image",
+              "creativefabrica/kling-v3-image",
+              "creativefabrica/kling-v3-omni-image",
+              "creativefabrica/nano-banana",
+              "creativefabrica/nano-banana-2",
+              "creativefabrica/nano-banana-flash-lite",
+              "creativefabrica/nano-banana-pro",
+              "creativefabrica/openai-gpt-image-2",
+              "creativefabrica/qwen-image-2-0-pro",
+              "creativefabrica/qwen-image-3",
+              "creativefabrica/qwen-image-3-pro",
+              "creativefabrica/qwen-image-edit-spicy",
+              "creativefabrica/recraft-v4",
+              "creativefabrica/recraft-v4-svg",
+              "creativefabrica/seedream-4-0",
+              "creativefabrica/seedream-4-5",
+              "creativefabrica/seedream-5-lite",
+              "creativefabrica/seedream-5-pro",
+              "creativefabrica/wan-2-7-pro-image",
+              "creativefabrica/z-image-spicy",
+              "creativefabrica/quiverai-arrow-1-1"
             ]
           },
           "size": {
@@ -1643,7 +1794,35 @@
               "leonardo/nano-banana-pro",
               "leonardo/seedream-5.0-pro",
               "adobe/gpt-image-2",
-              "adobe/nano-banana-2"
+              "adobe/nano-banana-2",
+              "creativefabrica/flux-2-max",
+              "creativefabrica/flux-2-pro",
+              "creativefabrica/flux-2-klein",
+              "creativefabrica/grok",
+              "creativefabrica/ideogram-p-image",
+              "creativefabrica/ideogram-v4",
+              "creativefabrica/kling-image-o1",
+              "creativefabrica/kling-v2-1-image",
+              "creativefabrica/kling-v3-image",
+              "creativefabrica/kling-v3-omni-image",
+              "creativefabrica/nano-banana",
+              "creativefabrica/nano-banana-2",
+              "creativefabrica/nano-banana-flash-lite",
+              "creativefabrica/nano-banana-pro",
+              "creativefabrica/openai-gpt-image-2",
+              "creativefabrica/qwen-image-2-0-pro",
+              "creativefabrica/qwen-image-3",
+              "creativefabrica/qwen-image-3-pro",
+              "creativefabrica/qwen-image-edit-spicy",
+              "creativefabrica/recraft-v4",
+              "creativefabrica/recraft-v4-svg",
+              "creativefabrica/seedream-4-0",
+              "creativefabrica/seedream-4-5",
+              "creativefabrica/seedream-5-lite",
+              "creativefabrica/seedream-5-pro",
+              "creativefabrica/wan-2-7-pro-image",
+              "creativefabrica/z-image-spicy",
+              "creativefabrica/quiverai-arrow-1-1"
             ]
           },
           "prompt": {
@@ -1703,7 +1882,35 @@
               "leonardo/nano-banana-pro",
               "leonardo/seedream-5.0-pro",
               "adobe/gpt-image-2",
-              "adobe/nano-banana-2"
+              "adobe/nano-banana-2",
+              "creativefabrica/flux-2-max",
+              "creativefabrica/flux-2-pro",
+              "creativefabrica/flux-2-klein",
+              "creativefabrica/grok",
+              "creativefabrica/ideogram-p-image",
+              "creativefabrica/ideogram-v4",
+              "creativefabrica/kling-image-o1",
+              "creativefabrica/kling-v2-1-image",
+              "creativefabrica/kling-v3-image",
+              "creativefabrica/kling-v3-omni-image",
+              "creativefabrica/nano-banana",
+              "creativefabrica/nano-banana-2",
+              "creativefabrica/nano-banana-flash-lite",
+              "creativefabrica/nano-banana-pro",
+              "creativefabrica/openai-gpt-image-2",
+              "creativefabrica/qwen-image-2-0-pro",
+              "creativefabrica/qwen-image-3",
+              "creativefabrica/qwen-image-3-pro",
+              "creativefabrica/qwen-image-edit-spicy",
+              "creativefabrica/recraft-v4",
+              "creativefabrica/recraft-v4-svg",
+              "creativefabrica/seedream-4-0",
+              "creativefabrica/seedream-4-5",
+              "creativefabrica/seedream-5-lite",
+              "creativefabrica/seedream-5-pro",
+              "creativefabrica/wan-2-7-pro-image",
+              "creativefabrica/z-image-spicy",
+              "creativefabrica/quiverai-arrow-1-1"
             ]
           },
           "prompt": {
@@ -1949,6 +2156,9 @@
           },
           {
             "$ref": "#/components/schemas/KlingO3OmniVideoRequest"
+          },
+          {
+            "$ref": "#/components/schemas/CreativeFabricaVideoRequest"
           }
         ]
       },
@@ -2258,6 +2468,91 @@
           }
         ]
       },
+      "CreativeFabricaVideoRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "Creative Fabrica Studio Media Matrix video request. Model availability is account-scoped; use the configured creativefabrica/{model} ID. The gateway currently accepts the common 3-15 second, 360p-4K baseline and lets the upstream account validate model-specific options.",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "creativefabrica/alibaba_happy_horse_v1",
+              "creativefabrica/alibaba_happy_horse_v1_1",
+              "creativefabrica/alibaba_wan_2_7",
+              "creativefabrica/berry_1_0",
+              "creativefabrica/berry_1_0_pro",
+              "creativefabrica/fal_ltx_2_3",
+              "creativefabrica/fal_pixverse_c1",
+              "creativefabrica/fal_pixverse_v6",
+              "creativefabrica/flux_3",
+              "creativefabrica/gemini_omni_flash",
+              "creativefabrica/gemini_omni_flash_1_1",
+              "creativefabrica/gemini_omni_flash_1_1_video_extended",
+              "creativefabrica/grok_imagine_video",
+              "creativefabrica/grok_imagine_video_1_5",
+              "creativefabrica/heygen_avatar_5",
+              "creativefabrica/kling_ai_v3",
+              "creativefabrica/kling_ai_v3_motion_control",
+              "creativefabrica/kling_ai_v3_turbo",
+              "creativefabrica/kling_v3_omni",
+              "creativefabrica/luma_ray_2",
+              "creativefabrica/luma_ray_3_2",
+              "creativefabrica/minimax_hailuo_v3",
+              "creativefabrica/minimax_hailuo_v3_max",
+              "creativefabrica/mulerouter_wan_2_7_spicy",
+              "creativefabrica/pika_v2_5",
+              "creativefabrica/runway_gen_4_5",
+              "creativefabrica/seedance_one_five_pro",
+              "creativefabrica/seedance_two_point_zero",
+              "creativefabrica/seedance_v2_5",
+              "creativefabrica/seedance_v2_fast",
+              "creativefabrica/seedance_v2_mini",
+              "creativefabrica/veo_31_fast_generate_preview",
+              "creativefabrica/wan_3_0",
+              "creativefabrica/wan_3_0_prime"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 9999
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 15,
+            "default": 5
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*x[1-9][0-9]*$",
+            "default": "1280x720",
+            "description": "WIDTHxHEIGHT canvas hint; Creative Fabrica maps it to an aspect-ratio enum."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "360p",
+              "480p",
+              "720p",
+              "768p",
+              "1080p",
+              "2k",
+              "4k"
+            ],
+            "default": "720p"
+          },
+          "generate_audio": {
+            "type": "boolean",
+            "default": true,
+            "description": "Requests native audio when the selected Studio model exposes it."
+          }
+        }
+      },
       "VideoEstimateRequest": {
         "oneOf": [
           {
@@ -2274,6 +2569,9 @@
           },
           {
             "$ref": "#/components/schemas/KlingO3OmniVideoEstimateRequest"
+          },
+          {
+            "$ref": "#/components/schemas/CreativeFabricaVideoEstimateRequest"
           }
         ]
       },
@@ -2592,6 +2890,87 @@
           }
         ]
       },
+      "CreativeFabricaVideoEstimateRequest": {
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "additionalProperties": false,
+        "description": "Creative Fabrica Studio video cost estimate. Prices are account-scoped Coins rules; the estimate does not submit a generation.",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "creativefabrica/alibaba_happy_horse_v1",
+              "creativefabrica/alibaba_happy_horse_v1_1",
+              "creativefabrica/alibaba_wan_2_7",
+              "creativefabrica/berry_1_0",
+              "creativefabrica/berry_1_0_pro",
+              "creativefabrica/fal_ltx_2_3",
+              "creativefabrica/fal_pixverse_c1",
+              "creativefabrica/fal_pixverse_v6",
+              "creativefabrica/flux_3",
+              "creativefabrica/gemini_omni_flash",
+              "creativefabrica/gemini_omni_flash_1_1",
+              "creativefabrica/gemini_omni_flash_1_1_video_extended",
+              "creativefabrica/grok_imagine_video",
+              "creativefabrica/grok_imagine_video_1_5",
+              "creativefabrica/heygen_avatar_5",
+              "creativefabrica/kling_ai_v3",
+              "creativefabrica/kling_ai_v3_motion_control",
+              "creativefabrica/kling_ai_v3_turbo",
+              "creativefabrica/kling_v3_omni",
+              "creativefabrica/luma_ray_2",
+              "creativefabrica/luma_ray_3_2",
+              "creativefabrica/minimax_hailuo_v3",
+              "creativefabrica/minimax_hailuo_v3_max",
+              "creativefabrica/mulerouter_wan_2_7_spicy",
+              "creativefabrica/pika_v2_5",
+              "creativefabrica/runway_gen_4_5",
+              "creativefabrica/seedance_one_five_pro",
+              "creativefabrica/seedance_two_point_zero",
+              "creativefabrica/seedance_v2_5",
+              "creativefabrica/seedance_v2_fast",
+              "creativefabrica/seedance_v2_mini",
+              "creativefabrica/veo_31_fast_generate_preview",
+              "creativefabrica/wan_3_0",
+              "creativefabrica/wan_3_0_prime"
+            ]
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 15,
+            "default": 5
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*x[1-9][0-9]*$",
+            "default": "1280x720"
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "360p",
+              "480p",
+              "720p",
+              "768p",
+              "1080p",
+              "2k",
+              "4k"
+            ],
+            "default": "720p"
+          },
+          "generate_audio": {
+            "type": "boolean",
+            "default": true
+          },
+          "has_video_reference": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
       "VideoEstimate": {
         "type": "object",
         "required": [
@@ -2676,7 +3055,7 @@
         }
       },
       "VideoReferenceRequest": {
-        "description": "Multipart request with model-supported reference fields; there is no mode field. Gemini Omni Flash accepts up to five ordinary images. Kling O3 Omni accepts up to seven images, start/end frames, or one video plus up to four images. Adobe reference combinations remain documented under their Adobe model IDs. start_frame is required for frame input, end_frame is optional where supported and requires start_frame, and frame fields are exclusive with ordinary image/video/audio references.",
+        "description": "Multipart request with model-supported reference fields; there is no mode field. Gemini Omni Flash accepts up to five ordinary images. Kling O3 Omni accepts up to seven images, start/end frames, or one video plus up to four images. Adobe reference combinations remain documented under their Adobe model IDs. Creative Fabrica accepts account-scoped image, frame, video and audio references through the same multipart field names, subject to the common 10/10/10 and 30-item gateway limits. start_frame is required for frame input, end_frame is optional where supported and requires start_frame, and frame fields are exclusive with ordinary image/video/audio references.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/GeminiOmniFlashReferenceRequest"
@@ -2695,6 +3074,9 @@
           },
           {
             "$ref": "#/components/schemas/KlingO3OmniReferenceRequest"
+          },
+          {
+            "$ref": "#/components/schemas/CreativeFabricaVideoReferenceRequest"
           }
         ]
       },
@@ -3550,6 +3932,181 @@
           }
         ]
       },
+      "CreativeFabricaVideoReferenceRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false,
+        "description": "Creative Fabrica Studio multipart video request. Upload image/image[], start_frame/end_frame, video/video[], or audio/audio[] as supported by the account-scoped model. Frames are exclusive with other reference media; the gateway validates the common 10/10/10 and 30-item limits before submission.",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "creativefabrica/alibaba_happy_horse_v1",
+              "creativefabrica/alibaba_happy_horse_v1_1",
+              "creativefabrica/alibaba_wan_2_7",
+              "creativefabrica/berry_1_0",
+              "creativefabrica/berry_1_0_pro",
+              "creativefabrica/fal_ltx_2_3",
+              "creativefabrica/fal_pixverse_c1",
+              "creativefabrica/fal_pixverse_v6",
+              "creativefabrica/flux_3",
+              "creativefabrica/gemini_omni_flash",
+              "creativefabrica/gemini_omni_flash_1_1",
+              "creativefabrica/gemini_omni_flash_1_1_video_extended",
+              "creativefabrica/grok_imagine_video",
+              "creativefabrica/grok_imagine_video_1_5",
+              "creativefabrica/heygen_avatar_5",
+              "creativefabrica/kling_ai_v3",
+              "creativefabrica/kling_ai_v3_motion_control",
+              "creativefabrica/kling_ai_v3_turbo",
+              "creativefabrica/kling_v3_omni",
+              "creativefabrica/luma_ray_2",
+              "creativefabrica/luma_ray_3_2",
+              "creativefabrica/minimax_hailuo_v3",
+              "creativefabrica/minimax_hailuo_v3_max",
+              "creativefabrica/mulerouter_wan_2_7_spicy",
+              "creativefabrica/pika_v2_5",
+              "creativefabrica/runway_gen_4_5",
+              "creativefabrica/seedance_one_five_pro",
+              "creativefabrica/seedance_two_point_zero",
+              "creativefabrica/seedance_v2_5",
+              "creativefabrica/seedance_v2_fast",
+              "creativefabrica/seedance_v2_mini",
+              "creativefabrica/veo_31_fast_generate_preview",
+              "creativefabrica/wan_3_0",
+              "creativefabrica/wan_3_0_prime"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 9999
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 15,
+            "default": 5
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*x[1-9][0-9]*$",
+            "default": "1280x720"
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "360p",
+              "480p",
+              "720p",
+              "768p",
+              "1080p",
+              "2k",
+              "4k"
+            ],
+            "default": "720p"
+          },
+          "image": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/UploadedImagePart"
+            }
+          },
+          "start_frame": {
+            "type": "string",
+            "format": "binary"
+          },
+          "end_frame": {
+            "type": "string",
+            "format": "binary",
+            "description": "Requires start_frame and cannot be combined with other reference media."
+          },
+          "video": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "format": "binary"
+            }
+          },
+          "audio": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "format": "binary"
+            }
+          },
+          "reference_strength": {
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MID",
+              "HIGH"
+            ],
+            "default": "MID"
+          },
+          "generate_audio": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "end_frame"
+              ]
+            },
+            "then": {
+              "required": [
+                "start_frame"
+              ]
+            }
+          },
+          {
+            "if": {
+              "anyOf": [
+                {
+                  "required": [
+                    "start_frame"
+                  ]
+                },
+                {
+                  "required": [
+                    "end_frame"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "image"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "video"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "audio"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
       "AudioRequest": {
         "oneOf": [
           {
@@ -3710,7 +4267,8 @@
           "gpt-image-2": 9999,
           "nano-banana-2": 9999,
           "nano-banana-pro": 9999,
-          "seedream-5.0-pro": 9999
+          "seedream-5.0-pro": 9999,
+          "creativefabrica/*": 9999
         },
         "properties": {
           "model": {
@@ -3721,7 +4279,35 @@
               "leonardo/nano-banana-pro",
               "leonardo/seedream-5.0-pro",
               "adobe/gpt-image-2",
-              "adobe/nano-banana-2"
+              "adobe/nano-banana-2",
+              "creativefabrica/openai-gpt-image-2",
+              "creativefabrica/nano-banana-2",
+              "creativefabrica/nano-banana-pro",
+              "creativefabrica/nano-banana",
+              "creativefabrica/flux-2-max",
+              "creativefabrica/flux-2-pro",
+              "creativefabrica/flux-2-klein",
+              "creativefabrica/grok",
+              "creativefabrica/ideogram-p-image",
+              "creativefabrica/ideogram-v4",
+              "creativefabrica/kling-image-o1",
+              "creativefabrica/kling-v2-1-image",
+              "creativefabrica/kling-v3-image",
+              "creativefabrica/kling-v3-omni-image",
+              "creativefabrica/nano-banana-flash-lite",
+              "creativefabrica/qwen-image-2-0-pro",
+              "creativefabrica/qwen-image-3",
+              "creativefabrica/qwen-image-3-pro",
+              "creativefabrica/qwen-image-edit-spicy",
+              "creativefabrica/recraft-v4",
+              "creativefabrica/recraft-v4-svg",
+              "creativefabrica/seedream-4-0",
+              "creativefabrica/seedream-4-5",
+              "creativefabrica/seedream-5-lite",
+              "creativefabrica/seedream-5-pro",
+              "creativefabrica/wan-2-7-pro-image",
+              "creativefabrica/z-image-spicy",
+              "creativefabrica/quiverai-arrow-1-1"
             ],
             "default": "leonardo/gpt-image-2"
           },

@@ -23,9 +23,22 @@ func scanSessionRefreshJob(row pgx.Row) (domain.SessionRefreshJob, error) {
 	return job, err
 }
 
+// EnqueueDueSessionRefreshJobs keeps the historical call shape for tests and
+// internal callers that do not need a custom entitlement interval.
 func (s *Store) EnqueueDueSessionRefreshJobs(ctx context.Context, ahead time.Duration, limit int) (int64, error) {
+	return s.EnqueueDueSessionRefreshJobsWithPermissionInterval(ctx, ahead, 24*time.Hour, limit)
+}
+
+// EnqueueDueSessionRefreshJobsWithPermissionInterval schedules the normal
+// session refresh and the Leonardo generation-entitlement check from the same
+// durable queue. Rate-limited and probe-error results use the shorter retry
+// windows enforced by GenerationPermissionCheckDue.
+func (s *Store) EnqueueDueSessionRefreshJobsWithPermissionInterval(ctx context.Context, ahead, permissionInterval time.Duration, limit int) (int64, error) {
 	if limit < 1 {
 		return 0, nil
+	}
+	if permissionInterval <= 0 {
+		permissionInterval = 24 * time.Hour
 	}
 	command, err := s.DB.Exec(ctx, `WITH due AS (
 		SELECT a.id
@@ -33,17 +46,23 @@ func (s *Store) EnqueueDueSessionRefreshJobs(ctx context.Context, ahead time.Dur
 		WHERE a.archived_at IS NULL AND a.session_refresh_enabled=true
 		  AND a.status NOT IN ('disabled','invalid')
 		  AND (a.session_refresh_not_before IS NULL OR a.session_refresh_not_before<=now())
-		  AND (a.access_token_expires_at IS NULL OR a.access_token_expires_at<=now()+$1::interval-make_interval(secs=>a.session_refresh_jitter_seconds))
+		  AND ((a.access_token_expires_at IS NULL OR a.access_token_expires_at<=now()+$1::interval-make_interval(secs=>a.session_refresh_jitter_seconds))
+		       OR (a.provider_id='leonardo' AND (
+				a.generation_permission_checked_at IS NULL
+				OR (a.generation_permission_status='rate_limited' AND a.generation_permission_checked_at<=now()-LEAST($2::interval,'5 minutes'::interval))
+				OR (a.generation_permission_status='error' AND a.generation_permission_checked_at<=now()-LEAST($2::interval,'30 minutes'::interval))
+				OR (a.generation_permission_status NOT IN ('rate_limited','error') AND a.generation_permission_checked_at<=now()-$2::interval)
+			)))
 		  AND NOT EXISTS (
 			SELECT 1 FROM session_refresh_jobs j
 			WHERE j.account_id=a.id AND j.status IN ('pending','leased')
 		  )
-		ORDER BY a.access_token_expires_at+make_interval(secs=>a.session_refresh_jitter_seconds) ASC NULLS FIRST,a.id
-		LIMIT $2
+		ORDER BY (a.generation_permission_checked_at IS NULL) DESC,a.access_token_expires_at+make_interval(secs=>a.session_refresh_jitter_seconds) ASC NULLS FIRST,a.id
+		LIMIT $3
 	)
 	INSERT INTO session_refresh_jobs(account_id,stage,status,priority)
 	SELECT id,'cookie','pending',0 FROM due
-	ON CONFLICT DO NOTHING`, ahead.String(), limit)
+	ON CONFLICT DO NOTHING`, ahead.String(), permissionInterval.String(), limit)
 	if err != nil {
 		return 0, err
 	}

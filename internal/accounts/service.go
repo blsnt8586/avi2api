@@ -55,6 +55,33 @@ type BalanceRefreshResult struct {
 	StartedAt time.Time
 }
 
+// GenerationPermissionCheckDue keeps the entitlement probe alongside the
+// session-refresh lifecycle while deduplicating repeated JWT refreshes.
+func GenerationPermissionCheckDue(account domain.Account, interval time.Duration) bool {
+	if account.ProviderID != providers.Leonardo {
+		return false
+	}
+	if account.GenerationPermissionCheckedAt == nil {
+		return true
+	}
+	if interval <= 0 {
+		interval = 24 * time.Hour
+	}
+	if account.GenerationPermissionStatus == "rate_limited" {
+		interval = minDuration(interval, 5*time.Minute)
+	} else if account.GenerationPermissionStatus == "error" {
+		interval = minDuration(interval, 30*time.Minute)
+	}
+	return time.Since(*account.GenerationPermissionCheckedAt) >= interval
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 type LoginCredential struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -266,6 +293,10 @@ func (s *Service) ImportBrowserSession(ctx context.Context, id uuid.UUID, sessio
 		// Cookie-stage job pending when the balance snapshot is still stale.
 		return a, nil
 	}
+	if _, permissionErr := s.CheckGenerationPermission(ctx, result.Account.ID, false); permissionErr != nil && IsGenerationPermissionBlocked(permissionErr) {
+		updated, _ := s.Store.GetAccount(ctx, result.Account.ID)
+		return updated, permissionErr
+	}
 	return result.Account, nil
 }
 
@@ -342,7 +373,96 @@ func cookieJSONFingerprint(value BrowserCookieJSON) string {
 
 func (s *Service) RefreshTokens(ctx context.Context, a domain.Account, token string) (domain.Account, error) {
 	result, err := s.RefreshTokensAfter(ctx, a, token, time.Time{})
-	return result.Account, err
+	if err != nil {
+		return result.Account, err
+	}
+	if _, permissionErr := s.CheckGenerationPermission(ctx, result.Account.ID, false); permissionErr != nil && IsGenerationPermissionBlocked(permissionErr) {
+		updated, _ := s.Store.GetAccount(ctx, result.Account.ID)
+		return updated, permissionErr
+	}
+	return result.Account, nil
+}
+
+// CheckGenerationPermission reads Leonardo's account entitlement flags with a
+// no-generation GraphQL query. This is the same account-status boundary used
+// by the web application, so the check does not create a generation or consume
+// output credits.
+func (s *Service) CheckGenerationPermission(ctx context.Context, id uuid.UUID, force bool) (domain.Account, error) {
+	a, err := s.Store.GetAccount(ctx, id)
+	if err != nil {
+		return a, err
+	}
+	if a.ProviderID != providers.Leonardo {
+		return a, nil
+	}
+	if !force && !GenerationPermissionCheckDue(a, s.Config.GenerationPermissionCheckInterval) {
+		return a, nil
+	}
+	if a.AccessTokenCiphertext == "" || a.AccessTokenExpiresAt == nil || !a.AccessTokenExpiresAt.After(time.Now()) {
+		return a, ErrBrowserSessionRequired
+	}
+	token, err := s.Cipher.Decrypt(a.AccessTokenCiphertext)
+	if err != nil {
+		return a, err
+	}
+	release, err := s.acquireGenerationProbeControl(ctx, a.ProxyURL)
+	if err != nil {
+		return a, err
+	}
+	defer release()
+	client, err := leonardo.New(a.ProxyURL, a.UserAgent, s.Config.SchemaVersion)
+	if err != nil {
+		return a, err
+	}
+	details, err := client.GetUserDetails(ctx, token, a.TeamID, a.CognitoSub)
+	if err == nil {
+		suspension := strings.ToLower(strings.TrimSpace(details.SuspensionStatus))
+		if details.Blocked || (suspension != "" && suspension != "none" && suspension != "active") {
+			message := "Leonardo account generation permission was denied"
+			if details.Blocked {
+				message = "Leonardo account is blocked"
+			} else {
+				message = fmt.Sprintf("Leonardo account suspension status: %s", details.SuspensionStatus)
+			}
+			_ = s.Store.SetGenerationPermission(ctx, a.ID, "blocked", "account-status", "generation_permission_denied", message)
+			updated, _ := s.Store.GetAccount(ctx, a.ID)
+			return updated, fmt.Errorf("%w: %s", ErrGenerationPermissionBlocked, message)
+		}
+		if storeErr := s.Store.SetGenerationPermission(ctx, a.ID, "verified", "account-status", "", ""); storeErr != nil {
+			return a, storeErr
+		}
+		return s.Store.GetAccount(ctx, a.ID)
+	}
+	if IsGenerationPermissionBlocked(err) {
+		_ = s.Store.SetGenerationPermission(ctx, a.ID, "blocked", "account-status", "generation_permission_denied", SanitizedUpstreamError(err))
+		updated, _ := s.Store.GetAccount(ctx, a.ID)
+		return updated, fmt.Errorf("%w: %v", ErrGenerationPermissionBlocked, SanitizedUpstreamError(err))
+	}
+	if IsUpstreamRateLimited(err) {
+		_ = s.Store.SetGenerationPermission(ctx, a.ID, "rate_limited", "account-status", "upstream_rate_limited", SanitizedUpstreamError(err))
+		return a, err
+	}
+	_ = s.Store.SetGenerationPermission(ctx, a.ID, "error", "account-status", "probe_error", SanitizedUpstreamError(err))
+	return a, err
+}
+
+func (s *Service) acquireGenerationProbeControl(ctx context.Context, proxyURL string) (func(), error) {
+	release, err := s.acquireProxyControl(ctx, proxyURL)
+	if err == nil || s.Redis == nil {
+		return release, err
+	}
+	var unavailable *ProxyControlUnavailableError
+	if !errors.As(err, &unavailable) || unavailable.Cooling || unavailable.RetryAfter <= 0 || unavailable.RetryAfter > 30*time.Second {
+		return nil, err
+	}
+	timer := time.NewTimer(unavailable.RetryAfter)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-timer.C:
+	}
+	return s.acquireProxyControl(ctx, proxyURL)
 }
 
 func (s *Service) RefreshTokensAfter(ctx context.Context, a domain.Account, token string, notBefore time.Time) (BalanceRefreshResult, error) {
@@ -435,7 +555,15 @@ func (s *Service) refreshTokensLocked(ctx context.Context, a domain.Account, tok
 }
 
 func (s *Service) Refresh(ctx context.Context, id uuid.UUID, force bool) (domain.Account, error) {
-	return s.refresh(ctx, id, force, true)
+	a, err := s.refresh(ctx, id, force, true)
+	if err != nil {
+		return a, err
+	}
+	checked, permissionErr := s.CheckGenerationPermission(ctx, id, force)
+	if permissionErr != nil && IsGenerationPermissionBlocked(permissionErr) {
+		return checked, permissionErr
+	}
+	return checked, nil
 }
 
 // RefreshForScheduler uses a fresh JWT to finish deferred balance work. JWT
@@ -453,6 +581,13 @@ func (s *Service) RefreshForScheduler(ctx context.Context, id uuid.UUID) (domain
 		}
 		return refreshed, refreshErr
 	}
+	if a.ProviderID == providers.CreativeFabrica {
+		refreshed, refreshErr := s.refreshCreativeFabrica(ctx, a, false)
+		if IsCreativeFabricaAuthenticationRejected(refreshErr) {
+			_ = s.Store.SetAccountError(ctx, a.ID, "invalid", "Creative Fabrica session or token was rejected", nil)
+		}
+		return refreshed, refreshErr
+	}
 	if a.AccessTokenCiphertext == "" || a.AccessTokenExpiresAt == nil || !a.AccessTokenExpiresAt.After(time.Now().Add(s.Config.SessionRefreshMinFresh)) {
 		return a, ErrBrowserSessionRequired
 	}
@@ -461,7 +596,14 @@ func (s *Service) RefreshForScheduler(ctx context.Context, id uuid.UUID) (domain
 		return a, err
 	}
 	result, err := s.RefreshTokensAfter(ctx, a, token, time.Time{})
-	return result.Account, err
+	if err != nil {
+		return result.Account, err
+	}
+	if _, permissionErr := s.CheckGenerationPermission(ctx, result.Account.ID, false); permissionErr != nil && IsGenerationPermissionBlocked(permissionErr) {
+		updated, _ := s.Store.GetAccount(ctx, result.Account.ID)
+		return updated, permissionErr
+	}
+	return result.Account, nil
 }
 
 func (s *Service) refresh(ctx context.Context, id uuid.UUID, force, recordError bool) (domain.Account, error) {
@@ -538,6 +680,16 @@ func (s *Service) refresh(ctx context.Context, id uuid.UUID, force, recordError 
 }
 
 func classifySessionError(err error) (string, string, *time.Time) {
+	if IsCreativeFabricaAuthenticationRejected(err) {
+		return "invalid", "Creative Fabrica session or token was rejected", nil
+	}
+	if IsAdobeAuthenticationRejected(err) {
+		return "invalid", "Adobe session or token was rejected", nil
+	}
+	if IsUpstreamRateLimited(err) {
+		until := time.Now().Add(2 * time.Minute)
+		return "rate_limited", "upstream rate limit or security checkpoint", &until
+	}
 	var upstream *leonardo.HTTPError
 	if errors.As(err, &upstream) {
 		switch upstream.Status {
@@ -553,6 +705,9 @@ func classifySessionError(err error) (string, string, *time.Time) {
 }
 
 func (s *Service) Token(ctx context.Context, a domain.Account) (domain.Account, string, error) {
+	if a.ProviderID == providers.CreativeFabrica {
+		return s.CreativeFabricaToken(ctx, a)
+	}
 	latest, err := s.Store.GetAccount(ctx, a.ID)
 	if err != nil {
 		return a, "", err

@@ -61,7 +61,7 @@ func (m *Manager) schedule(ctx context.Context) {
 	} else if restored > 0 {
 		m.Log.Info("restored accounts after cooldown", "count", restored)
 	}
-	created, err := m.Store.EnqueueDueSessionRefreshJobs(ctx, m.Config.SessionRefreshAhead, m.Config.SessionRefreshBatch)
+	created, err := m.Store.EnqueueDueSessionRefreshJobsWithPermissionInterval(ctx, m.Config.SessionRefreshAhead, m.Config.GenerationPermissionCheckInterval, m.Config.SessionRefreshBatch)
 	if err != nil {
 		m.Log.Error("session refresh scheduling failed", "error", err)
 		return
@@ -111,9 +111,31 @@ func (m *Manager) runCookieWorker(ctx context.Context, owner string) {
 			}
 			continue
 		}
+		if refreshErr != nil && account.ProviderID == providers.CreativeFabrica {
+			if accounts.IsCreativeFabricaAuthenticationRejected(refreshErr) || accounts.IsCreativeFabricaOTPRequired(refreshErr) || accounts.IsBrowserSessionRequired(refreshErr) {
+				if err := m.Store.TerminalFailSessionRefreshJob(ctx, job.ID, *job.LeaseToken, accounts.SanitizedUpstreamError(refreshErr), ""); err != nil {
+					m.Log.Warn("Creative Fabrica session refresh terminal failure update failed", "job_id", job.ID, "account_id", job.AccountID, "error", err)
+				}
+				continue
+			}
+			retryAfter := 5 * time.Minute
+			if accounts.IsUpstreamRateLimited(refreshErr) {
+				retryAfter = m.Config.Upstream429Cooldown
+			}
+			if err := m.Store.DeferSessionRefreshJob(ctx, job.ID, *job.LeaseToken, jitteredRetry(job.ID, retryAfter), accounts.SanitizedUpstreamError(refreshErr)); err != nil {
+				m.Log.Warn("Creative Fabrica session refresh defer failed", "job_id", job.ID, "account_id", job.AccountID, "error", err)
+			}
+			continue
+		}
 		if accounts.IsBrowserSessionRequired(refreshErr) {
 			if err := m.Store.RequireBrowserSessionRefresh(ctx, job.ID, *job.LeaseToken, refreshErr.Error()); err != nil {
 				m.Log.Warn("browser session refresh handoff failed", "job_id", job.ID, "account_id", job.AccountID, "error", err)
+			}
+			continue
+		}
+		if refreshErr != nil && accounts.IsGenerationPermissionBlocked(refreshErr) {
+			if err := m.Store.TerminalFailSessionRefreshJob(ctx, job.ID, *job.LeaseToken, accounts.SanitizedUpstreamError(refreshErr), ""); err != nil {
+				m.Log.Warn("generation permission terminal failure update failed", "job_id", job.ID, "account_id", job.AccountID, "error", err)
 			}
 			continue
 		}

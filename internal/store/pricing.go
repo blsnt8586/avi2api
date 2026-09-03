@@ -85,6 +85,60 @@ func (s *Store) CreateModelCostRule(ctx context.Context, rule domain.ModelCostRu
 	return created, tx.Commit(ctx)
 }
 
+// ReplaceModelCostRules installs a provider pricing snapshot atomically. Old
+// rules remain in the table for task-history reconciliation, while only the
+// newly supplied rule for each parameter tuple is enabled. A single
+// transaction prevents a partially synchronized catalog from becoming the
+// active admission source.
+func (s *Store) ReplaceModelCostRules(ctx context.Context, rules []domain.ModelCostRule) (int, error) {
+	if len(rules) == 0 {
+		return 0, nil
+	}
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+	// A successful upstream snapshot is authoritative for the provider/kind
+	// pairs it contains. Disable the previous snapshot first; historical rows
+	// stay available for settled-task references.
+	type scope struct{ provider, kind string }
+	scopes := make(map[scope]struct{})
+	for _, rule := range rules {
+		provider := rule.ProviderID
+		if provider == "" {
+			provider = "leonardo"
+		}
+		scopes[scope{provider: provider, kind: rule.Kind}] = struct{}{}
+	}
+	for current := range scopes {
+		if _, err := tx.Exec(ctx, `UPDATE model_cost_rules SET enabled=false,updated_at=now()
+			WHERE enabled=true AND provider_id=$1 AND kind=$2`, current.provider, current.kind); err != nil {
+			return 0, err
+		}
+	}
+	count := 0
+	for _, rule := range rules {
+		if rule.ProviderID == "" {
+			rule.ProviderID = "leonardo"
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO model_cost_rules(provider_id,kind,model,size,quality,resolution,duration,unit_tokens,enabled,price_version,source,drifted,drift_reason,verified_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,false,'',now())
+			ON CONFLICT(provider_id,kind,model,size,quality,resolution,duration,price_version)
+			DO UPDATE SET unit_tokens=EXCLUDED.unit_tokens,enabled=EXCLUDED.enabled,source=EXCLUDED.source,
+				drifted=false,drift_reason='',verified_at=now(),updated_at=now()`,
+			rule.ProviderID, rule.Kind, rule.Model, rule.Size, rule.Quality, rule.Resolution, rule.Duration,
+			rule.UnitTokens, rule.Enabled, rule.PriceVersion, rule.Source); err != nil {
+			return count, err
+		}
+		count++
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return count, err
+	}
+	return count, nil
+}
+
 func (s *Store) UpdateModelCostRule(ctx context.Context, rule domain.ModelCostRule) (domain.ModelCostRule, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {

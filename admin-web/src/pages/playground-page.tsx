@@ -65,6 +65,7 @@ type GenerationProvider = RegisteredProviderID;
 const imageModelsByProvider: Record<GenerationProvider, PlaygroundImageModel[]> = {
   leonardo: providerPublicModels<PlaygroundImageModel>("leonardo", "image"),
   adobe: providerPublicModels<PlaygroundImageModel>("adobe", "image"),
+  creativefabrica: providerPublicModels<PlaygroundImageModel>("creativefabrica", "image"),
 };
 
 function providerImageModel(provider: GenerationProvider, model: PlaygroundImageModel): PlaygroundImageModel {
@@ -560,6 +561,7 @@ type PlaygroundVideoModel = PublicVideoModel | "kling-3.0-omni";
 const videoModelsByProvider: Record<GenerationProvider, PlaygroundVideoModel[]> = {
   leonardo: providerPublicModels<PlaygroundVideoModel>("leonardo", "video"),
   adobe: providerPublicModels<PlaygroundVideoModel>("adobe", "video"),
+  creativefabrica: providerPublicModels<PlaygroundVideoModel>("creativefabrica", "video"),
 };
 
 function providerVideoModel(provider: GenerationProvider, model: PlaygroundVideoModel): PublicVideoModel {

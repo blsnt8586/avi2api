@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/leonardo2api/leonardo2api/internal/adobe"
+	"github.com/leonardo2api/leonardo2api/internal/creativefabrica"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 	"github.com/leonardo2api/leonardo2api/internal/providers"
@@ -211,6 +213,20 @@ func (s *Server) adminPlatformModelsByType(w http.ResponseWriter, r *http.Reques
 		writeError(w, 500, "database_error", err.Error())
 		return
 	}
+	// A synchronized provider can be newly installed (or have an expired
+	// account) before its first catalog sync completes. Keep the admin model
+	// page useful in that window by showing the curated adapter bindings rather
+	// than an empty response. The source is explicit so callers do not mistake
+	// configured fallbacks for a fresh upstream catalog.
+	if len(rawModels) == 0 {
+		platform, configuredErr := s.configuredProviderPlatformModels(r.Context(), provider, mediaType)
+		if configuredErr != nil {
+			writeError(w, 500, "database_error", configuredErr.Error())
+			return
+		}
+		s.writePlatformModels(w, r, provider, mediaType, "adapter-config", nil, "configured_models_pending_sync", platform)
+		return
+	}
 	platform := make([]leonardo.PlatformImageModel, 0, len(rawModels))
 	for _, raw := range rawModels {
 		var model leonardo.PlatformImageModel
@@ -269,9 +285,6 @@ func (s *Server) adminSyncPlatformModels(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) fetchPlatformModels(ctx context.Context, providerID, mediaType string) ([]leonardo.PlatformImageModel, string, error) {
-	if providerID != providers.Leonardo {
-		return nil, "", providers.ErrUnsupported
-	}
 	accountsList, err := s.Store.ListAccounts(ctx)
 	if err != nil {
 		return nil, "", err
@@ -284,27 +297,72 @@ func (s *Server) fetchPlatformModels(ctx context.Context, providerID, mediaType 
 		}
 	}
 	if account == nil {
-		return nil, "", errors.New("no active Leonardo account is available")
+		return nil, "", fmt.Errorf("no active %s account is available", providerID)
 	}
 	active, token, err := s.Accounts.Token(ctx, *account)
 	if err != nil {
 		return nil, "", err
 	}
-	schemaVersion := s.Store.GetSettingString(ctx, "schema_version", s.Config.SchemaVersion)
-	client, err := leonardo.New(active.ProxyURL, active.UserAgent, schemaVersion)
-	if err != nil {
-		return nil, "", err
-	}
-	if mediaType == "video" {
-		models, err := client.ListPlatformVideoModels(ctx, token, active.TeamID)
+	if providerID == providers.Leonardo {
+		schemaVersion := s.Store.GetSettingString(ctx, "schema_version", s.Config.SchemaVersion)
+		client, err := leonardo.New(active.ProxyURL, active.UserAgent, schemaVersion)
+		if err != nil {
+			return nil, "", err
+		}
+		if mediaType == "video" {
+			models, err := client.ListPlatformVideoModels(ctx, token, active.TeamID)
+			return models, schemaVersion, err
+		}
+		if mediaType == "audio" {
+			models, err := client.ListPlatformAudioModels(ctx, token, active.TeamID)
+			return models, schemaVersion, err
+		}
+		models, err := client.ListPlatformImageModels(ctx, token, active.TeamID)
 		return models, schemaVersion, err
 	}
-	if mediaType == "audio" {
-		models, err := client.ListPlatformAudioModels(ctx, token, active.TeamID)
-		return models, schemaVersion, err
+	if providerID == providers.CreativeFabrica {
+		cfClient, err := creativefabrica.New(active.ProxyURL, active.UserAgent)
+		if err != nil {
+			return nil, "", err
+		}
+		if cookieHeader, cookieErr := s.Accounts.CreativeFabricaCookieHeader(ctx, active.ID); cookieErr != nil {
+			return nil, "", cookieErr
+		} else {
+			cfClient.CookieHeader = cookieHeader
+		}
+		models, err := cfClient.ListModels(ctx, token, mediaType)
+		if err != nil {
+			return nil, "", err
+		}
+		converted := make([]leonardo.PlatformImageModel, 0, len(models))
+		for order, model := range models {
+			name := model.DisplayName
+			if name == "" {
+				name = model.PublicName
+			}
+			if name == "" {
+				name = model.ID
+			}
+			capabilities := map[string]bool{"generate": true, "production_api_availability": true}
+			for key, value := range model.InputOptions {
+				if enabled, ok := value.(bool); ok {
+					capabilities[key] = enabled
+				}
+			}
+			modelID := creativefabrica.GenerationModelID(model)
+			if modelID == "" {
+				modelID = model.ID
+			}
+			converted = append(converted, leonardo.PlatformImageModel{
+				ID: model.ID, Type: mediaType, ModelID: modelID, Name: name,
+				Provider: "Creative Fabrica Studio", Description: "Creative Fabrica Studio account catalog",
+				Order: order, ProductionAPI: true, Capabilities: capabilities,
+				CostType: "provider_pricing",
+			})
+		}
+		return converted, "creativefabrica-live", nil
 	}
-	models, err := client.ListPlatformImageModels(ctx, token, active.TeamID)
-	return models, schemaVersion, err
+	return nil, "", providers.ErrUnsupported
 }
 
 func (s *Server) writePlatformModels(w http.ResponseWriter, r *http.Request, provider domain.Provider, mediaType, schemaVersion string, syncedAt *time.Time, source string, platform []leonardo.PlatformImageModel) {
@@ -313,13 +371,23 @@ func (s *Server) writePlatformModels(w http.ResponseWriter, r *http.Request, pro
 		writeError(w, 500, "database_error", err.Error())
 		return
 	}
-	exposed := make(map[string]string, len(curated))
+	exposed := make(map[string]string, len(curated)*2)
 	for _, model := range curated {
-		exposed[model.UpstreamModel] = model.Model.ID
+		for _, key := range providerModelLookupKeys(provider.ID, mediaType, model.UpstreamModel, model.Model.ID) {
+			if _, exists := exposed[key]; !exists {
+				exposed[key] = model.Model.ID
+			}
+		}
 	}
 	data := make([]map[string]any, 0, len(platform))
 	for _, model := range platform {
-		publicID, selected := exposed[model.ID]
+		publicID, selected := "", false
+		for _, key := range providerModelLookupKeys(provider.ID, mediaType, model.ID, model.ModelID) {
+			if value, ok := exposed[key]; ok {
+				publicID, selected = value, true
+				break
+			}
+		}
 		data = append(data, map[string]any{"platform": model, "exposed": selected, "public_id": publicID})
 	}
 	writeJSON(w, 200, map[string]any{
@@ -327,6 +395,52 @@ func (s *Server) writePlatformModels(w http.ResponseWriter, r *http.Request, pro
 		"schema_version": schemaVersion, "media_type": mediaType, "synced_at": syncedAt,
 		"catalog_source": source, "sync_supported": provider.CatalogSync, "data": data,
 	})
+}
+
+func providerModelLookupKeys(providerID, mediaType string, values ...string) []string {
+	if providerID == providers.CreativeFabrica {
+		keys := make([]string, 0, len(values)*2)
+		for _, value := range values {
+			keys = append(keys, creativefabrica.ModelAliasKeysFromValues(value)...)
+			if enum, ok := creativeFabricaCatalogEnum(mediaType, value); ok {
+				keys = append(keys, creativefabrica.ModelAliasKeysFromValues(enum)...)
+			}
+		}
+		return uniqueLookupKeys(keys)
+	}
+	return uniqueLookupKeys(values)
+}
+
+func uniqueLookupKeys(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		for _, candidate := range []string{value, strings.ToLower(value)} {
+			if candidate == "" {
+				continue
+			}
+			if _, exists := seen[candidate]; exists {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			result = append(result, candidate)
+		}
+	}
+	return result
+}
+
+func creativeFabricaCatalogEnum(mediaType, id string) (string, bool) {
+	if mediaType == "image" {
+		return creativefabrica.ImageModelEnum(id)
+	}
+	if mediaType == "video" {
+		return creativefabrica.VideoModelEnum(id)
+	}
+	return "", false
 }
 
 func (s *Server) adminPricingFilter(w http.ResponseWriter, r *http.Request) (string, string, bool) {

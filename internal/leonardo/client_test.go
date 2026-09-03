@@ -27,6 +27,43 @@ func TestGraphQLErrorIsTyped(t *testing.T) {
 	}
 }
 
+func TestGetUserDetails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req["operationName"] != "GetUserDetails" {
+			t.Fatalf("unexpected user details request: %+v", req)
+		}
+		variables, ok := req["variables"].(map[string]any)
+		if !ok || variables["userSub"] != "sub" {
+			t.Fatalf("unexpected user details variables: %+v", req["variables"])
+		}
+		_, _ = io.WriteString(w, "{\"data\":{\"users\":[{\"id\":\"user-1\",\"blocked\":false,\"suspensionStatus\":null,\"user_details\":[{\"id\":\"details-1\"}]}]}}")
+	}))
+	defer srv.Close()
+	client, _ := New("", "ua", "1.280.1")
+	client.GraphQLURL = srv.URL
+	details, err := client.GetUserDetails(context.Background(), "token", "team", "sub")
+	if err != nil || details.ID != "user-1" || details.Blocked || details.SuspensionStatus != "" {
+		t.Fatalf("details=%+v err=%v", details, err)
+	}
+}
+
+func TestGetUserDetailsBlocked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "{\"data\":{\"users\":[{\"id\":\"user-1\",\"blocked\":true,\"suspensionStatus\":\"SUSPENDED\",\"user_details\":[{\"id\":\"details-1\"}]}]}}")
+	}))
+	defer srv.Close()
+	client, _ := New("", "ua", "1.280.1")
+	client.GraphQLURL = srv.URL
+	details, err := client.GetUserDetails(context.Background(), "token", "team", "sub")
+	if err != nil || !details.Blocked || details.SuspensionStatus != "SUSPENDED" {
+		t.Fatalf("details=%+v err=%v", details, err)
+	}
+}
+
 func TestSessionAndGenerate(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/session", func(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +94,22 @@ func TestSessionAndGenerate(t *testing.T) {
 	}
 }
 
+func TestSubmitGenerationAcceptsStringCostAmount(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"data":{"generate":{"generationId":"g-string-cost","apiCreditCost":8,"cost":{"amount":"8","unit":"TOKENS"}}}}`)
+	}))
+	defer srv.Close()
+
+	client, _ := New("", "ua", "1.280.1")
+	client.GraphQLURL = srv.URL
+	response, err := client.SubmitGeneration(context.Background(), "token", "", CreateGenerationRequest{
+		Model: "gpt-image-2", Public: false, Parameters: map[string]any{"prompt": "p"},
+	})
+	if err != nil || response.GenerationID != "g-string-cost" || response.Cost == nil || response.Cost.Amount != 8 {
+		t.Fatalf("response=%+v err=%v", response, err)
+	}
+}
+
 func TestGenerateNormalizesQuality(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/graphql", func(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +135,24 @@ func TestGenerateNormalizesQuality(t *testing.T) {
 	c.GraphQLURL = srv.URL + "/graphql"
 	if _, err := c.Generate(context.Background(), "at", "", GenerateRequest{Model: "gpt-image-2", Prompt: "p", Width: 1024, Height: 1024, Quantity: 1, Quality: "low"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBuildImageGenerationRequestIncludesOfficialPromptEnhance(t *testing.T) {
+	request := BuildImageGenerationRequest(GenerateRequest{
+		Model: "gpt-image-2", Prompt: "p", Width: 1024, Height: 1024, Quantity: 1,
+		Quality: "medium", PromptEnhance: "auto",
+		StyleIDs: []string{"111dc692-d470-4eec-b791-3475abac4c46"},
+	})
+	if request.Public {
+		t.Fatal("gateway generations must remain private")
+	}
+	if request.Parameters["quality"] != "MEDIUM" || request.Parameters["prompt_enhance"] != "AUTO" {
+		t.Fatalf("unexpected normalized parameters: %+v", request.Parameters)
+	}
+	styles, ok := request.Parameters["style_ids"].([]string)
+	if !ok || len(styles) != 1 || styles[0] != "111dc692-d470-4eec-b791-3475abac4c46" {
+		t.Fatalf("unexpected style ids: %#v", request.Parameters["style_ids"])
 	}
 }
 

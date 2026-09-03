@@ -39,6 +39,9 @@ func (s *Store) ListAccounts(ctx context.Context) ([]domain.Account, error) {
 		}
 		a.HasCompleteCookieJSON = a.CookieJSONCiphertext != ""
 		a.HasPendingCookieJSON = a.PendingCookieJSONCiphertext != ""
+		if err := s.loadGenerationPermission(ctx, &a); err != nil {
+			return nil, err
+		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -64,8 +67,8 @@ func (s *Store) ListAccountsPageFiltered(ctx context.Context, page, pageSize int
 	filter.ProviderID = strings.TrimSpace(filter.ProviderID)
 	const where = ` WHERE a.archived_at IS NULL
 		AND ($1='' OR a.name ILIKE '%'||$1||'%' OR a.email ILIKE '%'||$1||'%' OR a.provider_id ILIKE '%'||$1||'%')
-		AND ($2='' OR ($2='attention' AND (a.status<>'active' OR a.access_token_expires_at IS NULL OR a.access_token_expires_at<=now()))
-			OR ($2='active' AND a.status='active' AND a.access_token_expires_at>now())
+		AND ($2='' OR ($2='attention' AND (a.status<>'active' OR a.generation_permission_status='blocked' OR a.access_token_expires_at IS NULL OR a.access_token_expires_at<=now()))
+			OR ($2='active' AND a.status='active' AND (a.provider_id<>'leonardo' OR a.generation_permission_status='verified') AND a.access_token_expires_at>now())
 			OR ($2='cooldown' AND (a.status='cooldown' OR (a.status='active' AND (a.access_token_expires_at IS NULL OR a.access_token_expires_at<=now()))))
 			OR ($2 NOT IN ('attention','active','cooldown') AND a.status=$2))
 		AND ($3='' OR a.routing_role=$3) AND ($4='' OR a.provider_id=$4)`
@@ -103,6 +106,9 @@ func (s *Store) ListAccountsPageFiltered(ctx context.Context, page, pageSize int
 		}
 		a.HasCompleteCookieJSON = a.CookieJSONCiphertext != ""
 		a.HasPendingCookieJSON = a.PendingCookieJSONCiphertext != ""
+		if err := s.loadGenerationPermission(ctx, &a); err != nil {
+			return AccountPage{}, err
+		}
 		out = append(out, a)
 	}
 	if err := rows.Err(); err != nil {
@@ -113,7 +119,7 @@ func (s *Store) ListAccountsPageFiltered(ctx context.Context, page, pageSize int
 
 func (s *Store) GetAccountOverview(ctx context.Context) (AccountOverview, error) {
 	var out AccountOverview
-	err := s.DB.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE status='active'
+	err := s.DB.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE status='active' AND (provider_id<>'leonardo' OR generation_permission_status='verified')
 		AND (cooldown_until IS NULL OR cooldown_until<=now())
 		AND access_token_expires_at IS NOT NULL AND access_token_expires_at>now()
 		AND last_checked_at IS NOT NULL)
@@ -134,24 +140,24 @@ func (s *Store) GetProviderOverviews(ctx context.Context) ([]ProviderOverview, e
 	), account_stats AS (
 		SELECT a.provider_id,
 			count(*) AS accounts,
-			count(*) FILTER (WHERE a.status='active' AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
+			count(*) FILTER (WHERE a.status='active' AND (a.provider_id<>'leonardo' OR a.generation_permission_status='verified') AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
 				AND a.access_token_expires_at IS NOT NULL AND a.access_token_expires_at>now()
 				AND a.last_checked_at IS NOT NULL) AS active_accounts,
 			COALESCE(sum(a.subscription_tokens+a.rollover_tokens+a.paid_tokens),0) AS total_credits,
 			COALESCE(sum(COALESCE(h.reserved,0)),0) AS reserved_credits,
 			COALESCE(sum(GREATEST(0,a.subscription_tokens+a.rollover_tokens+a.paid_tokens-COALESCE(h.reserved,0))),0) AS available_credits,
-			COALESCE(sum(a.image_concurrency) FILTER (WHERE a.status='active' AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
+			COALESCE(sum(a.image_concurrency) FILTER (WHERE a.status='active' AND (a.provider_id<>'leonardo' OR a.generation_permission_status='verified') AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
 				AND a.access_token_expires_at IS NOT NULL AND a.access_token_expires_at>now()
 				AND a.last_checked_at IS NOT NULL),0) AS execution_slots,
-			COALESCE(sum(a.queue_capacity) FILTER (WHERE a.status='active' AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
+			COALESCE(sum(a.queue_capacity) FILTER (WHERE a.status='active' AND (a.provider_id<>'leonardo' OR a.generation_permission_status='verified') AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
 				AND a.access_token_expires_at IS NOT NULL AND a.access_token_expires_at>now()
 				AND a.last_checked_at IS NOT NULL),0) AS queue_slots,
-			COALESCE(sum(a.protected_tokens) FILTER (WHERE a.provider_id='leonardo' AND a.routing_role='video_reserved' AND a.status='active'),0) AS video_protected_credits,
-			count(*) FILTER (WHERE a.provider_id='leonardo' AND a.status='active' AND c.p720_15 IS NOT NULL
+			COALESCE(sum(a.protected_tokens) FILTER (WHERE a.provider_id='leonardo' AND a.routing_role='video_reserved' AND a.status='active' AND a.generation_permission_status='verified'),0) AS video_protected_credits,
+			count(*) FILTER (WHERE a.provider_id='leonardo' AND a.status='active' AND a.generation_permission_status='verified' AND c.p720_15 IS NOT NULL
 				AND a.subscription_tokens+a.rollover_tokens+a.paid_tokens-COALESCE(h.reserved,0)>=c.p720_15) AS video_ready_720p_15s,
-			count(*) FILTER (WHERE a.provider_id='leonardo' AND a.status='active' AND c.p1080_8 IS NOT NULL
+			count(*) FILTER (WHERE a.provider_id='leonardo' AND a.status='active' AND a.generation_permission_status='verified' AND c.p1080_8 IS NOT NULL
 				AND a.subscription_tokens+a.rollover_tokens+a.paid_tokens-COALESCE(h.reserved,0)>=c.p1080_8) AS video_ready_1080p_8s,
-			count(*) FILTER (WHERE a.provider_id='leonardo' AND a.status='active' AND c.p1080_10 IS NOT NULL
+			count(*) FILTER (WHERE a.provider_id='leonardo' AND a.status='active' AND a.generation_permission_status='verified' AND c.p1080_10 IS NOT NULL
 				AND a.subscription_tokens+a.rollover_tokens+a.paid_tokens-COALESCE(h.reserved,0)>=c.p1080_10) AS video_ready_1080p_10s
 		FROM accounts a LEFT JOIN held h ON h.account_id=a.id CROSS JOIN costs c
 		WHERE a.archived_at IS NULL GROUP BY a.provider_id
@@ -236,8 +242,14 @@ func (s *Store) GetAccount(ctx context.Context, id uuid.UUID) (domain.Account, e
 	if err == nil {
 		a.HasCompleteCookieJSON = a.CookieJSONCiphertext != ""
 		a.HasPendingCookieJSON = a.PendingCookieJSONCiphertext != ""
+		err = s.loadGenerationPermission(ctx, &a)
 	}
 	return a, err
+}
+
+func (s *Store) loadGenerationPermission(ctx context.Context, account *domain.Account) error {
+	return s.DB.QueryRow(ctx, `SELECT generation_permission_status,generation_permission_checked_at,generation_permission_model,generation_permission_error_code,generation_permission_error FROM accounts WHERE id=$1`, account.ID).Scan(
+		&account.GenerationPermissionStatus, &account.GenerationPermissionCheckedAt, &account.GenerationPermissionModel, &account.GenerationPermissionErrorCode, &account.GenerationPermissionError)
 }
 
 func (s *Store) CreateAccount(ctx context.Context, name, email, cookieCipher, credentialCipher string, hasLoginCredentials bool, proxyURL, userAgent string, concurrency, queueCapacity int, routingRole string, protectedTokens int64, videoReservedSlots int) (domain.Account, error) {
@@ -317,6 +329,15 @@ func (s *Store) ArchiveAccount(ctx context.Context, id uuid.UUID) error {
 }
 
 func (s *Store) GetAccountLoginCredentialCiphertext(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	return s.GetAccountCredentialCiphertext(ctx, id)
+}
+
+// GetAccountCredentialCiphertext returns the encrypted provider credential
+// envelope without interpreting its JSON shape. Leonardo's browser worker
+// still uses GetAccountLoginCredentialCiphertext through the compatibility
+// wrapper, while other providers can persist token bundles in the same
+// encrypted column.
+func (s *Store) GetAccountCredentialCiphertext(ctx context.Context, id uuid.UUID) (string, bool, error) {
 	var ciphertext string
 	var configured bool
 	err := s.DB.QueryRow(ctx, `SELECT credential_ciphertext,has_login_credentials FROM accounts WHERE id=$1`, id).Scan(&ciphertext, &configured)
@@ -327,6 +348,14 @@ func (s *Store) GetAccountLoginCredentialCiphertext(ctx context.Context, id uuid
 }
 
 func (s *Store) SetAccountLoginCredential(ctx context.Context, id uuid.UUID, ciphertext string, configured bool) error {
+	return s.SetAccountCredentialCiphertext(ctx, id, ciphertext, configured)
+}
+
+// SetAccountCredentialCiphertext stores an encrypted provider credential
+// envelope. The configured flag is intentionally separate from the
+// ciphertext because cookie-only/token-only accounts still need an envelope
+// without having an email/password login configured.
+func (s *Store) SetAccountCredentialCiphertext(ctx context.Context, id uuid.UUID, ciphertext string, configured bool) error {
 	command, err := s.DB.Exec(ctx, `UPDATE accounts SET credential_ciphertext=$2,has_login_credentials=$3,updated_at=now() WHERE id=$1`, id, ciphertext, configured)
 	if err == nil && command.RowsAffected() == 0 {
 		return ErrNotFound
@@ -361,16 +390,19 @@ func (s *Store) UpdateAccountSessionCredentials(ctx context.Context, id uuid.UUI
 		user_agent=CASE WHEN ($6 OR access_token_expires_at IS NULL OR $8>=access_token_expires_at) AND $12<>'' THEN $12 ELSE user_agent END,
 		status=CASE
 			WHEN status='disabled' THEN status
+			WHEN generation_permission_status='blocked' THEN 'invalid'
 			WHEN status='rate_limited' AND cooldown_until>now()
 			  AND last_error<>'Leonardo HTTP 429: temporary Vercel security checkpoint' THEN status
 			ELSE 'active' END,
 		last_error=CASE
 			WHEN status='disabled' THEN last_error
+			WHEN generation_permission_status='blocked' THEN last_error
 			WHEN status='rate_limited' AND cooldown_until>now()
 			  AND last_error<>'Leonardo HTTP 429: temporary Vercel security checkpoint' THEN last_error
 			ELSE '' END,
 		cooldown_until=CASE
 			WHEN status='disabled' THEN cooldown_until
+			WHEN generation_permission_status='blocked' THEN NULL
 			WHEN status='rate_limited' AND cooldown_until>now()
 			  AND last_error<>'Leonardo HTTP 429: temporary Vercel security checkpoint' THEN cooldown_until
 			ELSE NULL END,
@@ -429,7 +461,8 @@ func (s *Store) UpdateAccountSession(ctx context.Context, id uuid.UUID, balanceV
 		subscription_tokens=CASE WHEN balance_refresh_version=$2 THEN $11 ELSE subscription_tokens END,
 		rollover_tokens=CASE WHEN balance_refresh_version=$2 THEN $12 ELSE rollover_tokens END,
 		paid_tokens=CASE WHEN balance_refresh_version=$2 THEN $13 ELSE paid_tokens END,
-		last_error=$14,status=$15,cooldown_until=NULL,
+		last_error=CASE WHEN generation_permission_status='blocked' THEN last_error ELSE $14 END,
+		status=CASE WHEN generation_permission_status='blocked' THEN 'invalid' ELSE $15 END,cooldown_until=NULL,
 		last_checked_at=CASE WHEN balance_refresh_version=$2 THEN now() ELSE last_checked_at END,
 		balance_snapshot_version=CASE WHEN balance_refresh_version=$2 THEN $2 ELSE balance_snapshot_version END,
 		balance_snapshot_started_at=CASE WHEN balance_refresh_version=$2 THEN $6 ELSE balance_snapshot_started_at END,
@@ -455,13 +488,13 @@ func (s *Store) UpdateAccountTokens(ctx context.Context, id uuid.UUID, version i
 	command, err := s.DB.Exec(ctx, `UPDATE accounts SET
 		plan=$2,subscription_tokens=$3,rollover_tokens=$4,paid_tokens=$5,
 		last_error=CASE
-			WHEN status IN ('disabled','invalid') OR (status IN ('rate_limited','cooldown') AND cooldown_until>now()) THEN last_error
+			WHEN status IN ('disabled','invalid') OR generation_permission_status='blocked' OR (status IN ('rate_limited','cooldown') AND cooldown_until>now()) THEN last_error
 			ELSE '' END,
 		status=CASE
-			WHEN status IN ('disabled','invalid') OR (status IN ('rate_limited','cooldown') AND cooldown_until>now()) THEN status
+			WHEN status IN ('disabled','invalid') OR generation_permission_status='blocked' OR (status IN ('rate_limited','cooldown') AND cooldown_until>now()) THEN status
 			ELSE 'active' END,
 		cooldown_until=CASE
-			WHEN status IN ('disabled','invalid') OR (status IN ('rate_limited','cooldown') AND cooldown_until>now()) THEN cooldown_until
+			WHEN status IN ('disabled','invalid') OR generation_permission_status='blocked' OR (status IN ('rate_limited','cooldown') AND cooldown_until>now()) THEN cooldown_until
 			ELSE NULL END,
 		last_checked_at=now(),balance_snapshot_version=$6,balance_snapshot_started_at=$7,updated_at=now()
 		WHERE id=$1 AND balance_refresh_version=$6`, id, plan, subscription, rollover, paid, version, snapshotStartedAt)
@@ -499,6 +532,31 @@ func (s *Store) SetAccountError(ctx context.Context, id uuid.UUID, status, msg s
 			ELSE GREATEST(cooldown_until,$4::timestamptz) END,
 		updated_at=now()
 		WHERE id=$1`, id, status, msg, cooldown)
+	return err
+}
+
+// SetGenerationPermission records the provider capability probe independently
+// from the session state. A blocked result makes the account invalid for
+// routing while preserving the original session diagnostics.
+func (s *Store) SetGenerationPermission(ctx context.Context, id uuid.UUID, status, model, code, message string) error {
+	if status == "" {
+		status = "unknown"
+	}
+	_, err := s.DB.Exec(ctx, `UPDATE accounts SET
+		generation_permission_status=$2,generation_permission_checked_at=now(),
+		generation_permission_model=$3,generation_permission_error_code=$4,generation_permission_error=$5,
+		status=CASE
+			WHEN accounts.status='disabled' THEN accounts.status
+			WHEN $2='blocked' THEN 'invalid'
+			WHEN $2='verified' AND accounts.generation_permission_status='blocked' AND accounts.status='invalid' THEN 'active'
+			ELSE accounts.status END,
+		last_error=CASE
+			WHEN accounts.status='disabled' THEN accounts.last_error
+			WHEN $2='blocked' THEN COALESCE(NULLIF($5,''),'generation permission was rejected by the provider')
+			WHEN $2='verified' AND accounts.generation_permission_status='blocked' AND accounts.status='invalid' THEN ''
+			ELSE accounts.last_error END,
+		cooldown_until=CASE WHEN $2='blocked' THEN NULL ELSE accounts.cooldown_until END,
+		updated_at=now() WHERE id=$1`, id, status, model, code, message)
 	return err
 }
 

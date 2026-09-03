@@ -1,4 +1,39 @@
-import type { PublicModel, PublicVideoModel } from "../shared/types";
+import type { PublicVideoModel } from "../shared/types";
+import { providerRegistry } from "../shared/providers";
+
+const modelNameWords: Record<string, string> = {
+  ai: "AI",
+  fal: "FAL",
+  flux: "FLUX",
+  gpt: "GPT",
+  grok: "Grok",
+  heygen: "HeyGen",
+  ideogram: "Ideogram",
+  kling: "Kling",
+  luma: "Luma",
+  minimax: "MiniMax",
+  nano: "Nano",
+  openai: "OpenAI",
+  pika: "Pika",
+  pixverse: "PixVerse",
+  qwen: "Qwen",
+  recraft: "Recraft",
+  runway: "Runway",
+  seedance: "Seedance",
+  seedream: "Seedream",
+  veo: "Veo",
+  wan: "WAN",
+  z: "Z",
+};
+
+function creativeFabricaModelName(model: string) {
+  const id = model.replace(/^creativefabrica:/, "");
+  return id
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => modelNameWords[word.toLowerCase()] || word)
+    .join(" ");
+}
 
 const adobeVeoSizes = [
 	{ value: "1280x720", label: "横屏 16:9 · 1280x720 · 720p", resolution: "720p" },
@@ -31,22 +66,21 @@ const adobeSeedance1080Sizes = [
 	{ value: "1080x1920", label: "竖屏 9:16 · 1080x1920 · 1080p", resolution: "1080p" },
 ];
 
-export const imageModelDocs: Record<
-  PublicModel,
-  {
-    name: string;
-    role: string;
-    use: string;
-    strengths: string[];
-    limits: string[];
-    quality: string;
-    size: string;
-    sizeNote: string;
-    quantity: string;
-    promptMax: number;
-    customSize?: string;
-  }
-> = {
+export type ImageModelDoc = {
+  name: string;
+  role: string;
+  use: string;
+  strengths: string[];
+  limits: string[];
+  quality: string;
+  size: string;
+  sizeNote: string;
+  quantity: string;
+  promptMax: number;
+  customSize?: string;
+};
+
+const baseImageModelDocs: Record<string, ImageModelDoc> = {
   "gpt-image-2": {
     name: "GPT Image 2",
     role: "通用首选",
@@ -122,35 +156,57 @@ export const imageModelDocs: Record<
   },
 };
 
-export const videoModelDocs: Record<
-  PublicVideoModel,
-  {
-    name: string;
-    role: string;
-    use: string;
-    duration: string;
-    resolution: string;
-    limits: string[];
-    durationValues: number[];
-    defaultDuration: number;
-    resolutions: string[];
-    sizes?: { value: string; label: string; resolution?: string }[];
-    maxReferenceImages: number;
-    maxReferenceImagesWithVideo?: number;
-    supportsStartEnd: boolean;
-    supportsEndFrame?: boolean;
-    requiresStartFrame?: boolean;
-    supportsVideoAudioReferences: boolean;
-    maxReferenceVideos?: number;
-    maxReferenceAudios?: number;
-    maxReferenceVideoDuration?: number;
-    minReferenceVideoDuration?: number;
-    maxReferenceAudioDuration?: number;
-    supportsGenerateAudio: boolean;
-    alwaysGenerateAudio?: boolean;
-    promptMax: number;
-  }
-> = {
+const creativeFabricaImageDocs: Record<string, ImageModelDoc> = Object.fromEntries(
+  providerRegistry.creativefabrica.models.image.map((model) => [
+    model,
+    {
+      name: creativeFabricaModelName(model),
+      role: "Creative Fabrica 图像模型",
+      use: "通过 Creative Fabrica Studio Flow 异步生成或编辑图片；实际可用选项和 Coins 价格以账号同步到的上游目录为准。",
+      strengths: ["Flow 异步任务", "支持参考图路径", "按账号动态读取 Coins 价格"],
+      limits: ["模型可用性取决于账号权益", "尺寸按画幅映射，精确输出档由上游模型决定", "提交前需要已有动态价格规则"],
+      quality: "由 Creative Fabrica 模型决定",
+      size: "支持常用横屏、竖屏、方形和电影画幅；网关将尺寸转换为 Flow 画幅枚举",
+      sizeNote: "Creative Fabrica Flow 当前按画幅提交；表内尺寸用于选择画幅，最终输出尺寸由模型和账号目录决定。",
+      quantity: "1 张；以账号模型目录和价格规则为准",
+      promptMax: 9999,
+    },
+  ]),
+) as Record<string, ImageModelDoc>;
+
+export const imageModelDocs: Record<string, ImageModelDoc> = {
+  ...baseImageModelDocs,
+  ...creativeFabricaImageDocs,
+};
+
+export type VideoModelDoc = {
+  name: string;
+  role: string;
+  use: string;
+  duration: string;
+  resolution: string;
+  limits: string[];
+  durationValues: number[];
+  defaultDuration: number;
+  resolutions: string[];
+  sizes?: { value: string; label: string; resolution?: string }[];
+  maxReferenceImages: number;
+  maxReferenceImagesWithVideo?: number;
+  supportsStartEnd: boolean;
+  supportsEndFrame?: boolean;
+  requiresStartFrame?: boolean;
+  supportsVideoAudioReferences: boolean;
+  maxReferenceVideos?: number;
+  maxReferenceAudios?: number;
+  maxReferenceVideoDuration?: number;
+  minReferenceVideoDuration?: number;
+  maxReferenceAudioDuration?: number;
+  supportsGenerateAudio: boolean;
+  alwaysGenerateAudio?: boolean;
+  promptMax: number;
+};
+
+const baseVideoModelDocs: Record<string, VideoModelDoc> = {
 	"adobe:kling-3.0-omni": {
 		name: "Adobe · Kling 3.0 Omni",
 		role: "Firefly 全模态视频",
@@ -492,9 +548,49 @@ export const videoModelDocs: Record<
 };
 
 export const standardVideoSizes: { value: string; label: string; resolution?: string }[] = [
-  { value: "1280x720", label: "横屏 16:9" },
-  { value: "720x1280", label: "竖屏 9:16" },
+  { value: "1280x720", label: "横屏 16:9 · 1280x720 · 720p", resolution: "720p" },
+  { value: "720x1280", label: "竖屏 9:16 · 720x1280 · 720p", resolution: "720p" },
 ];
+
+const creativeFabricaVideoDocs: Record<string, VideoModelDoc> = Object.fromEntries(
+  providerRegistry.creativefabrica.models.video.map((model) => {
+    const isHeyGen = model.includes("heygen");
+    return [
+      model,
+      {
+        name: creativeFabricaModelName(model),
+        role: "Creative Fabrica 视频模型",
+        use: "通过 Creative Fabrica Studio Media Matrix 异步生成视频；实际可用参数、参考媒体能力和 Coins 价格以账号同步到的上游目录为准。",
+        duration: "3–15 秒（以账号模型目录为准）",
+        resolution: "720p / 1080p（画幅与账号目录绑定）",
+        limits: [
+          "模型可用性取决于账号权益和实时目录",
+          isHeyGen ? "当前网关按文本视频路径展示" : "参考媒体能力以实时模型目录为准，提交前会由上游校验",
+          "提交前需要已有动态价格规则",
+        ],
+        durationValues: Array.from({ length: 13 }, (_, index) => index + 3),
+        defaultDuration: 5,
+        resolutions: ["720p", "1080p"],
+        sizes: standardVideoSizes,
+        maxReferenceImages: isHeyGen ? 0 : 10,
+        supportsStartEnd: !isHeyGen,
+        supportsEndFrame: !isHeyGen,
+        supportsVideoAudioReferences: !isHeyGen,
+        maxReferenceVideos: isHeyGen ? 0 : 10,
+        maxReferenceAudios: isHeyGen ? 0 : 10,
+        maxReferenceVideoDuration: isHeyGen ? undefined : 30.2,
+        maxReferenceAudioDuration: isHeyGen ? undefined : 30.2,
+        supportsGenerateAudio: false,
+        promptMax: 9999,
+      } satisfies VideoModelDoc,
+    ];
+  }),
+) as Record<string, VideoModelDoc>;
+
+export const videoModelDocs: Record<string, VideoModelDoc> = {
+  ...baseVideoModelDocs,
+  ...creativeFabricaVideoDocs,
+};
 
 export function modelVideoSizes(model: PublicVideoModel) {
   return videoModelDocs[model].sizes || standardVideoSizes;

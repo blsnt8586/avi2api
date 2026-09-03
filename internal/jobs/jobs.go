@@ -11,6 +11,7 @@ import (
 	"github.com/leonardo2api/leonardo2api/internal/adobe"
 	"github.com/leonardo2api/leonardo2api/internal/circuit"
 	"github.com/leonardo2api/leonardo2api/internal/config"
+	"github.com/leonardo2api/leonardo2api/internal/creativefabrica"
 	"github.com/leonardo2api/leonardo2api/internal/domain"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 	"github.com/leonardo2api/leonardo2api/internal/providers"
@@ -140,6 +141,27 @@ func (w *Worker) recordAdobeSubmission(ctx context.Context, id, leaseID, account
 	return nil
 }
 
+func (w *Worker) recordCreativeFabricaSubmission(ctx context.Context, id, leaseID, accountID uuid.UUID, response creativefabrica.Job) error {
+	generationID := response.ID
+	if generationID == "" {
+		generationID = response.FlowID
+	}
+	if generationID == "" {
+		generationID = response.SessionID
+	}
+	if generationID == "" {
+		return errors.New("Creative Fabrica submission response has no flow or session id")
+	}
+	ok, err := w.Store.RecordTaskSubmissionOwned(ctx, id, leaseID, accountID, generationID, nil)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("task execution lease is no longer owned")
+	}
+	return nil
+}
+
 func (w *Worker) recordSubmission(ctx context.Context, id, leaseID uuid.UUID, accountID uuid.UUID, response leonardo.GenerateResponse) error {
 	cost := normalizeUpstreamReportedCost(response.APICreditCost)
 	ok, err := w.Store.RecordTaskSubmissionOwned(ctx, id, leaseID, accountID, response.GenerationID, cost)
@@ -231,6 +253,7 @@ func (w *Worker) yieldSubmittedRetry(ctx context.Context, id, leaseID uuid.UUID,
 func submissionAccountRouteable(account domain.Account) bool {
 	now := time.Now()
 	return account.Status == "active" &&
+		((account.ProviderID != providers.Leonardo && account.GenerationPermissionStatus != "blocked") || (account.ProviderID == providers.Leonardo && account.GenerationPermissionStatus == "verified")) &&
 		(account.CooldownUntil == nil || !account.CooldownUntil.After(now)) &&
 		account.AccessTokenExpiresAt != nil && account.AccessTokenExpiresAt.After(now) &&
 		account.LastCheckedAt != nil &&

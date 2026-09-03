@@ -11,78 +11,79 @@ import (
 )
 
 type Config struct {
-	Mode                       string
-	HTTPAddr                   string
-	DatabaseURL                string
-	DatabaseMaxConns           int
-	RedisAddr                  string
-	RedisPassword              string
-	RedisDB                    int
-	MasterKey                  []byte
-	AdminUsername              string
-	AdminPassword              string
-	SessionSyncToken           string
-	PublicBaseURL              string
-	SchemaVersion              string
-	AdobeSubmitAPIKey          string
-	AdobeCreditsAPIKey         string
-	SyncTimeout                time.Duration
-	PollInterval               time.Duration
-	TaskTimeout                time.Duration
-	TaskLease                  time.Duration
-	QueueTimeout               time.Duration
-	BalanceReconcileDelay      time.Duration
-	BalanceRefreshWorkers      int
-	BalanceRefreshPerProxy     int
-	ProxyControlMinInterval    time.Duration
-	ProxyControlLease          time.Duration
-	TaskDispatcherConcurrency  int
-	APIKeyQueueMultiplier      int
-	UncertainAccountLimit      int
-	UncertainProxyLimit        int
-	UncertainProviderLimit     int
-	SharedCircuitWindow        time.Duration
-	SharedCircuitCooldown      time.Duration
-	ProviderCircuitFailures    int
-	ProxyCircuitFailures       int
-	GenerationInFlight         int
-	MultipartInFlight          int
-	SyncInFlight               int
-	RequestLogWorkers          int
-	RequestLogBuffer           int
-	SessionRefreshAhead        time.Duration
-	SessionRefreshScanInterval time.Duration
-	SessionRefreshMinFresh     time.Duration
-	SessionRefreshLease        time.Duration
-	SessionRefreshBrowserLease time.Duration
-	SessionRefreshIdlePoll     time.Duration
-	SessionRefreshWorkers      int
-	SessionRefreshBatch        int
-	SessionWorkerAllowRemote   bool
-	MaxImageBytes              int64
-	MaxVideoBytes              int64
-	MaxAudioBytes              int64
-	MaxMultipartBytes          int64
-	TaskAssetDir               string
-	HistoryCleanupInterval     time.Duration
-	HistoryCleanupBatch        int
-	TaskEventRetention         time.Duration
-	OutboxRetention            time.Duration
-	SessionJobRetention        time.Duration
-	APIRequestLogRetention     time.Duration
-	AuditLogRetention          time.Duration
-	ReconciliationRetention    time.Duration
-	LogLevel                   string
-	CookieSecure               bool
-	RateLimitPerMinute         int
-	RateLimitPerHour           int
-	DailyImageLimit            int
-	IPRateLimitPerMinute       int
-	AccountSubmitInterval      time.Duration
-	AdobeAccountSubmitInterval time.Duration
-	CircuitFailures            int
-	CircuitCooldown            time.Duration
-	Upstream429Cooldown        time.Duration
+	Mode                              string
+	HTTPAddr                          string
+	DatabaseURL                       string
+	DatabaseMaxConns                  int
+	RedisAddr                         string
+	RedisPassword                     string
+	RedisDB                           int
+	MasterKey                         []byte
+	AdminUsername                     string
+	AdminPassword                     string
+	SessionSyncToken                  string
+	PublicBaseURL                     string
+	SchemaVersion                     string
+	AdobeSubmitAPIKey                 string
+	AdobeCreditsAPIKey                string
+	SyncTimeout                       time.Duration
+	PollInterval                      time.Duration
+	TaskTimeout                       time.Duration
+	TaskLease                         time.Duration
+	QueueTimeout                      time.Duration
+	BalanceReconcileDelay             time.Duration
+	BalanceRefreshWorkers             int
+	BalanceRefreshPerProxy            int
+	ProxyControlMinInterval           time.Duration
+	ProxyControlLease                 time.Duration
+	TaskDispatcherConcurrency         int
+	APIKeyQueueMultiplier             int
+	UncertainAccountLimit             int
+	UncertainProxyLimit               int
+	UncertainProviderLimit            int
+	SharedCircuitWindow               time.Duration
+	SharedCircuitCooldown             time.Duration
+	ProviderCircuitFailures           int
+	ProxyCircuitFailures              int
+	GenerationInFlight                int
+	MultipartInFlight                 int
+	SyncInFlight                      int
+	RequestLogWorkers                 int
+	RequestLogBuffer                  int
+	SessionRefreshAhead               time.Duration
+	SessionRefreshScanInterval        time.Duration
+	SessionRefreshMinFresh            time.Duration
+	SessionRefreshLease               time.Duration
+	SessionRefreshBrowserLease        time.Duration
+	SessionRefreshIdlePoll            time.Duration
+	SessionRefreshWorkers             int
+	SessionRefreshBatch               int
+	GenerationPermissionCheckInterval time.Duration
+	SessionWorkerAllowRemote          bool
+	MaxImageBytes                     int64
+	MaxVideoBytes                     int64
+	MaxAudioBytes                     int64
+	MaxMultipartBytes                 int64
+	TaskAssetDir                      string
+	HistoryCleanupInterval            time.Duration
+	HistoryCleanupBatch               int
+	TaskEventRetention                time.Duration
+	OutboxRetention                   time.Duration
+	SessionJobRetention               time.Duration
+	APIRequestLogRetention            time.Duration
+	AuditLogRetention                 time.Duration
+	ReconciliationRetention           time.Duration
+	LogLevel                          string
+	CookieSecure                      bool
+	RateLimitPerMinute                int
+	RateLimitPerHour                  int
+	DailyImageLimit                   int
+	IPRateLimitPerMinute              int
+	AccountSubmitInterval             time.Duration
+	AdobeAccountSubmitInterval        time.Duration
+	CircuitFailures                   int
+	CircuitCooldown                   time.Duration
+	Upstream429Cooldown               time.Duration
 }
 
 func Load() (Config, error) {
@@ -96,7 +97,7 @@ func Load() (Config, error) {
 		AdminPassword:      os.Getenv("LEO_ADMIN_PASSWORD"),
 		SessionSyncToken:   os.Getenv("LEO_SESSION_SYNC_TOKEN"),
 		PublicBaseURL:      strings.TrimRight(env("LEO_PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
-		SchemaVersion:      env("LEO_SCHEMA_VERSION", "1.258.0"),
+		SchemaVersion:      env("LEO_SCHEMA_VERSION", "1.280.1"),
 		AdobeSubmitAPIKey:  strings.TrimSpace(os.Getenv("ADOBE_SUBMIT_API_KEY")),
 		AdobeCreditsAPIKey: strings.TrimSpace(os.Getenv("ADOBE_CREDITS_API_KEY")),
 		TaskAssetDir:       env("LEO_TASK_ASSET_DIR", "./data/task-assets"),
@@ -203,6 +204,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if c.SessionRefreshBatch, err = intEnv("LEO_SESSION_REFRESH_BATCH", 1000); err != nil {
+		return Config{}, err
+	}
+	if c.GenerationPermissionCheckInterval, err = durationEnv("LEO_GENERATION_PERMISSION_CHECK_INTERVAL", 24*time.Hour); err != nil {
 		return Config{}, err
 	}
 	if c.SessionWorkerAllowRemote, err = boolEnv("LEO_SESSION_WORKER_ALLOW_REMOTE", false); err != nil {
@@ -353,6 +357,9 @@ func Load() (Config, error) {
 	}
 	if c.SessionRefreshBatch < 1 || c.SessionRefreshBatch > 10000 {
 		return Config{}, errors.New("LEO_SESSION_REFRESH_BATCH must be between 1 and 10000")
+	}
+	if c.GenerationPermissionCheckInterval < time.Minute || c.GenerationPermissionCheckInterval > 7*24*time.Hour {
+		return Config{}, errors.New("LEO_GENERATION_PERMISSION_CHECK_INTERVAL must be between 1m and 7d")
 	}
 	if c.HistoryCleanupInterval < 10*time.Minute || c.HistoryCleanupInterval > 24*time.Hour {
 		return Config{}, errors.New("LEO_HISTORY_CLEANUP_INTERVAL must be between 10m and 24h")

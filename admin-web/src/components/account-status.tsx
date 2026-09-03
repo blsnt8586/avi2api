@@ -2,11 +2,25 @@ import type { Account } from "../shared/types";
 import { statusText } from "../shared/status";
 
 export function accountOperationalState(account: Account) {
+  if (account.generation_permission_status === "blocked") {
+    return {
+      className: "invalid",
+      label: "生成权限失效",
+      detail: account.generation_permission_error || "上游拒绝该账号的生成请求",
+    };
+  }
   if (account.status !== "active") {
     return {
       className: account.status,
       label: statusText(account.status),
       detail: account.last_error || undefined,
+    };
+  }
+  if (account.provider_id === "leonardo" && account.generation_permission_status !== "verified") {
+    return {
+      className: "queued",
+      label: "生成权限待检测",
+      detail: account.generation_permission_error || "会话有效，等待生成权限探针完成",
     };
   }
   const now = Date.now();
@@ -35,10 +49,13 @@ export function accountOperationalState(account: Account) {
 
 export function AccountStatusCell({ account }: { account: Account }) {
   const state = accountOperationalState(account);
+  const permission = account.generation_permission_status || "unknown";
+  const permissionLabel = permission === "verified" ? "生成权限已验证" : permission === "blocked" ? "生成权限失效" : permission === "rate_limited" ? "生成权限检测遇到 429" : permission === "error" ? "生成权限待重试" : "生成权限待检测";
+  const permissionClass = permission === "verified" ? "verified" : permission === "blocked" ? "blocked" : "pending";
   return (
-    <span className="account-status-cell" title={state.detail}>
-      <i className={`status ${state.className}`}></i>
-      {state.label}
+    <span className="account-status-cell" title={state.detail || account.generation_permission_error || undefined}>
+      <span><i className={`status ${state.className}`}></i>{state.label}</span>
+      <small className={`account-permission-health ${permissionClass}`}>{permissionLabel}</small>
     </span>
   );
 }

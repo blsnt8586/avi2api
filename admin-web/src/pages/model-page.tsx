@@ -51,6 +51,16 @@ import { formatOptionalTokens, formatTokens } from "../shared/status";
 import { EstimateTable } from "./pricing-components";
 import { modelDisplayID, providerCreditUnit, providerDefinition, providerDisplayName, providerSupports } from "../shared/providers";
 
+function isConfiguredCatalogSource(source?: PlatformModelsResponse["catalog_source"]) {
+  return source === "configured_models" || source === "configured_models_pending_sync";
+}
+
+function catalogSourceLabel(source?: PlatformModelsResponse["catalog_source"], schemaVersion?: string) {
+  if (source === "configured_models_pending_sync") return "平台配置（待同步）";
+  if (source === "configured_models") return "平台配置";
+  return `上游 Schema ${schemaVersion || "--"}`;
+}
+
 function FeaturedModels({ rows, providerID, providers }: { rows: PlatformModelRow[]; providerID: string; providers: Provider[] }) {
   return (
     <div className="featured-models">
@@ -327,8 +337,10 @@ export function Models() {
         </Tabs>
         <div>
           <small>
-            {models.data?.catalog_source === "configured_models"
-              ? "目录来源：平台配置 · 随应用版本生效"
+            {isConfiguredCatalogSource(models.data?.catalog_source)
+              ? models.data?.catalog_source === "configured_models_pending_sync"
+                ? "目录来源：平台配置 · 等待首次上游同步"
+                : "目录来源：平台配置 · 随应用版本生效"
               : models.data?.synced_at
                 ? `最后同步：${new Date(models.data.synced_at).toLocaleString("zh-CN")}`
                 : "尚未同步平台目录"}
@@ -369,7 +381,7 @@ export function Models() {
             <Metric
               icon={<Activity />}
               label="目录来源"
-              value={models.data?.catalog_source === "configured_models" ? "平台配置" : `上游 Schema ${models.data?.schema_version || "--"}`}
+              value={catalogSourceLabel(models.data?.catalog_source, models.data?.schema_version)}
             />
           </div>
           {featured.length > 0 && (

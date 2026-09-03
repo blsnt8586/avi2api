@@ -41,6 +41,16 @@ func ParseSizeForProvider(provider, model, size string) (int, int, error) {
 	if errW != nil || errH != nil {
 		return 0, 0, fmt.Errorf("invalid image size %q", size)
 	}
+	// Creative Fabrica Flow receives the requested dimensions as a canvas
+	// hint and then maps them to an aspect-ratio enum upstream.  Unlike the
+	// Leonardo image schemas, its account-scoped models expose dimensions up
+	// to 8192px per edge, so keep this validation provider-specific.
+	if provider == "creativefabrica" {
+		if w < 64 || h < 64 || w > 8192 || h > 8192 {
+			return 0, 0, fmt.Errorf("invalid Creative Fabrica image size %q", size)
+		}
+		return w, h, nil
+	}
 	if provider == AdobeProvider && model == GPTImage2 && size != "1024x1024" && size != "2048x2048" && size != "2880x2880" {
 		return 0, 0, fmt.Errorf("gpt-image-2 size must be 1024x1024, 2048x2048 or 2880x2880 on provider adobe")
 	}

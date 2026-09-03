@@ -43,6 +43,8 @@ func (w *Worker) processVideo(parent context.Context, id uuid.UUID) error {
 	switch task.ProviderID {
 	case providers.Adobe:
 		return w.processAdobeVideo(ctx, id, leaseID, task, req, start)
+	case providers.CreativeFabrica:
+		return w.processCreativeFabricaVideo(ctx, id, leaseID, task, req, start)
 	case providers.Leonardo:
 	default:
 		return w.fail(ctx, id, leaseID, "provider_unavailable", providers.ErrUnsupported)

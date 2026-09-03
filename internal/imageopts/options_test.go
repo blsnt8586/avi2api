@@ -55,3 +55,14 @@ func TestSeedream50ProSizeConstraints(t *testing.T) {
 		}
 	}
 }
+
+func TestCreativeFabricaAcceptsFlowCanvasHints(t *testing.T) {
+	for _, size := range []string{"1024x1024", "6336x2688", "8192x4096"} {
+		if _, _, err := ParseSizeForProvider("creativefabrica", "openai-gpt-image-2", size); err != nil {
+			t.Fatalf("expected Creative Fabrica size %s to be valid: %v", size, err)
+		}
+	}
+	if _, _, err := ParseSizeForProvider("creativefabrica", "openai-gpt-image-2", "8193x1024"); err == nil {
+		t.Fatal("expected Creative Fabrica size above 8192px to be rejected")
+	}
+}

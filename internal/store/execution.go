@@ -21,26 +21,28 @@ type TaskOutboxMessage struct {
 }
 
 type claimAccountState struct {
-	ID                  uuid.UUID
-	ProviderID          string
-	Status              string
-	CooldownUntil       *time.Time
-	TokenExpiresAt      *time.Time
-	LastCheckedAt       *time.Time
-	Balance             int64
-	Concurrency         int
-	QueueCapacity       int
-	RoutingRole         string
-	ProtectedTokens     int64
-	VideoReservedSlots  int
-	HeldTokens          int64
-	ActiveTasks         int
-	ActiveNonVideoTasks int
-	ReservationCount    int
+	ID                         uuid.UUID
+	ProviderID                 string
+	Status                     string
+	GenerationPermissionStatus string
+	CooldownUntil              *time.Time
+	TokenExpiresAt             *time.Time
+	LastCheckedAt              *time.Time
+	Balance                    int64
+	Concurrency                int
+	QueueCapacity              int
+	RoutingRole                string
+	ProtectedTokens            int64
+	VideoReservedSlots         int
+	HeldTokens                 int64
+	ActiveTasks                int
+	ActiveNonVideoTasks        int
+	ReservationCount           int
 }
 
 func (state claimAccountState) routeable(providerID string, now time.Time) bool {
 	return state.ProviderID == providerID && state.Status == "active" &&
+		(state.ProviderID != "leonardo" || state.GenerationPermissionStatus == "verified") &&
 		(state.CooldownUntil == nil || !state.CooldownUntil.After(now)) &&
 		state.TokenExpiresAt != nil && state.TokenExpiresAt.After(now) &&
 		state.LastCheckedAt != nil &&
@@ -48,7 +50,7 @@ func (state claimAccountState) routeable(providerID string, now time.Time) bool 
 }
 
 func loadClaimAccount(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (claimAccountState, error) {
-	query := `SELECT a.id,a.provider_id,a.status,a.cooldown_until,a.access_token_expires_at,a.last_checked_at,
+	query := `SELECT a.id,a.provider_id,a.status,a.generation_permission_status,a.cooldown_until,a.access_token_expires_at,a.last_checked_at,
 		a.subscription_tokens+a.rollover_tokens+a.paid_tokens,a.image_concurrency,a.queue_capacity,
 		a.routing_role,a.protected_tokens,a.video_reserved_slots,
 		COALESCE(u.held_tokens,0),COALESCE(u.active_tasks,0),COALESCE(u.active_non_video_tasks,0),COALESCE(u.reservation_count,0)
@@ -64,7 +66,7 @@ func loadClaimAccount(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (
 		query += ` FOR UPDATE OF a`
 	}
 	var state claimAccountState
-	err := tx.QueryRow(ctx, query, id).Scan(&state.ID, &state.ProviderID, &state.Status,
+	err := tx.QueryRow(ctx, query, id).Scan(&state.ID, &state.ProviderID, &state.Status, &state.GenerationPermissionStatus,
 		&state.CooldownUntil, &state.TokenExpiresAt, &state.LastCheckedAt, &state.Balance, &state.Concurrency,
 		&state.QueueCapacity, &state.RoutingRole, &state.ProtectedTokens, &state.VideoReservedSlots,
 		&state.HeldTokens, &state.ActiveTasks, &state.ActiveNonVideoTasks, &state.ReservationCount)
@@ -117,6 +119,7 @@ func rerouteQueuedTaskTx(ctx context.Context, tx pgx.Tx, task domain.Task, oldAc
 	)
 	SELECT a.id FROM accounts a LEFT JOIN usage u ON u.account_id=a.id
 	WHERE a.archived_at IS NULL AND a.provider_id=$1 AND a.id<>$2 AND a.status='active'
+	  AND (a.provider_id<>'leonardo' OR a.generation_permission_status='verified')
 	  AND (a.cooldown_until IS NULL OR a.cooldown_until<=now())
 	  AND a.access_token_expires_at IS NOT NULL AND a.access_token_expires_at>now()
 	  AND a.last_checked_at IS NOT NULL

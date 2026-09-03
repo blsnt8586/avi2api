@@ -3,8 +3,10 @@ package accounts
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,10 +14,12 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/leonardo2api/leonardo2api/internal/adobe"
+	"github.com/leonardo2api/leonardo2api/internal/creativefabrica"
 	"github.com/leonardo2api/leonardo2api/internal/leonardo"
 )
 
 var ErrProxyControlUnavailable = errors.New("upstream proxy control window is unavailable")
+var ErrGenerationPermissionBlocked = errors.New("generation permission is blocked")
 
 // ProxyControlUnavailableError means a shared exit is pacing requests or is
 // cooling down after an upstream 429. It is deliberately not an account error.
@@ -50,8 +54,96 @@ func IsUpstreamRateLimited(err error) bool {
 	if errors.As(err, &upstream) {
 		return upstream.Status == 429
 	}
+	var gqlErr *leonardo.GraphQLError
+	if errors.As(err, &gqlErr) {
+		if status, ok := gqlErr.Extensions["statusCode"].(float64); ok && int(status) == 429 {
+			return true
+		}
+		if code, _ := gqlErr.Extensions["code"].(string); strings.EqualFold(code, "RATE_LIMIT_EXCEEDED") {
+			return true
+		}
+	}
 	var adobeError *adobe.HTTPError
-	return errors.As(err, &adobeError) && (adobeError.Status == 429 || adobeError.Status == 451)
+	if errors.As(err, &adobeError) && (adobeError.Status == 429 || adobeError.Status == 451) {
+		return true
+	}
+	var cfHTTP *creativefabrica.HTTPError
+	if errors.As(err, &cfHTTP) && (cfHTTP.Status == 429 || cfHTTP.Status == 451) {
+		return true
+	}
+	var cfRPC *creativefabrica.RPCError
+	if errors.As(err, &cfRPC) {
+		if cfRPC.Status == 429 || cfRPC.Status == 451 {
+			return true
+		}
+		code := strings.ToUpper(strings.TrimSpace(cfRPC.Code + " " + cfRPC.Message + " " + cfRPC.Body))
+		return strings.Contains(code, "RESOURCE_EXHAUSTED") || strings.Contains(code, "RATE_LIMIT") || strings.Contains(code, "TOO MANY REQUEST")
+	}
+	var cfGraphQL *creativefabrica.GraphQLError
+	if errors.As(err, &cfGraphQL) {
+		for _, item := range cfGraphQL.Errors {
+			code := strings.ToUpper(strings.TrimSpace(fmt.Sprint(item.Extensions["code"])))
+			if strings.Contains(code, "RESOURCE_EXHAUSTED") || strings.Contains(code, "RATE_LIMIT") || code == "TOO_MANY_REQUESTS" {
+				return true
+			}
+			if status, ok := numericStatus(item.Extensions["statusCode"]); ok && (status == 429 || status == 451) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsGenerationPermissionBlocked recognizes account-level generation denials
+// returned by Leonardo either as HTTP 403 or as a nested GraphQL HttpException.
+// Authentication and balance queries can still succeed in this state.
+func IsGenerationPermissionBlocked(err error) bool {
+	if errors.Is(err, ErrGenerationPermissionBlocked) {
+		return true
+	}
+	var upstream *leonardo.HTTPError
+	if errors.As(err, &upstream) && upstream.Status == 403 {
+		return true
+	}
+	var cfHTTP *creativefabrica.HTTPError
+	if errors.As(err, &cfHTTP) && cfHTTP.Status == 403 {
+		return true
+	}
+	var gqlErr *leonardo.GraphQLError
+	if !errors.As(err, &gqlErr) {
+		var cfGraphQL *creativefabrica.GraphQLError
+		if !errors.As(err, &cfGraphQL) {
+			var cfRPC *creativefabrica.RPCError
+			if !errors.As(err, &cfRPC) {
+				return false
+			}
+			text := strings.ToLower(cfRPC.Code + " " + cfRPC.Message + " " + cfRPC.Body)
+			return strings.Contains(text, "permission_denied") || strings.Contains(text, "forbidden") || strings.Contains(text, "access denied")
+		}
+		for _, item := range cfGraphQL.Errors {
+			if status, ok := numericStatus(item.Extensions["statusCode"]); ok && status == 403 {
+				return true
+			}
+			text := strings.ToLower(item.Message + " " + fmt.Sprint(item.Extensions))
+			if strings.Contains(text, "permission_denied") || strings.Contains(text, "forbidden") || strings.Contains(text, "access denied") {
+				return true
+			}
+		}
+		return false
+	}
+	if status, ok := gqlErr.Extensions["statusCode"].(float64); ok && int(status) == 403 {
+		return true
+	}
+	if status, ok := gqlErr.Extensions["statusCode"].(int); ok && status == 403 {
+		return true
+	}
+	text := strings.ToLower(gqlErr.Message + " " + fmt.Sprint(gqlErr.Extensions))
+	for _, marker := range []string{"user is blocked", "access denied", "m004 suspended", "suspended"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func SanitizedUpstreamError(err error) string {
@@ -63,10 +155,44 @@ func SanitizedUpstreamError(err error) string {
 	if errors.As(err, &adobeError) {
 		return fmt.Sprintf("Adobe upstream HTTP %d", adobeError.Status)
 	}
+	var cfHTTP *creativefabrica.HTTPError
+	if errors.As(err, &cfHTTP) {
+		return fmt.Sprintf("Creative Fabrica upstream HTTP %d", cfHTTP.Status)
+	}
+	var cfRPC *creativefabrica.RPCError
+	if errors.As(err, &cfRPC) {
+		if cfRPC.Code != "" {
+			return fmt.Sprintf("Creative Fabrica RPC %s", cfRPC.Code)
+		}
+		return "Creative Fabrica RPC request failed"
+	}
+	var cfGraphQL *creativefabrica.GraphQLError
+	if errors.As(err, &cfGraphQL) {
+		return "Creative Fabrica GraphQL request failed"
+	}
 	if IsProxyControlUnavailable(err) {
 		return err.Error()
 	}
 	return strings.TrimSpace(err.Error())
+}
+
+func numericStatus(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), true
+	case float64:
+		return int(typed), true
+	case json.Number:
+		n, err := typed.Int64()
+		return int(n), err == nil
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(typed))
+		return n, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func proxyControlKey(proxyURL, suffix string) string {

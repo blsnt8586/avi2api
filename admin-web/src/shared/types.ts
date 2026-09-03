@@ -13,6 +13,11 @@ export type Account = {
   active_reservations: number;
   queued_tasks: number;
   status: string;
+  generation_permission_status: "unknown" | "verified" | "blocked" | "rate_limited" | "error" | string;
+  generation_permission_checked_at?: string;
+  generation_permission_model?: string;
+  generation_permission_error_code?: string;
+  generation_permission_error?: string;
   image_concurrency: number;
   queue_capacity: number;
   routing_role: "general" | "video_reserved";
@@ -317,7 +322,7 @@ export type PlatformModelsResponse = {
   schema_version: string;
   media_type?: string;
   synced_at?: string;
-  catalog_source: "upstream_schema" | "configured_models";
+  catalog_source: "upstream_schema" | "configured_models" | "configured_models_pending_sync";
   sync_supported: boolean;
   data: PlatformModelRow[];
 };
