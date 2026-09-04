@@ -41,3 +41,47 @@ func TestCookieHeaderFromJSONCollapsesDuplicateNames(t *testing.T) {
 		t.Fatalf("unexpected collapsed header %q", header)
 	}
 }
+
+func TestNormalizeCookieJSONAcceptsUserAgentMetadataCookie(t *testing.T) {
+	raw := json.RawMessage(`[{
+		"name":"_user_agent",
+		"value":"Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+		"domain":".creativefabrica.com",
+		"path":"/"
+	}]`)
+	if _, err := NormalizeCookieJSON(raw); err != nil {
+		t.Fatalf("NormalizeCookieJSON() rejected exported user-agent cookie: %v", err)
+	}
+	header, err := CookieHeaderFromJSON(raw)
+	if err == nil || header != "" {
+		t.Fatalf("expected metadata-only cookie export to produce an empty-header error, header=%q err=%v", header, err)
+	}
+}
+
+func TestCookieHeaderFromJSONSkipsUserAgentMetadataCookie(t *testing.T) {
+	raw := json.RawMessage(`[{
+		"name":"_user_agent",
+		"value":"Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+		"domain":".creativefabrica.com",
+		"path":"/"
+	}, {
+		"name":"cfauth_uid",
+		"value":"opaque",
+		"domain":".creativefabrica.com",
+		"path":"/"
+	}]`)
+	header, err := CookieHeaderFromJSON(raw)
+	if err != nil {
+		t.Fatalf("CookieHeaderFromJSON() error = %v", err)
+	}
+	if header != "cfauth_uid=opaque" {
+		t.Fatalf("unexpected header %q", header)
+	}
+}
+
+func TestNormalizeCookieJSONRejectsSemicolonInAuthCookie(t *testing.T) {
+	raw := json.RawMessage(`[{"name":"cfauth_sig","value":"bad;value","domain":".creativefabrica.com","path":"/"}]`)
+	if _, err := NormalizeCookieJSON(raw); err == nil {
+		t.Fatal("expected semicolon in an authentication cookie to be rejected")
+	}
+}

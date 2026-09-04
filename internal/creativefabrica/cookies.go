@@ -54,7 +54,7 @@ func NormalizeCookieJSON(raw json.RawMessage) (CookieJSON, error) {
 		if !cookieScope(stringValue(cookie["domain"]), stringValue(cookie["url"])) {
 			return nil, errors.New("cookie_json may contain only Creative Fabrica cookies")
 		}
-		if value := stringValue(cookie["value"]); strings.ContainsAny(value, ";\r\n") {
+		if value := stringValue(cookie["value"]); !validCookieValue(name, value) {
 			return nil, errors.New("cookie_json contains an invalid cookie value")
 		}
 	}
@@ -82,7 +82,17 @@ func CookieHeaderFromJSON(raw CookieJSON) (string, error) {
 	for _, cookie := range cookies {
 		name := strings.TrimSpace(stringValue(cookie["name"]))
 		value := stringValue(cookie["value"])
-		if name == "" || !cookieScope(stringValue(cookie["domain"]), stringValue(cookie["url"])) || strings.ContainsAny(name+value, ";\r\n") {
+		if name == "" || !cookieScope(stringValue(cookie["domain"]), stringValue(cookie["url"])) {
+			return "", errors.New("stored cookie_json contains an invalid Creative Fabrica cookie")
+		}
+		// Creative Fabrica exports _user_agent as a metadata cookie whose
+		// value is the literal browser user-agent string and therefore may
+		// contain semicolons. It must remain in the complete JSON export, but
+		// it is not a transport cookie and would make a Cookie header invalid.
+		if isCookieMetadata(name) {
+			continue
+		}
+		if !validCookieValue(name, value) {
 			return "", errors.New("stored cookie_json contains an invalid Creative Fabrica cookie")
 		}
 		if _, ok := seen[name]; ok {
@@ -95,6 +105,17 @@ func CookieHeaderFromJSON(raw CookieJSON) (string, error) {
 		return "", errors.New("stored cookie_json is empty")
 	}
 	return strings.Join(parts, "; "), nil
+}
+
+func isCookieMetadata(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), "_user_agent")
+}
+
+func validCookieValue(name, value string) bool {
+	if isCookieMetadata(name) {
+		return !strings.ContainsAny(value, "\r\n")
+	}
+	return !strings.ContainsAny(value, ";\r\n")
 }
 
 func CookieFingerprint(raw CookieJSON) string {
