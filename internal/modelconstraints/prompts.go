@@ -29,6 +29,7 @@ var promptLimits = map[string]int{
 	"dialogue-v3":       5000,
 	"music-v1":          9999,
 	"sound-effects-v2":  9999,
+	"seedance_v2_mini":  4096,
 }
 
 func PromptLimit(model string) (int, bool) {

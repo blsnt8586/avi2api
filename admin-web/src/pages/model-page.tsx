@@ -49,6 +49,7 @@ import {
 } from "../shared/catalog";
 import { formatOptionalTokens, formatTokens } from "../shared/status";
 import { EstimateTable } from "./pricing-components";
+import { CreativeFabricaCostQuote } from "./creativefabrica-cost-quote";
 import { modelDisplayID, providerCreditUnit, providerDefinition, providerDisplayName, providerSupports } from "../shared/providers";
 
 function isConfiguredCatalogSource(source?: PlatformModelsResponse["catalog_source"]) {
@@ -357,6 +358,9 @@ export function Models() {
           </button>}
         </div>
       </div>
+      {providerID === "creativefabrica" && media !== "audio" && (
+        <CreativeFabricaCostQuote key={media} kind={media} models={currentProvider?.models[media] || []} />
+      )}
       {sync.error && <p className="error">{sync.error.message}</p>}
       {models.isLoading ? (
         <div className="loading-state">

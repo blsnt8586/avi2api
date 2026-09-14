@@ -11,6 +11,7 @@ func TestPublicPromptLimits(t *testing.T) {
 		"kling-3.0-omni":    2500,
 		"gemini-omni-flash": 5000, "happy-horse-1.1": 5000, "kling-3.0": 5000,
 		"kling-3.0-turbo": 5000, "hailuo-2.3": 5000, "wan-2.7": 5000,
+		"seedance_v2_mini": 4096,
 	}
 	if len(promptLimits) != len(want) {
 		t.Fatalf("prompt limits contain %d models, want %d: %v", len(promptLimits), len(want), promptLimits)

@@ -107,6 +107,28 @@ func CookieHeaderFromJSON(raw CookieJSON) (string, error) {
 	return strings.Join(parts, "; "), nil
 }
 
+// UserAgentFromJSON returns the browser User-Agent metadata that some
+// Creative Fabrica exports keep in the _user_agent cookie. The metadata is
+// not sent as a Cookie header value; it is used as the HTTP User-Agent so
+// Cloudflare-bound session cookies continue to match their browser export.
+func UserAgentFromJSON(raw CookieJSON) string {
+	var cookies []map[string]any
+	if json.Unmarshal(raw, &cookies) != nil {
+		return ""
+	}
+	for _, cookie := range cookies {
+		if !isCookieMetadata(strings.TrimSpace(stringValue(cookie["name"]))) {
+			continue
+		}
+		value := strings.TrimSpace(stringValue(cookie["value"]))
+		if value == "" || strings.ContainsAny(value, "\r\n") {
+			return ""
+		}
+		return value
+	}
+	return ""
+}
+
 func isCookieMetadata(name string) bool {
 	return strings.EqualFold(strings.TrimSpace(name), "_user_agent")
 }

@@ -34,6 +34,10 @@ func Image(ctx context.Context, rules RuleStore, request domain.ImageRequest) (E
 }
 
 func ImageForProvider(ctx context.Context, rules RuleStore, provider string, request domain.ImageRequest) (Estimate, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		provider = "leonardo"
+	}
 	baseModel := imageopts.BaseModel(request.Model)
 	size, err := imagePricingSize(provider, request.Model, request.Size)
 	if err != nil {
@@ -58,7 +62,7 @@ func ImageForProvider(ctx context.Context, rules RuleStore, provider string, req
 		quantity = 1
 	}
 	unitTokens := rule.UnitTokens
-	if baseModel == imageopts.GPTImage2 && !imageopts.IsAdobeGPTImage2(provider, request.Model) {
+	if baseModel == imageopts.GPTImage2 && provider == "leonardo" {
 		width, height, parseErr := imageopts.ParseSizeForProvider(provider, request.Model, request.Size)
 		if parseErr != nil {
 			return Estimate{}, ErrCostUnavailable
@@ -127,6 +131,10 @@ func Video(ctx context.Context, rules RuleStore, request domain.VideoRequest) (E
 }
 
 func VideoForProvider(ctx context.Context, rules RuleStore, provider string, request domain.VideoRequest) (Estimate, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		provider = "leonardo"
+	}
 	spec, ok := videospec.GetForProvider(provider, request.Model)
 	if !ok {
 		return Estimate{}, ErrCostUnavailable
@@ -169,7 +177,7 @@ func VideoForProvider(ctx context.Context, rules RuleStore, provider string, req
 		return Estimate{}, err
 	}
 	tokens := rule.UnitTokens
-	if len(request.ReferenceVideos) > 0 {
+	if provider == "leonardo" && len(request.ReferenceVideos) > 0 {
 		if request.Model == "seedance-2.5" {
 			perSecond := int64(258)
 			if resolution == "720p" {
@@ -198,7 +206,7 @@ func VideoForProvider(ctx context.Context, rules RuleStore, provider string, req
 			tokens = (numerator + denominator - 1) / denominator
 		}
 	}
-	if provider != "adobe" && request.GenerateAudio != nil && !*request.GenerateAudio {
+	if provider == "leonardo" && request.GenerateAudio != nil && !*request.GenerateAudio {
 		// Stored rules represent each model's default motion_has_audio=true cost.
 		// These inverse modifiers come from Leonardo schema 1.232.1.
 		switch request.Model {

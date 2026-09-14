@@ -63,6 +63,17 @@ func TestVideoEstimateDefaults(t *testing.T) {
 	}
 }
 
+func TestCreativeFabricaVideoDoesNotUseLeonardoReferenceModifier(t *testing.T) {
+	rules := fakeRules{"video|seedance_v2_5|||720p|\b": {ID: 80, UnitTokens: 15380}}
+	estimate, err := VideoForProvider(context.Background(), rules, "creativefabrica", domain.VideoRequest{
+		Model: "seedance_v2_5", Duration: 8, Resolution: "720p",
+		ReferenceVideos: []domain.SourceMedia{{Path: "reference.mp4"}},
+	})
+	if err != nil || estimate.Tokens != 15380 {
+		t.Fatalf("another provider's formula changed the Coins rule: %+v %v", estimate, err)
+	}
+}
+
 func TestAdobeKlingVideoEstimateSelectsWorkflowRule(t *testing.T) {
 	rules := fakeRules{
 		"video|kling-3.0-omni||t2v|720p|\x05": {ID: 70, UnitTokens: 100},

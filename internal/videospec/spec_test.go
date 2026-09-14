@@ -111,3 +111,22 @@ func TestSpecsRejectUnsupportedCombinations(t *testing.T) {
 		t.Fatalf("unexpected Seedance 2.5 size tier: resolution=%q ok=%v", resolution, ok)
 	}
 }
+
+func TestCreativeFabricaSeedanceMiniContract(t *testing.T) {
+	mini, ok := GetForProvider("creativefabrica", "seedance_v2_mini")
+	if !ok {
+		t.Fatal("missing Creative Fabrica Seedance 2.0 Mini spec")
+	}
+	if mini.DefaultDuration != 4 || mini.SupportsDuration(3) || !mini.SupportsDuration(4) || !mini.SupportsDuration(15) {
+		t.Fatalf("unexpected duration contract: %+v", mini)
+	}
+	if mini.SupportsResolution("1080p") || !mini.SupportsResolution("480p") || !mini.SupportsResolution("720p") {
+		t.Fatalf("unexpected resolution contract: %+v", mini)
+	}
+	if mini.MaxReferenceImages != 9 || mini.MaxReferenceVideos != 3 || mini.MaxReferenceAudios != 3 || mini.MaxReferenceItems != 9 {
+		t.Fatalf("unexpected reference-count contract: %+v", mini)
+	}
+	if mini.MaxVideoDuration != 15 || mini.MaxAudioDuration != 15 || !mini.SupportsStartEndFrame || !mini.SupportsEndFrame {
+		t.Fatalf("unexpected reference-duration/frame contract: %+v", mini)
+	}
+}

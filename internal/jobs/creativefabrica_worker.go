@@ -435,7 +435,10 @@ func (w *Worker) uploadCreativeFabricaVideoFrames(ctx context.Context, id, lease
 			return fmt.Errorf("upload Creative Fabrica video frame %d: %w", index+1, err)
 		}
 		progress := 40 + (index+1)*20/len(inputs)
-		if err := w.update(ctx, id, leaseID, domain.TaskUploading, progress, &account.ID, "", nil, "", ""); err != nil {
+		// InitiateSession has already created an upstream mutation. Keep the
+		// task resumable as submitted after the signed frame upload; reverting
+		// to uploading lets an expired lease submit a duplicate session.
+		if err := w.update(ctx, id, leaseID, domain.TaskSubmitted, progress, &account.ID, "", nil, "", ""); err != nil {
 			return err
 		}
 	}

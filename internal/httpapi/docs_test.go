@@ -126,11 +126,16 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	if containsOpenAPIValue(modes["frame"]["models"].([]any), "grok-imagine-1.5") {
 		t.Fatalf("Grok Imagine 1.5 must be hidden from frame docs: %+v", modes["frame"])
 	}
+	for _, mode := range []string{"none", "image", "frame", "video", "audio"} {
+		if !containsOpenAPIValue(modes[mode]["models"].([]any), "creativefabrica/seedance_v2_mini") {
+			t.Fatalf("Creative Fabrica Seedance Mini is missing from %s mode docs: %+v", mode, modes[mode])
+		}
+	}
 	videoModels := modes["video"]["models"].([]any)
-	if len(videoModels) != 3 || !containsOpenAPIValue(videoModels, "leonardo/kling-o3-omni") || !containsOpenAPIValue(videoModels, "adobe/seedance-2.0") || !containsOpenAPIValue(videoModels, "adobe/seedance-2.0-fast") {
+	if len(videoModels) != 4 || !containsOpenAPIValue(videoModels, "leonardo/kling-o3-omni") || !containsOpenAPIValue(videoModels, "adobe/seedance-2.0") || !containsOpenAPIValue(videoModels, "adobe/seedance-2.0-fast") {
 		t.Fatalf("video-reference mode models are incomplete: %+v", modes["video"])
 	}
-	if len(modes["audio"]["models"].([]any)) != 2 || !containsOpenAPIValue(modes["audio"]["models"].([]any), "adobe/seedance-2.0") || !containsOpenAPIValue(modes["audio"]["models"].([]any), "adobe/seedance-2.0-fast") {
+	if len(modes["audio"]["models"].([]any)) != 3 || !containsOpenAPIValue(modes["audio"]["models"].([]any), "adobe/seedance-2.0") || !containsOpenAPIValue(modes["audio"]["models"].([]any), "adobe/seedance-2.0-fast") {
 		t.Fatalf("audio-reference models are unclear: %+v", modes["audio"])
 	}
 	combinations, ok := videoCreate["x-reference-combinations"].(map[string]any)
@@ -142,7 +147,7 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 		t.Fatalf("frame reference exclusions are incomplete: %+v", combinations)
 	}
 	rawCombinationRules, ok := combinations["rules"].([]any)
-	if !ok || len(rawCombinationRules) != 5 {
+	if !ok || len(rawCombinationRules) != 6 {
 		t.Fatalf("video reference combinations are incomplete: %+v", combinations["rules"])
 	}
 	combinationRules := make(map[string]map[string]any)
@@ -172,6 +177,13 @@ func TestOpenAPIContractCoverage(t *testing.T) {
 	}
 	if combinationRules["adobe/kling-3.0-omni"] == nil || combinationRules["adobe/veo-3.1"] == nil {
 		t.Fatalf("Adobe Kling or Veo reference contract is missing: kling=%+v veo=%+v", combinationRules["adobe/kling-3.0-omni"], combinationRules["adobe/veo-3.1"])
+	}
+	cfMiniRule := combinationRules["creativefabrica/seedance_v2_mini"]
+	cfMiniCombinations := cfMiniRule["combinable_reference_fields"].([]any)
+	if !containsOpenAPIValue(cfMiniCombinations, "image") || !containsOpenAPIValue(cfMiniCombinations, "video") || !containsOpenAPIValue(cfMiniCombinations, "audio") ||
+		cfMiniRule["max_reference_images"] != float64(9) || cfMiniRule["max_reference_videos"] != float64(3) || cfMiniRule["max_reference_audios"] != float64(3) ||
+		cfMiniRule["max_reference_media"] != float64(9) || cfMiniRule["max_reference_video_duration"] != float64(15) || cfMiniRule["max_reference_audio_duration"] != float64(15) {
+		t.Fatalf("Creative Fabrica Seedance Mini reference contract is unclear: %+v", cfMiniRule)
 	}
 	components := document["components"].(map[string]any)
 	schemas := components["schemas"].(map[string]any)

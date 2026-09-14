@@ -3,6 +3,7 @@ WORKDIR /src/admin-web
 COPY admin-web/package.json admin-web/pnpm-lock.yaml admin-web/pnpm-workspace.yaml admin-web/tsconfig.json admin-web/tsconfig.app.json admin-web/vite.config.ts admin-web/index.html ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY admin-web/src ./src
+COPY admin-web/public ./public
 RUN pnpm run build
 
 FROM golang:1.25-alpine AS go-build

@@ -291,7 +291,8 @@ func (w *Worker) pollInterval(id uuid.UUID, deadline *time.Time) time.Duration {
 }
 
 func isSubmittedGenerationTask(task domain.Task) bool {
-	return (task.Status == domain.TaskSubmitted || task.Status == domain.TaskPolling) && task.GenerationID != "" && task.AccountID != nil
+	return (task.Status == domain.TaskUploading || task.Status == domain.TaskSubmitted || task.Status == domain.TaskPolling) &&
+		task.GenerationID != "" && task.AccountID != nil
 }
 
 func (w *Worker) enforceSubmissionFence(ctx context.Context, id, leaseID, accountID uuid.UUID) (domain.Account, bool, error) {

@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -16,8 +17,9 @@ import (
 )
 
 const (
-	creativeFabricaPricingSource  = "creativefabrica-preset"
-	creativeFabricaMaxPricingComb = 96
+	creativeFabricaPricingSource     = "creativefabrica-preset"
+	creativeFabricaFlowPricingSource = "creativefabrica-flow"
+	creativeFabricaMaxPricingComb    = 4096
 )
 
 // SyncCreativeFabricaPricing refreshes the local admission rules from the
@@ -72,16 +74,33 @@ func (s *Service) SyncCreativeFabricaPricing(ctx context.Context, account domain
 		if publicModel == "" {
 			continue
 		}
-		for _, candidate := range creativeFabricaPricingCandidates(model, "image", publicModel) {
-			coins, _, costErr := client.CalculateGenerationCost(ctx, token, pricingModelID(model), candidate.Options, nil)
+		candidates, err := creativeFabricaPricingCandidates(model, "image", publicModel)
+		if err != nil {
+			return 0, err
+		}
+		for _, candidate := range candidates {
+			// Image tasks use CreateFlow, not the generic preset generation
+			// path. Quote the same settings shape as the worker submits.
+			flowRequest, buildErr := creativefabrica.BuildImageFlowRequest(publicModel, "Cost estimate", candidate.Size, 1, "", nil)
+			if buildErr != nil {
+				return 0, buildErr
+			}
+			settings, ok := flowRequest["settings"].(map[string]any)
+			if !ok {
+				return 0, errors.New("Creative Fabrica Flow settings are missing")
+			}
+			coins, costErr := client.CalculateFlowGenerationCost(ctx, token, settings)
 			if costErr != nil {
 				return 0, fmt.Errorf("calculate Creative Fabrica image price for %s: %w", publicModel, costErr)
 			}
-			rules = appendUniqueCreativeFabricaRule(rules, domain.ModelCostRule{
+			rules, err = appendUniqueCreativeFabricaRule(rules, domain.ModelCostRule{
 				ProviderID: providers.CreativeFabrica, Kind: "image", Model: publicModel,
 				Size: candidate.Size, Quality: candidate.Quality, UnitTokens: coins,
-				Enabled: true, PriceVersion: version, Source: creativeFabricaPricingSource,
+				Enabled: true, PriceVersion: version, Source: creativeFabricaFlowPricingSource,
 			})
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 	for _, model := range videoModels {
@@ -89,16 +108,23 @@ func (s *Service) SyncCreativeFabricaPricing(ctx context.Context, account domain
 		if publicModel == "" {
 			continue
 		}
-		for _, candidate := range creativeFabricaPricingCandidates(model, "video", publicModel) {
+		candidates, err := creativeFabricaPricingCandidates(model, "video", publicModel)
+		if err != nil {
+			return 0, err
+		}
+		for _, candidate := range candidates {
 			coins, _, costErr := client.CalculateGenerationCost(ctx, token, pricingModelID(model), candidate.Options, nil)
 			if costErr != nil {
 				return 0, fmt.Errorf("calculate Creative Fabrica video price for %s: %w", publicModel, costErr)
 			}
-			rules = appendUniqueCreativeFabricaRule(rules, domain.ModelCostRule{
+			rules, err = appendUniqueCreativeFabricaRule(rules, domain.ModelCostRule{
 				ProviderID: providers.CreativeFabrica, Kind: "video", Model: publicModel,
 				Resolution: candidate.Resolution, Duration: candidate.Duration, UnitTokens: coins,
 				Enabled: true, PriceVersion: version, Source: creativeFabricaPricingSource,
 			})
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 	if len(rules) == 0 {
@@ -136,7 +162,7 @@ func pricingModelID(model creativefabrica.Model) string {
 	return model.ID
 }
 
-func creativeFabricaPricingCandidates(model creativefabrica.Model, kind, publicModel string) []creativeFabricaPricingCandidate {
+func creativeFabricaPricingCandidates(model creativefabrica.Model, kind, publicModel string) ([]creativeFabricaPricingCandidate, error) {
 	names := append([]string(nil), model.PricingInputs...)
 	if len(names) == 0 {
 		if options, ok := model.PricingInputConfig["options"].([]any); ok {
@@ -149,11 +175,16 @@ func creativeFabricaPricingCandidates(model creativefabrica.Model, kind, publicM
 	}
 	names = uniqueStrings(names)
 	optionSets := make([][]any, 0, len(names))
+	count := 1
 	for _, name := range names {
 		values := creativeFabricaOptionValues(model, name, kind)
 		if len(values) == 0 {
-			continue
+			return nil, fmt.Errorf("Creative Fabrica %s: missing pricing domain for %s", publicModel, name)
 		}
+		if count > creativeFabricaMaxPricingComb/len(values) {
+			return nil, fmt.Errorf("Creative Fabrica %s: pricing domain exceeds %d combinations; snapshot was not truncated", publicModel, creativeFabricaMaxPricingComb)
+		}
+		count *= len(values)
 		optionSets = append(optionSets, values)
 	}
 	combinations := cartesianPricingOptions(names, optionSets, creativeFabricaMaxPricingComb)
@@ -172,6 +203,9 @@ func creativeFabricaPricingCandidates(model creativefabrica.Model, kind, publicM
 			}
 		} else {
 			candidate.Resolution = normalizePricingResolution(scalarString(options["resolution"]))
+			if candidate.Resolution == "" {
+				candidate.Resolution = normalizePricingResolution(scalarString(options["mode"]))
+			}
 			candidate.Duration = scalarInt(options["duration_seconds"])
 			if candidate.Duration == 0 {
 				candidate.Duration = 5
@@ -189,7 +223,7 @@ func creativeFabricaPricingCandidates(model creativefabrica.Model, kind, publicM
 		}
 		result = append(result, candidate)
 	}
-	return dedupeCreativeFabricaCandidates(result, kind)
+	return dedupeCreativeFabricaCandidates(result, kind), nil
 }
 
 func creativeFabricaOptionValues(model creativefabrica.Model, name, kind string) []any {
@@ -202,20 +236,25 @@ func creativeFabricaOptionValues(model creativefabrica.Model, name, kind string)
 		for _, typeName := range []string{"stringType", "integerType", "numberType", "booleanType"} {
 			if typed, ok := option[typeName].(map[string]any); ok {
 				if values := scalarValues(typed["allowedValues"]); len(values) > 0 {
-					return values
-				}
-				if defaultValue, ok := typed["defaultValue"]; ok && defaultValue != nil {
-					return []any{normalizeOptionValue(defaultValue)}
+					return normalizePricingOptionValues(typeName, values)
 				}
 				if typeName == "integerType" {
 					minimum, maximum := scalarInt(typed["min"]), scalarInt(typed["max"])
-					if minimum > 0 && maximum >= minimum && maximum-minimum <= 15 {
+					_, hasMin := typed["min"]
+					_, hasMax := typed["max"]
+					if hasMin && hasMax && minimum >= 0 && maximum >= minimum && maximum-minimum < creativeFabricaMaxPricingComb {
 						values := make([]any, 0, maximum-minimum+1)
 						for current := minimum; current <= maximum; current++ {
 							values = append(values, current)
 						}
 						return values
 					}
+				}
+				if typeName == "booleanType" {
+					return []any{false, true}
+				}
+				if defaultValue, ok := typed["defaultValue"]; ok && defaultValue != nil {
+					return []any{normalizePricingOptionValue(typeName, defaultValue)}
 				}
 			}
 		}
@@ -239,6 +278,36 @@ func creativeFabricaOptionValues(model creativefabrica.Model, name, kind string)
 		}
 		return nil
 	}
+}
+
+func normalizePricingOptionValues(typeName string, values []any) []any {
+	result := make([]any, 0, len(values))
+	for _, value := range values {
+		result = append(result, normalizePricingOptionValue(typeName, value))
+	}
+	return result
+}
+
+func normalizePricingOptionValue(typeName string, value any) any {
+	value = normalizeOptionValue(value)
+	switch typeName {
+	case "integerType":
+		return scalarInt(value)
+	case "numberType":
+		if typed, ok := value.(float64); ok {
+			return typed
+		}
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(fmt.Sprint(value)), 64)
+		if err == nil {
+			return parsed
+		}
+	case "booleanType":
+		if typed, ok := value.(bool); ok {
+			return typed
+		}
+		return strings.EqualFold(strings.TrimSpace(fmt.Sprint(value)), "true")
+	}
+	return value
 }
 
 func cartesianPricingOptions(names []string, sets [][]any, limit int) []map[string]any {
@@ -291,12 +360,16 @@ func dedupeCreativeFabricaCandidates(candidates []creativeFabricaPricingCandidat
 	seen := make(map[string]struct{}, len(candidates))
 	result := make([]creativeFabricaPricingCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		var key string
-		if kind == "image" {
-			key = candidate.Size + "\x00" + candidate.Quality
-		} else {
-			key = candidate.Resolution + "\x00" + strconv.Itoa(candidate.Duration)
+		// Distinct upstream options must all be quoted. Local price dimensions
+		// are not proof that two upstream requests have the same cost.
+		encoded, err := json.Marshal(candidate.Options)
+		if err != nil {
+			// Retain unencodable candidates so the caller reports the request
+			// error instead of silently dropping a pricing combination.
+			result = append(result, candidate)
+			continue
 		}
+		key := string(encoded)
 		if _, exists := seen[key]; exists {
 			continue
 		}
@@ -318,14 +391,17 @@ func dedupeCreativeFabricaCandidates(candidates []creativeFabricaPricingCandidat
 	return result
 }
 
-func appendUniqueCreativeFabricaRule(rules []domain.ModelCostRule, rule domain.ModelCostRule) []domain.ModelCostRule {
+func appendUniqueCreativeFabricaRule(rules []domain.ModelCostRule, rule domain.ModelCostRule) ([]domain.ModelCostRule, error) {
 	for index := range rules {
 		current := &rules[index]
 		if current.ProviderID == rule.ProviderID && current.Kind == rule.Kind && current.Model == rule.Model && current.Size == rule.Size && current.Quality == rule.Quality && current.Resolution == rule.Resolution && current.Duration == rule.Duration {
-			return rules
+			if current.UnitTokens != rule.UnitTokens {
+				return nil, fmt.Errorf("Creative Fabrica %s: different upstream quotes map to the same local price dimensions (%d and %d Coins); snapshot not installed", rule.Model, current.UnitTokens, rule.UnitTokens)
+			}
+			return rules, nil
 		}
 	}
-	return append(rules, rule)
+	return append(rules, rule), nil
 }
 
 func scalarValues(value any) []any {

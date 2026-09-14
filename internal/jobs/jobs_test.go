@@ -46,6 +46,18 @@ func TestSubmissionAccountRouteableRequiresFreshJWT(t *testing.T) {
 	}
 }
 
+func TestUploadingTaskWithGenerationIDIsAlreadySubmitted(t *testing.T) {
+	accountID := uuid.New()
+	task := domain.Task{Status: domain.TaskUploading, GenerationID: "upstream-session", AccountID: &accountID}
+	if !isSubmittedGenerationTask(task) {
+		t.Fatal("an upstream session must never be submitted again after frame upload recovery")
+	}
+	task.GenerationID = ""
+	if isSubmittedGenerationTask(task) {
+		t.Fatal("pre-submission upload remains eligible for its first mutation")
+	}
+}
+
 func TestUpstreamTaskState(t *testing.T) {
 	for _, status := range []string{"PENDING", " pending "} {
 		if got := upstreamTaskState(status); got != domain.TaskSubmitted {

@@ -40,6 +40,10 @@ import {
   TableSkeleton,
 } from "../components/ui";
 import type { Account, AccountsPage, OverviewResponse, Provider } from "../shared/types";
+
+function accountBalanceUnavailable(account: Account): boolean {
+  return account.provider_id === "creativefabrica" && account.status === "invalid";
+}
 import {
   AccountStatusCell,
   accountOperationalState,
@@ -114,7 +118,7 @@ function accountCredentialText(account: Account, compact = false) {
 }
 
 function providerConcurrencyMaximum(providerID: string) {
-  return providerID === "adobe" ? 100 : 5;
+  return providerID === "adobe" ? 100 : providerID === "creativefabrica" ? 10 : 5;
 }
 
 function providerSupportsCookie(provider: Provider) {
@@ -662,14 +666,13 @@ export function Accounts({
             </span>
             <span className="account-plan-cell">{a.plan || "未知"}</span>
             <span className="account-balance-cell">
-              <strong>{a.available_tokens.toLocaleString()}</strong>
+              <strong>{accountBalanceUnavailable(a) ? "—" : a.available_tokens.toLocaleString()}</strong>
               <small>
-                账面{" "}
-                {(
+                {accountBalanceUnavailable(a) ? "余额未核实" : `账面 ${(
                   a.subscription_tokens +
                   a.rollover_tokens +
                   a.paid_tokens
-                ).toLocaleString()}
+                ).toLocaleString()}`}
               </small>
             </span>
             <span className="account-number-cell">
@@ -777,7 +780,7 @@ export function Accounts({
                 <Badge tone={operational.className === "active" ? "success" : operational.className === "rate_limited" ? "warning" : "danger"}>{operational.label}</Badge>
               </header>
               <div>
-                <span><small>净余额</small><strong>{account.available_tokens.toLocaleString()}</strong></span>
+                <span><small>{accountBalanceUnavailable(account) ? "余额未核实" : "净余额"}</small><strong>{accountBalanceUnavailable(account) ? "—" : account.available_tokens.toLocaleString()}</strong></span>
                 <span><small>执行</small><strong>{account.active_reservations}/{account.image_concurrency}</strong></span>
                 <span><small>排队</small><strong>{account.queued_tasks}/{account.queue_capacity}</strong></span>
               </div>

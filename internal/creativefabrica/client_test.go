@@ -174,6 +174,52 @@ func TestExchangeSessionTokenAndRPCHeaders(t *testing.T) {
 	}
 }
 
+func TestCoinsReturnsUnavailableForEmptyBalanceEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/creativefabrica.coins.v2.CoinsService/GetBalance" {
+			t.Fatalf("unexpected RPC path %s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer server.Close()
+
+	client := NewWithHTTPClient(server.Client(), "fixture")
+	client.CoinsURL = server.URL
+	coins, err := client.Coins(context.Background(), "rpc-fixture")
+	if !errors.Is(err, ErrBalanceUnavailable) {
+		t.Fatalf("Coins() error = %v, want ErrBalanceUnavailable", err)
+	}
+	if coins.Raw == nil {
+		t.Fatal("Coins() should preserve the raw response envelope")
+	}
+}
+
+func TestEncodeOptionsUsesConnectJSONFieldValues(t *testing.T) {
+	encoded := encodeOptions(map[string]any{
+		"resolution":       "1080p",
+		"duration_seconds": int(5),
+		"temperature":      float64(0.5),
+		"generate_audio":   true,
+	})
+	want := map[string]map[string]any{
+		"resolution":       {"stringValue": "1080p"},
+		"duration_seconds": {"integerValue": "5"},
+		"temperature":      {"floatValue": float64(0.5)},
+		"generate_audio":   {"booleanValue": true},
+	}
+	for key, expected := range want {
+		got, ok := encoded[key].(map[string]any)
+		if !ok || len(got) != 1 {
+			t.Fatalf("encoded %s = %#v", key, encoded[key])
+		}
+		for field, value := range expected {
+			if got[field] != value {
+				t.Fatalf("encoded %s = %#v, want %#v", key, got, expected)
+			}
+		}
+	}
+}
+
 func TestExchangeSessionTokenWithCookieFallsBackToClientCookie(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Cookie"); got != "cfToken=stored" {

@@ -174,6 +174,12 @@ type Coins struct {
 	Raw       map[string]any
 }
 
+// ErrBalanceUnavailable indicates that the upstream balance RPC completed
+// successfully but returned an empty envelope. Creative Fabrica currently
+// does this for some valid Studio sessions; callers may preserve the last
+// locally calibrated balance while still accepting the refreshed session.
+var ErrBalanceUnavailable = errors.New("Creative Fabrica balance is unavailable")
+
 // PricingMedia describes media that a model's pricing calculator may charge
 // for in addition to the generation itself. The upstream catalog has added
 // fields to this object over time, so Raw is retained alongside stable fields.
@@ -696,7 +702,7 @@ func (c *Client) Coins(ctx context.Context, token string) (Coins, error) {
 		}
 	}
 	if !balanceFound && !availableFound {
-		return Coins{}, errors.New("Creative Fabrica balance response has no coin balance")
+		return Coins{Raw: data}, ErrBalanceUnavailable
 	}
 	if !balanceFound {
 		balance = available
@@ -781,7 +787,7 @@ func (c *Client) CreateFlow(ctx context.Context, token string, request map[strin
 }
 
 func (c *Client) GetFlow(ctx context.Context, token, flowID string) (PollResult, error) {
-	data, err := c.RPC(ctx, "FlowService", "GetFlow", c.FlowURL, flowServicePath, token, map[string]any{"flowId": flowID})
+	data, err := c.RPC(ctx, "FlowService", "GetFlow", c.FlowURL, flowServicePath, token, map[string]any{"id": flowID})
 	if err != nil {
 		return PollResult{}, err
 	}
@@ -1563,15 +1569,15 @@ func encodeOptions(options map[string]any) map[string]any {
 	for key, value := range options {
 		switch typed := value.(type) {
 		case int:
-			result[key] = map[string]any{"value": map[string]any{"case": "integerValue", "value": strconv.Itoa(typed)}}
+			result[key] = map[string]any{"integerValue": strconv.Itoa(typed)}
 		case int64:
-			result[key] = map[string]any{"value": map[string]any{"case": "integerValue", "value": strconv.FormatInt(typed, 10)}}
+			result[key] = map[string]any{"integerValue": strconv.FormatInt(typed, 10)}
 		case float64:
-			result[key] = map[string]any{"value": map[string]any{"case": "stringValue", "value": strconv.FormatFloat(typed, 'f', -1, 64)}}
+			result[key] = map[string]any{"floatValue": typed}
 		case bool:
-			result[key] = map[string]any{"value": map[string]any{"case": "stringValue", "value": strconv.FormatBool(typed)}}
+			result[key] = map[string]any{"booleanValue": typed}
 		default:
-			result[key] = map[string]any{"value": map[string]any{"case": "stringValue", "value": fmt.Sprint(value)}}
+			result[key] = map[string]any{"stringValue": fmt.Sprint(value)}
 		}
 	}
 	return result
@@ -1800,6 +1806,7 @@ func findNumber(data map[string]any, keys map[string]struct{}) (bool, int64) {
 	walk(data)
 	return ok, found
 }
+
 func mapValue(data map[string]any, keys ...string) map[string]any {
 	for _, key := range keys {
 		if value, ok := data[key].(map[string]any); ok {

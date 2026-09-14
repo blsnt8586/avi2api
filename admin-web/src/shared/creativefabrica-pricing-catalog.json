@@ -1,0 +1,4091 @@
+{
+  "checked_at": "2026-09-13T11:18:06.903258+00:00",
+  "models": {
+    "openai-gpt-image-2": {
+      "name": "ChatGPT Image 2.0",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "3:4",
+              "4:3",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "21:9",
+              "auto"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        },
+        "quality": {
+          "stringType": {
+            "allowedValues": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultValue": "high"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "defaultValue": "2K"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "flux-2-klein": {
+      "name": "FLUX.2 [klein]",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K"
+            ],
+            "defaultValue": "2K"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "resolution",
+          "aspect_ratio"
+        ],
+        "media": [
+          {
+            "role": "sourceImage"
+          }
+        ]
+      },
+      "media_constraints": {
+        "sourceImage": {
+          "max": 4,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30
+        }
+      }
+    },
+    "flux-2-max": {
+      "name": "FLUX.2 [max]",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K"
+            ],
+            "defaultValue": "1K"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "resolution",
+          "aspect_ratio"
+        ],
+        "media": [
+          {
+            "role": "sourceImage"
+          }
+        ]
+      },
+      "media_constraints": {
+        "sourceImage": {
+          "max": 8,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30
+        }
+      }
+    },
+    "flux-2-pro": {
+      "name": "FLUX.2 [pro]",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K"
+            ],
+            "defaultValue": "1K"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "resolution",
+          "aspect_ratio"
+        ],
+        "media": [
+          {
+            "role": "sourceImage"
+          }
+        ]
+      },
+      "media_constraints": {
+        "sourceImage": {
+          "max": 8,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30
+        }
+      }
+    },
+    "nano-banana": {
+      "name": "Gemini Flash 2.5 Image",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "3:4",
+              "4:3",
+              "9:16",
+              "16:9"
+            ]
+          }
+        },
+        "imageSize": {
+          "stringType": {
+            "allowedValues": [
+              "1k"
+            ],
+            "defaultValue": "1k"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "nano-banana-2": {
+      "name": "Gemini Flash 3.1",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "3:4",
+              "4:3",
+              "9:16",
+              "16:9",
+              "auto"
+            ]
+          }
+        },
+        "imageSize": {
+          "stringType": {
+            "allowedValues": [
+              "1k",
+              "2k",
+              "4k",
+              "auto"
+            ],
+            "defaultValue": "1k"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "nano-banana-flash-lite": {
+      "name": "Nano Banana Flash Lite",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "9:16",
+              "16:9",
+              "21:9",
+              "1:8",
+              "8:1",
+              "1:4",
+              "4:1"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "nano-banana-pro": {
+      "name": "Gemini Pro 3.0",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "3:4",
+              "4:3",
+              "9:16",
+              "16:9"
+            ]
+          }
+        },
+        "imageSize": {
+          "stringType": {
+            "allowedValues": [
+              "1k",
+              "2k",
+              "4k"
+            ],
+            "defaultValue": "1k"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "grok": {
+      "name": "Grok 2 Image",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "4:3",
+              "16:9",
+              "3:4",
+              "9:16"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "ideogram-p-image": {
+      "name": "Ideogram P-Image",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "4:3",
+              "3:4",
+              "5:4",
+              "4:5",
+              "2:1",
+              "1:2",
+              "3:1",
+              "1:3",
+              "16:10",
+              "10:16"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        },
+        "quality": {
+          "stringType": {
+            "allowedValues": [
+              "very_low",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultValue": "high"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K"
+            ],
+            "defaultValue": "1K"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "quality",
+          "resolution"
+        ]
+      },
+      "media_constraints": {}
+    },
+    "ideogram-v4": {
+      "name": "Ideogram 4.0",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "4:3",
+              "3:4",
+              "8:5",
+              "5:8",
+              "5:4",
+              "4:5",
+              "2:1",
+              "1:2",
+              "3:1",
+              "1:3",
+              "5:12",
+              "12:5",
+              "3:8",
+              "8:3",
+              "9:22",
+              "22:9",
+              "9:23",
+              "23:9"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "image_weight": {
+          "integerType": {
+            "defaultValue": "50",
+            "min": "1",
+            "max": "100"
+          }
+        },
+        "transparent_background": {
+          "booleanType": {}
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "kling-image-o1": {
+      "name": "Kling Image O1",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3",
+              "21:9",
+              "auto"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1k",
+              "2k"
+            ],
+            "defaultValue": "2k"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {
+        "referenceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 10,
+          "dimensions": {
+            "minWidthPx": 300,
+            "minHeightPx": 300,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "sourceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 10,
+          "dimensions": {
+            "minWidthPx": 300,
+            "minHeightPx": 300,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "kling-v2-1-image": {
+      "name": "Kling V2.1 Image",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3",
+              "21:9"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "negative_prompt": {
+          "stringType": {}
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1k"
+            ],
+            "defaultValue": "1k"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "media": [
+          {
+            "role": "sourceImage"
+          }
+        ]
+      },
+      "media_constraints": {
+        "sourceImage": {
+          "max": 5,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 10
+        }
+      }
+    },
+    "kling-v3-image": {
+      "name": "Kling V3 Image",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3",
+              "21:9"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "negative_prompt": {
+          "stringType": {}
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1k",
+              "2k"
+            ],
+            "defaultValue": "2k"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "kling-v3-omni-image": {
+      "name": "Kling V3 Omni",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3",
+              "21:9",
+              "auto"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1k",
+              "2k",
+              "4k"
+            ],
+            "defaultValue": "4k"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "referenceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 10,
+          "dimensions": {
+            "minWidthPx": 300,
+            "minHeightPx": 300,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "sourceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 10,
+          "dimensions": {
+            "minWidthPx": 300,
+            "minHeightPx": 300,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "quiverai-arrow-1-1": {
+      "name": "QuiverAI Arrow 1.1",
+      "kind": "image",
+      "options": {
+        "instructions": {
+          "stringType": {}
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "qwen-image-2-0-pro": {
+      "name": "Qwen Image 2.0 Pro",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K"
+            ],
+            "defaultValue": "2K"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "qwen-image-3": {
+      "name": "Qwen Image 3.0",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K"
+            ],
+            "defaultValue": "1K"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {
+        "sourceImage": {
+          "max": 3,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 10
+        }
+      }
+    },
+    "qwen-image-3-pro": {
+      "name": "Qwen Image 3.0 Pro",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K"
+            ],
+            "defaultValue": "2K"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {
+        "sourceImage": {
+          "max": 3,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 10
+        }
+      }
+    },
+    "qwen-image-edit-spicy": {
+      "name": "Qwen Image Edit Spicy",
+      "kind": "image",
+      "options": {
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {
+        "sourceImage": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30
+        }
+      }
+    },
+    "recraft-v4": {
+      "name": "Recraft V4",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K"
+            ],
+            "defaultValue": "1K"
+          }
+        },
+        "strength": {
+          "floatType": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "resolution"
+        ]
+      },
+      "media_constraints": {}
+    },
+    "recraft-v4-svg": {
+      "name": "Recraft V4 SVG",
+      "kind": "image",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "1:1"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "seedream-4-0": {
+      "name": "Seedream 4.0",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "3:4",
+              "4:3",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "21:9"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "defaultValue": "2K"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "seedream-4-5": {
+      "name": "Seedream 4.5",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "3:4",
+              "4:3",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "21:9"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "2K",
+              "4K"
+            ],
+            "defaultValue": "2K"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "seedream-5-lite": {
+      "name": "Seedream 5.0 Lite",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "3:4",
+              "4:3",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3",
+              "21:9"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "2K",
+              "3K",
+              "4K"
+            ],
+            "defaultValue": "2K"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "seedream-5-pro": {
+      "name": "Seedream 5.0 Pro",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "3:4",
+              "4:3",
+              "16:9",
+              "9:16",
+              "3:2",
+              "2:3"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K"
+            ],
+            "defaultValue": "2K"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "resolution"
+        ],
+        "media": [
+          {
+            "role": "sourceImage"
+          }
+        ]
+      },
+      "media_constraints": {
+        "sourceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30
+        }
+      }
+    },
+    "wan-2-7-pro-image": {
+      "name": "WAN 2.7 Pro",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "1:1"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1K",
+              "2K"
+            ],
+            "defaultValue": "2K"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "z-image-spicy": {
+      "name": "Z-Image Spicy",
+      "kind": "image",
+      "options": {
+        "aspectRatio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "9:16",
+              "16:9"
+            ],
+            "defaultValue": "2:3"
+          }
+        },
+        "outputCount": {
+          "integerType": {
+            "defaultValue": "1",
+            "min": "1",
+            "max": "20"
+          }
+        },
+        "prompt_extend": {
+          "booleanType": {}
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {}
+    },
+    "berry_1_0": {
+      "name": "Wan3.0 Spicy",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "auto",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "defaultValue": "auto"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "2",
+            "max": "30"
+          }
+        },
+        "generate_audio": {
+          "booleanType": {}
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        },
+        "seed": {
+          "integerType": {
+            "min": "0",
+            "max": "2147483647"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "referenceAudio": {
+          "max": 5,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 15
+        },
+        "referenceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "referenceVideo": {
+          "max": 5,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 100,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 15,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 4096,
+            "minHeightPx": 240,
+            "maxHeightPx": 4096,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        }
+      }
+    },
+    "berry_1_0_pro": {
+      "name": "Wan3.0 Pro Spicy",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "auto",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "defaultValue": "auto"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "2",
+            "max": "30"
+          }
+        },
+        "generate_audio": {
+          "booleanType": {}
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1080p",
+              "2K",
+              "4K"
+            ],
+            "defaultValue": "1080p"
+          }
+        },
+        "seed": {
+          "integerType": {
+            "min": "0",
+            "max": "2147483647"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "referenceAudio": {
+          "max": 5,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 15
+        },
+        "referenceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "referenceVideo": {
+          "max": 5,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 100,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 15,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 4096,
+            "minHeightPx": 240,
+            "maxHeightPx": 4096,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        }
+      }
+    },
+    "flux_3": {
+      "name": "FLUX 3",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9",
+              "2:1",
+              "auto"
+            ],
+            "defaultValue": "auto"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "5",
+            "max": "20"
+          }
+        },
+        "generate_audio": {
+          "booleanType": {}
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30,
+          "dimensions": {
+            "minWidthPx": 256,
+            "maxWidthPx": 5760,
+            "minHeightPx": 256,
+            "maxHeightPx": 5760,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30,
+          "dimensions": {
+            "minWidthPx": 256,
+            "maxWidthPx": 5760,
+            "minHeightPx": 256,
+            "maxHeightPx": 5760,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "gemini_omni_flash": {
+      "name": "Gemini Omni Flash",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "min": "3",
+            "max": "10"
+          }
+        }
+      },
+      "pricing_inputs": {},
+      "media_constraints": {
+        "referenceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 10
+        },
+        "sourceImage": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 10
+        },
+        "sourceVideo": {
+          "max": 1,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime",
+            "video/webm"
+          ],
+          "maxFileSizeMb": 8,
+          "maxDurationSeconds": 8
+        }
+      }
+    },
+    "gemini_omni_flash_1_1": {
+      "name": "Gemini Omni Flash 1.1",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "3",
+            "max": "10"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "360p",
+              "720p",
+              "1080p",
+              "4k"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 10
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 10
+        },
+        "referenceImage": {
+          "max": 5,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 10
+        },
+        "referenceVideo": {
+          "max": 3,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime",
+            "video/webm"
+          ],
+          "maxFileSizeMb": 50,
+          "maxDurationSeconds": 30
+        }
+      }
+    },
+    "gemini_omni_flash_1_1_video_extended": {
+      "name": "Gemini Omni Flash 1.1 — Extend",
+      "kind": "video",
+      "options": {
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "3",
+            "max": "10"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds"
+        ],
+        "media": [
+          {
+            "role": "sourceVideo",
+            "requiredMetadata": [
+              "durationSeconds",
+              "widthPx",
+              "heightPx"
+            ]
+          }
+        ]
+      },
+      "media_constraints": {
+        "sourceVideo": {
+          "max": 1,
+          "min": 1,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime",
+            "video/webm"
+          ],
+          "maxFileSizeMb": 50,
+          "maxDurationSeconds": 30
+        }
+      }
+    },
+    "grok_imagine_video_1_5": {
+      "name": "Grok Imagine Video 1.5",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "auto",
+              "1:1",
+              "16:9",
+              "9:16",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3"
+            ],
+            "defaultValue": "auto"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "1",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30
+        },
+        "referenceImage": {
+          "max": 7,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30
+        }
+      }
+    },
+    "grok_imagine_video": {
+      "name": "Grok Imagine Video",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "4",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 30
+        },
+        "referenceImage": {
+          "max": 7,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 30
+        }
+      }
+    },
+    "alibaba_happy_horse_v1": {
+      "name": "Happyhorse 1.0",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "1:1"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "3",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 400,
+            "maxWidthPx": 4096,
+            "minHeightPx": 400,
+            "maxHeightPx": 4096,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "referenceImage": {
+          "max": 9,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 400,
+            "maxWidthPx": 4096,
+            "minHeightPx": 400,
+            "maxHeightPx": 4096,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "alibaba_happy_horse_v1_1": {
+      "name": "Happyhorse 1.1",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "1:1",
+              "21:9",
+              "9:21"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "3",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 400,
+            "maxWidthPx": 4096,
+            "minHeightPx": 400,
+            "maxHeightPx": 4096,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "referenceImage": {
+          "max": 9,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 400,
+            "maxWidthPx": 4096,
+            "minHeightPx": 400,
+            "maxHeightPx": 4096,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "heygen_avatar_5": {
+      "name": "HeyGen Avatar 5",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "auto",
+              "16:9",
+              "9:16",
+              "4:5",
+              "5:4",
+              "1:1"
+            ],
+            "defaultValue": "auto"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p",
+              "4k"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "resolution"
+        ],
+        "media": [
+          {
+            "role": "sourceAudio",
+            "requiredMetadata": [
+              "durationSeconds"
+            ]
+          }
+        ]
+      },
+      "media_constraints": {
+        "sourceAudio": {
+          "max": 1,
+          "min": 1,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 50,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 120
+        },
+        "sourceImage": {
+          "max": 1,
+          "min": 1,
+          "acceptedFormats": [
+            "image/jpeg",
+            "image/png"
+          ],
+          "maxFileSizeMb": 50,
+          "dimensions": {
+            "maxLongerSidePx": 2048
+          }
+        }
+      }
+    },
+    "kling_ai_v3": {
+      "name": "Kling V3",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "min": "4",
+            "max": "15"
+          }
+        },
+        "mode": {
+          "stringType": {
+            "allowedValues": [
+              "std",
+              "pro",
+              "4k"
+            ],
+            "defaultValue": "pro"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "mode"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 20
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 20
+        }
+      }
+    },
+    "kling_ai_v3_motion_control": {
+      "name": "Kling V3 Motion Control",
+      "kind": "video",
+      "options": {
+        "character_orientation": {
+          "stringType": {
+            "allowedValues": [
+              "image",
+              "video"
+            ],
+            "defaultValue": "image"
+          }
+        },
+        "keep_original_sound": {
+          "stringType": {
+            "allowedValues": [
+              "yes",
+              "no"
+            ],
+            "defaultValue": "yes"
+          }
+        },
+        "mode": {
+          "stringType": {
+            "allowedValues": [
+              "std",
+              "pro"
+            ],
+            "defaultValue": "pro"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "mode"
+        ]
+      },
+      "media_constraints": {
+        "motionImage": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 10,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 65536,
+            "minHeightPx": 300,
+            "maxHeightPx": 65536,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoResizeOnOverflow": true
+        },
+        "motionVideo": {
+          "max": 1,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 100,
+          "minDurationSeconds": 3,
+          "maxDurationSeconds": 10,
+          "dimensions": {
+            "minWidthPx": 340,
+            "maxWidthPx": 3850,
+            "minHeightPx": 340,
+            "maxHeightPx": 3850
+          }
+        }
+      }
+    },
+    "kling_v3_omni": {
+      "name": "Kling 3.0 Omni",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "3",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p",
+              "4k"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 10,
+          "dimensions": {
+            "minWidthPx": 300,
+            "minHeightPx": 300,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 10,
+          "dimensions": {
+            "minWidthPx": 300,
+            "minHeightPx": 300,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "referenceImage": {
+          "max": 7,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 10,
+          "dimensions": {
+            "minWidthPx": 300,
+            "minHeightPx": 300,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "kling_ai_v3_turbo": {
+      "name": "Kling V3 Turbo",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "min": "4",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 20
+        }
+      }
+    },
+    "fal_ltx_2_3": {
+      "name": "LTX 2.3",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "auto",
+              "16:9",
+              "9:16"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "allowedValues": [
+              "6",
+              "8",
+              "10"
+            ],
+            "defaultValue": "6"
+          }
+        },
+        "fps": {
+          "integerType": {
+            "allowedValues": [
+              "24",
+              "25",
+              "48",
+              "50"
+            ],
+            "defaultValue": "25"
+          }
+        },
+        "generate_audio": {
+          "booleanType": {}
+        },
+        "guidance_scale": {
+          "floatType": {
+            "min": 0,
+            "max": 20
+          }
+        },
+        "negative_prompt": {
+          "stringType": {}
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "1080p",
+              "1440p",
+              "2160p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ],
+        "media": [
+          {
+            "role": "sourceAudio",
+            "requiredMetadata": [
+              "durationSeconds"
+            ]
+          }
+        ]
+      },
+      "media_constraints": {
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "sourceAudio": {
+          "max": 1,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 25,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 20
+        },
+        "sourceImage": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "luma_ray_2": {
+      "name": "Luma Ray 2",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "4:3",
+              "3:4",
+              "21:9"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "allowedValues": [
+              "5",
+              "9"
+            ]
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p",
+              "4k"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20
+        }
+      }
+    },
+    "luma_ray_3_2": {
+      "name": "Luma Ray 3.2",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "9:16",
+              "3:4",
+              "1:1",
+              "4:3",
+              "16:9",
+              "21:9"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "allowedValues": [
+              "5",
+              "10"
+            ]
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "540p",
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20
+        }
+      }
+    },
+    "minimax_hailuo_v3": {
+      "name": "MiniMax H3",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9",
+              "auto"
+            ],
+            "defaultValue": "auto"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "4",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "768p",
+              "2k"
+            ],
+            "defaultValue": "2k"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ],
+        "media": [
+          {
+            "role": "referenceVideo",
+            "requiredMetadata": [
+              "durationSeconds"
+            ]
+          },
+          {
+            "role": "referenceImage"
+          },
+          {
+            "role": "firstFrame"
+          },
+          {
+            "role": "lastFrame"
+          }
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30,
+          "dimensions": {
+            "minWidthPx": 256,
+            "maxWidthPx": 5760,
+            "minHeightPx": 256,
+            "maxHeightPx": 5760,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30,
+          "dimensions": {
+            "minWidthPx": 256,
+            "maxWidthPx": 5760,
+            "minHeightPx": 256,
+            "maxHeightPx": 5760,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "referenceAudio": {
+          "max": 3,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 15
+        },
+        "referenceImage": {
+          "max": 9,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30,
+          "dimensions": {
+            "minWidthPx": 256,
+            "maxWidthPx": 5760,
+            "minHeightPx": 256,
+            "maxHeightPx": 5760,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "referenceVideo": {
+          "max": 3,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 50,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 15,
+          "minFps": 23,
+          "maxFps": 60,
+          "dimensions": {
+            "minWidthPx": 256,
+            "maxWidthPx": 5760,
+            "minHeightPx": 256,
+            "maxHeightPx": 5760,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "minimax_hailuo_v3_max": {
+      "name": "MiniMax H3 Max",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "5",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "768p"
+            ],
+            "defaultValue": "768p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30,
+          "dimensions": {
+            "minWidthPx": 256,
+            "maxWidthPx": 5760,
+            "minHeightPx": 256,
+            "maxHeightPx": 5760,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30,
+          "dimensions": {
+            "minWidthPx": 256,
+            "maxWidthPx": 5760,
+            "minHeightPx": 256,
+            "maxHeightPx": 5760,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "pika_v2_5": {
+      "name": "Pika 2.5",
+      "kind": "video",
+      "options": {
+        "duration_seconds": {
+          "integerType": {
+            "allowedValues": [
+              "5"
+            ],
+            "defaultValue": "5"
+          }
+        },
+        "negative_prompt": {
+          "stringType": {}
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "sourceImage": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20
+        }
+      }
+    },
+    "fal_pixverse_c1": {
+      "name": "PixVerse C1",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "2:3",
+              "3:2",
+              "21:9"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "1",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "360p",
+              "540p",
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30
+        },
+        "referenceImage": {
+          "max": 7,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30,
+          "providerMetadata": {
+            "reference_type": {
+              "stringType": {
+                "allowedValues": [
+                  "subject",
+                  "background"
+                ],
+                "defaultValue": "background"
+              }
+            }
+          }
+        }
+      }
+    },
+    "fal_pixverse_v6": {
+      "name": "PixVerse V6",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "2:3",
+              "3:2",
+              "21:9"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "1",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "360p",
+              "540p",
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "720p"
+          }
+        },
+        "style": {
+          "stringType": {
+            "allowedValues": [
+              "anime",
+              "3d_animation",
+              "clay",
+              "comic",
+              "cyberpunk"
+            ]
+          }
+        },
+        "thinking_type": {
+          "stringType": {
+            "allowedValues": [
+              "enabled",
+              "disabled",
+              "auto"
+            ],
+            "defaultValue": "auto"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "min": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 30
+        }
+      }
+    },
+    "runway_gen_4_5": {
+      "name": "Runway Gen-4.5",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "2",
+            "max": "10"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20
+        }
+      }
+    },
+    "seedance_one_five_pro": {
+      "name": "Seedance 1.5 Pro",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "min": "4",
+            "max": "12"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution",
+          "aspect_ratio"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxFileSizeMb": 20
+        }
+      }
+    },
+    "seedance_two_point_zero": {
+      "name": "Seedance 2.0",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "min": "4",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p",
+              "1080p",
+              "4k"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution",
+          "aspect_ratio"
+        ],
+        "media": [
+          {
+            "role": "referenceVideo",
+            "requiredMetadata": [
+              "durationSeconds"
+            ]
+          }
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "referenceAudio": {
+          "max": 3,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 15
+        },
+        "referenceImage": {
+          "max": 9,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "referenceVideo": {
+          "max": 3,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 50,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 15,
+          "minFps": 24,
+          "maxFps": 60,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minFramePixels": 409600,
+            "maxFramePixels": 2086876,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "seedance_v2_5": {
+      "name": "Seedance 2.5",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9",
+              "auto"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "4",
+            "max": "30"
+          }
+        },
+        "output_format": {
+          "stringType": {
+            "allowedValues": [
+              "mp4",
+              "mov"
+            ],
+            "defaultValue": "mp4"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution",
+          "aspect_ratio"
+        ],
+        "media": [
+          {
+            "role": "referenceVideo",
+            "requiredMetadata": [
+              "durationSeconds"
+            ]
+          }
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "referenceAudio": {
+          "max": 10,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 30
+        },
+        "referenceImage": {
+          "max": 30,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "referenceVideo": {
+          "max": 10,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 200,
+          "minDurationSeconds": 4,
+          "maxDurationSeconds": 30,
+          "minFps": 24,
+          "maxFps": 60,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minFramePixels": 409600,
+            "maxFramePixels": 2086876,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "seedance_v2_fast": {
+      "name": "Seedance 2.0 Fast",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "min": "4",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution",
+          "aspect_ratio"
+        ],
+        "media": [
+          {
+            "role": "referenceVideo",
+            "requiredMetadata": [
+              "durationSeconds"
+            ]
+          }
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "referenceAudio": {
+          "max": 3,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 15
+        },
+        "referenceImage": {
+          "max": 9,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "referenceVideo": {
+          "max": 3,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 50,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 15,
+          "minFps": 24,
+          "maxFps": 60,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minFramePixels": 409600,
+            "maxFramePixels": 2086876,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "seedance_v2_mini": {
+      "name": "Seedance 2.0 Mini",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "min": "4",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution",
+          "aspect_ratio"
+        ],
+        "media": [
+          {
+            "role": "referenceVideo",
+            "requiredMetadata": [
+              "durationSeconds"
+            ]
+          }
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "referenceAudio": {
+          "max": 3,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 15
+        },
+        "referenceImage": {
+          "max": 9,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          },
+          "autoConformDimensions": true
+        },
+        "referenceVideo": {
+          "max": 3,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 50,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 15,
+          "minFps": 24,
+          "maxFps": 60,
+          "dimensions": {
+            "minWidthPx": 300,
+            "maxWidthPx": 6000,
+            "minHeightPx": 300,
+            "maxHeightPx": 6000,
+            "minFramePixels": 409600,
+            "maxFramePixels": 2086876,
+            "minAspectRatio": 0.4,
+            "maxAspectRatio": 2.5
+          }
+        }
+      }
+    },
+    "veo_31_fast_generate_preview": {
+      "name": "Veo 3.1 Fast",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "allowedValues": [
+              "4",
+              "6",
+              "8"
+            ],
+            "defaultValue": "6"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "720p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20
+        },
+        "referenceImage": {
+          "max": 3,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "maxFileSizeMb": 20
+        }
+      }
+    },
+    "alibaba_wan_2_7": {
+      "name": "WAN 2.7",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "2",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "referenceAudio": {
+          "max": 5,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 10
+        },
+        "referenceImage": {
+          "max": 5,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        }
+      }
+    },
+    "mulerouter_wan_2_7_spicy": {
+      "name": "WAN 2.7 Spicy",
+      "kind": "video",
+      "options": {
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "2",
+            "max": "15"
+          }
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "sourceAudio": {
+          "max": 1,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 2,
+          "maxDurationSeconds": 30
+        },
+        "sourceImage": {
+          "max": 1,
+          "min": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        }
+      }
+    },
+    "wan_3_0": {
+      "name": "WAN 3.0",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "auto",
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "2",
+            "max": "30"
+          }
+        },
+        "generate_audio": {
+          "booleanType": {}
+        },
+        "prompt_extend": {
+          "booleanType": {}
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "referenceAudio": {
+          "max": 5,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 15
+        },
+        "referenceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "referenceVideo": {
+          "max": 5,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 100,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 15
+        }
+      }
+    },
+    "wan_3_0_prime": {
+      "name": "WAN 3.0 Prime",
+      "kind": "video",
+      "options": {
+        "aspect_ratio": {
+          "stringType": {
+            "allowedValues": [
+              "auto",
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4"
+            ],
+            "defaultValue": "16:9"
+          }
+        },
+        "duration_seconds": {
+          "integerType": {
+            "defaultValue": "5",
+            "min": "2",
+            "max": "30"
+          }
+        },
+        "generate_audio": {
+          "booleanType": {}
+        },
+        "prompt_extend": {
+          "booleanType": {}
+        },
+        "resolution": {
+          "stringType": {
+            "allowedValues": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "defaultValue": "1080p"
+          }
+        }
+      },
+      "pricing_inputs": {
+        "options": [
+          "duration_seconds",
+          "resolution"
+        ]
+      },
+      "media_constraints": {
+        "firstFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "lastFrame": {
+          "max": 1,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "referenceAudio": {
+          "max": 5,
+          "acceptedFormats": [
+            "audio/mpeg",
+            "audio/wav"
+          ],
+          "maxFileSizeMb": 15,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 15
+        },
+        "referenceImage": {
+          "max": 10,
+          "acceptedFormats": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/bmp"
+          ],
+          "maxFileSizeMb": 20,
+          "dimensions": {
+            "minWidthPx": 240,
+            "maxWidthPx": 8000,
+            "minHeightPx": 240,
+            "maxHeightPx": 8000,
+            "minAspectRatio": 0.125,
+            "maxAspectRatio": 8
+          }
+        },
+        "referenceVideo": {
+          "max": 5,
+          "acceptedFormats": [
+            "video/mp4",
+            "video/quicktime"
+          ],
+          "maxFileSizeMb": 100,
+          "minDurationSeconds": 1,
+          "maxDurationSeconds": 15
+        }
+      }
+    }
+  }
+}

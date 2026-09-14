@@ -68,6 +68,9 @@ func (s *Service) CreateCreativeFabricaWithCookieJSON(ctx context.Context, name,
 	if err != nil {
 		return domain.Account{}, err
 	}
+	if userAgent := creativefabrica.UserAgentFromJSON(cookieJSON); userAgent != "" {
+		client.UserAgent = userAgent
+	}
 	client.CookieHeader = cookieHeader
 	tokens, err := s.authenticateCreativeFabricaCookie(ctx, client, cookieJSON, cookieHeader)
 	if err != nil {
@@ -100,7 +103,10 @@ func (s *Service) CreateCreativeFabricaWithCredentials(ctx context.Context, name
 		return domain.Account{}, errors.New("Creative Fabrica login returned no session token")
 	}
 	client.CookieHeader = login.CookieHeader
-	tokens, err := client.ExchangeSessionTokenWithCookie(ctx, login.SessionToken, login.CookieHeader)
+	if userAgent := creativefabrica.UserAgentFromJSON(login.CookieJSON); userAgent != "" {
+		client.UserAgent = userAgent
+	}
+	tokens, err := s.exchangeCreativeFabricaSession(ctx, client, login.SessionToken, login.CookieHeader)
 	if err != nil {
 		return domain.Account{}, err
 	}
@@ -123,7 +129,28 @@ func (s *Service) authenticateCreativeFabricaCookie(ctx context.Context, client 
 			return creativefabrica.TokenSet{}, err
 		}
 	}
-	return client.ExchangeSessionTokenWithCookie(ctx, sessionToken, cookieHeader)
+	return s.exchangeCreativeFabricaSession(ctx, client, sessionToken, cookieHeader)
+}
+
+func (s *Service) exchangeCreativeFabricaSession(ctx context.Context, client *creativefabrica.Client, sessionToken, cookieHeader string) (creativefabrica.TokenSet, error) {
+	// Studio's current frontend sends the UserToken value itself on GraphQL and
+	// Connect RPC calls. The standalone /cfsecure/jwtauth endpoint is protected
+	// by a browser-only Cloudflare challenge for server-side clients, so it is
+	// deliberately not a prerequisite for a valid Cookie JSON session.
+	return creativeFabricaSessionTokenSet(sessionToken, cookieHeader), nil
+}
+
+func creativeFabricaSessionTokenSet(sessionToken, cookieHeader string) creativefabrica.TokenSet {
+	info := creativefabrica.ParseTokenInfo(sessionToken)
+	return creativefabrica.TokenSet{
+		SessionToken: sessionToken,
+		AccessToken:  sessionToken,
+		RPCToken:     sessionToken,
+		SessionInfo:  info,
+		AccessInfo:   info,
+		RPCInfo:      info,
+		CookieHeader: cookieHeader,
+	}
 }
 
 func (s *Service) createCreativeFabrica(ctx context.Context, name, email, password, proxy string, concurrency, queueCapacity int, routingRole string, protectedTokens int64, videoReservedSlots int, cookieJSON creativefabrica.CookieJSON, cookieHeader string, tokens creativefabrica.TokenSet) (domain.Account, error) {
@@ -133,6 +160,9 @@ func (s *Service) createCreativeFabrica(ctx context.Context, name, email, passwo
 	client, err := creativefabrica.New(proxy, "")
 	if err != nil {
 		return domain.Account{}, err
+	}
+	if userAgent := creativefabrica.UserAgentFromJSON(cookieJSON); userAgent != "" {
+		client.UserAgent = userAgent
 	}
 	client.CookieHeader = cookieHeader
 	profile, profileErr := client.Profile(ctx, tokens.RPCToken)
@@ -239,6 +269,9 @@ func (s *Service) ImportCreativeFabricaCookieJSON(ctx context.Context, id uuid.U
 	if err != nil {
 		return account, err
 	}
+	if userAgent := creativefabrica.UserAgentFromJSON(newCookieJSON); userAgent != "" {
+		client.UserAgent = userAgent
+	}
 	client.CookieHeader = newCookieHeader
 	tokens, err := s.authenticateCreativeFabricaCookie(ctx, client, newCookieJSON, newCookieHeader)
 	if err != nil {
@@ -248,9 +281,9 @@ func (s *Service) ImportCreativeFabricaCookieJSON(ctx context.Context, id uuid.U
 	if profileErr != nil {
 		return account, profileErr
 	}
-	coins, err := client.Coins(ctx, tokens.RPCToken)
-	if err != nil {
-		return account, err
+	coins, coinsErr := client.Coins(ctx, tokens.RPCToken)
+	if coinsErr != nil {
+		return account, s.invalidateCreativeFabricaBalance(ctx, account.ID)
 	}
 	storedCookieJSON, storedCookieErr := s.creativeFabricaCookieJSON(ctx, id)
 	if storedCookieErr != nil {
@@ -304,7 +337,11 @@ func (s *Service) ImportCreativeFabricaCookieJSON(ctx context.Context, id uuid.U
 	if err != nil {
 		return account, err
 	}
-	updated, err := s.Store.UpdateAccountSession(ctx, id, version, tokenCipher, "", tokenExpiry(tokens), time.Now().UTC(), profile.ID, "", profile.Email, "Creative Fabrica Studio", coins.Available, 0, 0, "")
+	subscriptionTokens, rolloverTokens, paidTokens := account.SubscriptionTokens, account.RolloverTokens, account.PaidTokens
+	if coinsErr == nil {
+		subscriptionTokens, rolloverTokens, paidTokens = coins.Available, 0, 0
+	}
+	updated, err := s.Store.UpdateAccountSession(ctx, id, version, tokenCipher, "", tokenExpiry(tokens), time.Now().UTC(), profile.ID, "", profile.Email, "Creative Fabrica Studio", subscriptionTokens, rolloverTokens, paidTokens, "")
 	if err != nil {
 		return account, err
 	}
@@ -335,6 +372,9 @@ func (s *Service) refreshCreativeFabrica(ctx context.Context, account domain.Acc
 		cookieHeader := ""
 		if cookieErr == nil && len(cookieJSON) > 0 {
 			cookieHeader, cookieErr = creativefabrica.CookieHeaderFromJSON(cookieJSON)
+			if userAgent := creativefabrica.UserAgentFromJSON(cookieJSON); userAgent != "" {
+				client.UserAgent = userAgent
+			}
 		}
 		if cookieErr != nil {
 			return account, cookieErr
@@ -360,7 +400,10 @@ func (s *Service) refreshCreativeFabrica(ctx context.Context, account domain.Acc
 			if strings.TrimSpace(login.SessionToken) == "" {
 				return creativefabrica.TokenSet{}, errors.New("Creative Fabrica login returned no session token")
 			}
-			loginTokens, exchangeErr := client.ExchangeSessionTokenWithCookie(ctx, login.SessionToken, login.CookieHeader)
+			if userAgent := creativefabrica.UserAgentFromJSON(login.CookieJSON); userAgent != "" {
+				client.UserAgent = userAgent
+			}
+			loginTokens, exchangeErr := s.exchangeCreativeFabricaSession(ctx, client, login.SessionToken, login.CookieHeader)
 			if exchangeErr != nil {
 				return creativefabrica.TokenSet{}, exchangeErr
 			}
@@ -376,7 +419,7 @@ func (s *Service) refreshCreativeFabrica(ctx context.Context, account domain.Acc
 		if cookieHeader != "" {
 			sessionToken, tokenErr := client.UserToken(ctx, cookieHeader, "")
 			if tokenErr == nil {
-				tokens, tokenErr = client.ExchangeSessionTokenWithCookie(ctx, sessionToken, cookieHeader)
+				tokens, tokenErr = s.exchangeCreativeFabricaSession(ctx, client, sessionToken, cookieHeader)
 				if tokenErr == nil {
 					// The cookie path is authoritative when it succeeds.
 					// A failed exchange falls through to the stored token or
@@ -420,9 +463,9 @@ func (s *Service) refreshCreativeFabricaWithTokens(ctx context.Context, account 
 	if err != nil {
 		return account, err
 	}
-	coins, err := client.Coins(ctx, tokens.RPCToken)
-	if err != nil {
-		return account, err
+	coins, coinsErr := client.Coins(ctx, tokens.RPCToken)
+	if coinsErr != nil {
+		return account, s.invalidateCreativeFabricaBalance(ctx, account.ID)
 	}
 	envelope.SessionToken = tokens.SessionToken
 	envelope.AccessToken = tokens.AccessToken
@@ -473,7 +516,11 @@ func (s *Service) refreshCreativeFabricaWithTokens(ctx context.Context, account 
 	if err != nil {
 		return account, err
 	}
-	updated, err := s.Store.UpdateAccountSession(ctx, account.ID, version, tokenCipher, "", tokenExpiry(tokens), time.Now().UTC(), profile.ID, "", profile.Email, "Creative Fabrica Studio", coins.Available, 0, 0, "")
+	subscriptionTokens, rolloverTokens, paidTokens := account.SubscriptionTokens, account.RolloverTokens, account.PaidTokens
+	if coinsErr == nil {
+		subscriptionTokens, rolloverTokens, paidTokens = coins.Available, 0, 0
+	}
+	updated, err := s.Store.UpdateAccountSession(ctx, account.ID, version, tokenCipher, "", tokenExpiry(tokens), time.Now().UTC(), profile.ID, "", profile.Email, "Creative Fabrica Studio", subscriptionTokens, rolloverTokens, paidTokens, "")
 	if err != nil {
 		return account, err
 	}
@@ -490,6 +537,9 @@ func (s *Service) CreativeFabricaToken(ctx context.Context, account domain.Accou
 	}
 	if latest.ProviderID != providers.CreativeFabrica {
 		return latest, "", store.ErrNotFound
+	}
+	if latest.Status == "invalid" {
+		return latest, "", errors.New("Creative Fabrica account is invalid; refresh the account before use")
 	}
 	if latest.AccessTokenCiphertext != "" && latest.AccessTokenExpiresAt != nil && latest.AccessTokenExpiresAt.After(time.Now()) {
 		token, decryptErr := s.Cipher.Decrypt(latest.AccessTokenCiphertext)

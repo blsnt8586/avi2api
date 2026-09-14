@@ -85,3 +85,15 @@ func TestNormalizeCookieJSONRejectsSemicolonInAuthCookie(t *testing.T) {
 		t.Fatal("expected semicolon in an authentication cookie to be rejected")
 	}
 }
+
+func TestUserAgentFromJSONReadsMetadataCookie(t *testing.T) {
+	raw := json.RawMessage(`[{
+		"name":"_user_agent",
+		"value":"Mozilla/5.0 (Windows NT 10.0; Win64; x64); custom",
+		"domain":".creativefabrica.com",
+		"path":"/"
+	}]`)
+	if got := UserAgentFromJSON(raw); got != "Mozilla/5.0 (Windows NT 10.0; Win64; x64); custom" {
+		t.Fatalf("unexpected user agent %q", got)
+	}
+}

@@ -5856,7 +5856,7 @@ textarea {
 
 .playground-provider-field {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 12px;
 }
@@ -5869,18 +5869,26 @@ textarea {
 
 .playground-provider-field .provider-switcher {
   width: 100%;
-  overflow-x: hidden;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+  overflow: visible;
+  padding: 6px;
 }
 
 .playground-provider-field .provider-switcher.compact > button {
   flex: 1 1 0;
   grid-template-columns: 8px minmax(0, 1fr);
   min-width: 0;
-  padding-inline: 8px;
+  padding: 10px;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 6px;
 }
 
 .playground-provider-field .provider-switcher > button strong {
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .playground-provider-field .segmented {
@@ -8462,6 +8470,58 @@ button[data-ui-button="true"][data-variant="secondary"]:hover:not(:disabled) {
 .account-filter-group select {
   min-height: 38px;
   min-width: 116px;
+}
+
+/* Keep the filter layout independent of generic toolbar flex breakpoints.
+   A search width flex-basis must never become a height in a column layout. */
+.accounts-toolbar.account-filter-workspace {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.accounts-toolbar.account-filter-workspace > .search-box {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  min-height: 42px;
+  flex: none;
+}
+
+.account-filter-workspace > .search-box input {
+  width: 100%;
+  height: 42px;
+}
+
+@media (max-width: 1180px) {
+  .accounts-toolbar.account-filter-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .account-filter-workspace > .account-filter-group {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    width: 100%;
+  }
+
+  .account-filter-workspace > .account-filter-group select {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .account-filter-workspace > .account-filter-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .account-filter-workspace > .account-filter-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .account-mobile-list {

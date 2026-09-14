@@ -196,6 +196,8 @@ func normalizeAccountConcurrency(providerID string, value int) (int, error) {
 	maximum := 5
 	if providerID == providers.Adobe {
 		maximum = 100
+	} else if providerID == providers.CreativeFabrica {
+		maximum = 10
 	}
 	if value == 0 {
 		return 5, nil
@@ -642,10 +644,16 @@ func (s *Server) adminSyncAccountPricing(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "database_error", err.Error())
 		return
 	}
-	account, err = s.Accounts.RefreshAccount(r.Context(), id, false)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "refresh_failed", err.Error())
-		return
+	// Creative Fabrica pricing only needs a valid RPC token. Its current
+	// balance endpoint may return an empty 200 envelope, so avoid coupling a
+	// pricing sync to a balance refresh; CreativeFabricaToken refreshes only
+	// when the stored token is actually expired.
+	if account.ProviderID != providers.CreativeFabrica {
+		account, err = s.Accounts.RefreshAccount(r.Context(), id, false)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "refresh_failed", err.Error())
+			return
+		}
 	}
 	var rules int
 	var source string

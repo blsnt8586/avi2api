@@ -680,6 +680,9 @@ func (s *Service) refresh(ctx context.Context, id uuid.UUID, force, recordError 
 }
 
 func classifySessionError(err error) (string, string, *time.Time) {
+	if errors.Is(err, ErrCreativeFabricaBalanceUnverified) {
+		return "invalid", ErrCreativeFabricaBalanceUnverified.Error(), nil
+	}
 	if IsCreativeFabricaAuthenticationRejected(err) {
 		return "invalid", "Creative Fabrica session or token was rejected", nil
 	}

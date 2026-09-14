@@ -290,6 +290,18 @@ func buildCreativeFabricaVideoSpecs() map[string]Spec {
 		result["creativefabrica:"+model] = spec
 		result[model] = spec
 	}
+	mini := result["seedance_v2_mini"]
+	mini.DefaultDuration = 4
+	mini.Durations = integerRange(4, 15)
+	mini.Resolutions = []string{"480p", "720p"}
+	mini.MaxReferenceImages = 9
+	mini.MaxReferenceVideos = 3
+	mini.MaxReferenceAudios = 3
+	mini.MaxReferenceItems = 9
+	mini.MaxVideoDuration = 15
+	mini.MaxAudioDuration = 15
+	result["creativefabrica:seedance_v2_mini"] = mini
+	result["seedance_v2_mini"] = mini
 	return result
 }
 

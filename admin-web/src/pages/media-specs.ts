@@ -587,6 +587,26 @@ const creativeFabricaVideoDocs: Record<string, VideoModelDoc> = Object.fromEntri
   }),
 ) as Record<string, VideoModelDoc>;
 
+creativeFabricaVideoDocs["creativefabrica:seedance_v2_mini"] = {
+  ...creativeFabricaVideoDocs["creativefabrica:seedance_v2_mini"],
+  duration: "4–15 秒",
+  durationValues: Array.from({ length: 12 }, (_, index) => index + 4),
+  defaultDuration: 4,
+  resolution: "480p / 720p",
+  resolutions: ["480p", "720p"],
+  maxReferenceImages: 9,
+  maxReferenceVideos: 3,
+  maxReferenceAudios: 3,
+  maxReferenceVideoDuration: 15,
+  maxReferenceAudioDuration: 15,
+  promptMax: 4096,
+  limits: [
+    "普通参考图最多 9 张；参考视频最多 3 个；参考音频最多 3 个",
+    "普通图片、视频和音频合计最多 9 个；参考音频需要同时提供图片或视频",
+    "首帧/尾帧与普通参考媒体互斥，尾帧需要首帧",
+  ],
+};
+
 export const videoModelDocs: Record<string, VideoModelDoc> = {
   ...baseVideoModelDocs,
   ...creativeFabricaVideoDocs,

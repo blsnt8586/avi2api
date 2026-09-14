@@ -28,6 +28,7 @@
       "adobe/veo-3.1-fast": 9999,
       "adobe/seedance-2.0": 5000,
       "adobe/seedance-2.0-fast": 5000,
+      "creativefabrica/seedance_v2_mini": 4096,
       "leonardo/gemini-omni-flash": 5000,
       "leonardo/happy-horse-1.1": 5000,
       "leonardo/kling-3.0": 5000,
@@ -59,7 +60,17 @@
         "max_videos": 10,
         "max_audios": 10,
         "max_combined_items": 30,
-        "frames_are_exclusive": true
+        "frames_are_exclusive": true,
+        "model_limits": {
+          "creativefabrica/seedance_v2_mini": {
+            "max_images": 9,
+            "max_videos": 3,
+            "max_audios": 3,
+            "max_combined_items": 9,
+            "max_video_duration_seconds": 15,
+            "max_audio_duration_seconds": 15
+          }
+        }
       },
       "image_models": [
         "creativefabrica/flux-2-max",
@@ -412,7 +423,8 @@
               "adobe/veo-3.1",
               "adobe/veo-3.1-fast",
               "adobe/seedance-2.0",
-              "adobe/seedance-2.0-fast"
+              "adobe/seedance-2.0-fast",
+              "creativefabrica/seedance_v2_mini"
             ],
             "required_media": [],
             "rule": "Do not send image, start_frame, end_frame, video, or audio."
@@ -426,12 +438,13 @@
               "adobe/kling-3.0-omni",
               "adobe/veo-3.1",
               "adobe/seedance-2.0",
-              "adobe/seedance-2.0-fast"
+              "adobe/seedance-2.0-fast",
+              "creativefabrica/seedance_v2_mini"
             ],
             "required_media": [
               "image or image[]"
             ],
-            "rule": "Cannot be combined with start_frame or end_frame. Adobe Seedance accepts up to 9 images, Adobe Veo and Kling accept up to 3. Seedance 2.5 accepts up to 30 images."
+            "rule": "Cannot be combined with start_frame or end_frame. Adobe Seedance accepts up to 9 images, Creative Fabrica Seedance 2.0 Mini accepts up to 9 images, Adobe Veo and Kling accept up to 3. Seedance 2.5 accepts up to 30 images."
           },
           {
             "id": "frame",
@@ -443,7 +456,8 @@
               "adobe/veo-3.1",
               "adobe/veo-3.1-fast",
               "adobe/seedance-2.0",
-              "adobe/seedance-2.0-fast"
+              "adobe/seedance-2.0-fast",
+              "creativefabrica/seedance_v2_mini"
             ],
             "required_media": [
               "start_frame"
@@ -463,12 +477,13 @@
             "models": [
               "leonardo/kling-o3-omni",
               "adobe/seedance-2.0",
-              "adobe/seedance-2.0-fast"
+              "adobe/seedance-2.0-fast",
+              "creativefabrica/seedance_v2_mini"
             ],
             "required_media": [
               "video or video[]"
             ],
-            "rule": "Adobe Seedance accepts up to 3 files totaling 15 seconds. Seedance 2.5 accepts up to 10 files totaling 30.2 seconds. Cannot be combined with start_frame or end_frame."
+            "rule": "Adobe Seedance and Creative Fabrica Seedance 2.0 Mini accept up to 3 files totaling 15 seconds. Seedance 2.5 accepts up to 10 files totaling 30.2 seconds. Cannot be combined with start_frame or end_frame."
           },
           {
             "id": "audio",
@@ -476,13 +491,14 @@
             "content_type": "multipart/form-data",
             "models": [
               "adobe/seedance-2.0",
-              "adobe/seedance-2.0-fast"
+              "adobe/seedance-2.0-fast",
+              "creativefabrica/seedance_v2_mini"
             ],
             "required_media": [
               "audio or audio[]",
               "supporting reference"
             ],
-            "rule": "Adobe Seedance accepts up to 3 files totaling 15 seconds and requires an image or video. Seedance 2.5 accepts up to 10 files totaling 30.2 seconds. MiniMax H3 requires an ordinary image."
+            "rule": "Adobe Seedance and Creative Fabrica Seedance 2.0 Mini accept up to 3 files totaling 15 seconds and require an image or video. Seedance 2.5 accepts up to 10 files totaling 30.2 seconds. MiniMax H3 requires an ordinary image."
           }
         ],
         "x-reference-combinations": {
@@ -579,6 +595,30 @@
                 "video"
               ],
               "max_reference_media": 12
+            },
+            {
+              "models": [
+                "creativefabrica/seedance_v2_mini"
+              ],
+              "combinable_reference_fields": [
+                "image",
+                "video",
+                "audio"
+              ],
+              "alternative_reference_fields": [
+                "start_frame",
+                "end_frame"
+              ],
+              "audio_requires_any": [
+                "image",
+                "video"
+              ],
+              "max_reference_images": 9,
+              "max_reference_videos": 3,
+              "max_reference_audios": 3,
+              "max_reference_media": 9,
+              "max_reference_video_duration": 15,
+              "max_reference_audio_duration": 15
             }
           ]
         },
@@ -3939,7 +3979,7 @@
           "prompt"
         ],
         "additionalProperties": false,
-        "description": "Creative Fabrica Studio multipart video request. Upload image/image[], start_frame/end_frame, video/video[], or audio/audio[] as supported by the account-scoped model. Frames are exclusive with other reference media; the gateway validates the common 10/10/10 and 30-item limits before submission.",
+        "description": "Creative Fabrica Studio multipart video request. Upload image/image[], start_frame/end_frame, video/video[], or audio/audio[] as supported by the account-scoped model. Frames are exclusive with other reference media. Seedance 2.0 Mini accepts up to 9 images, 3 videos, and 3 audio files, with at most 9 ordinary reference items in total; audio requires an image or video.",
         "properties": {
           "model": {
             "type": "string",
@@ -4103,6 +4143,73 @@
                   }
                 ]
               }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "model"
+              ],
+              "properties": {
+                "model": {
+                  "const": "creativefabrica/seedance_v2_mini"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "prompt": {
+                  "maxLength": 4096
+                },
+                "duration": {
+                  "minimum": 4,
+                  "maximum": 15,
+                  "default": 4
+                },
+                "resolution": {
+                  "enum": [
+                    "480p",
+                    "720p"
+                  ],
+                  "default": "720p"
+                },
+                "image": {
+                  "maxItems": 9
+                },
+                "video": {
+                  "maxItems": 3
+                },
+                "audio": {
+                  "maxItems": 3
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "model",
+                "audio"
+              ],
+              "properties": {
+                "model": {
+                  "const": "creativefabrica/seedance_v2_mini"
+                }
+              }
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "required": [
+                    "image"
+                  ]
+                },
+                {
+                  "required": [
+                    "video"
+                  ]
+                }
+              ]
             }
           }
         ]

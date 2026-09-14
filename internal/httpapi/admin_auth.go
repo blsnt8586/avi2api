@@ -134,10 +134,18 @@ func (s *Server) adminCSRF(next http.Handler) http.Handler {
 			return
 		}
 		origin := strings.TrimRight(r.Header.Get("Origin"), "/")
-		if origin != "" && origin != s.Config.PublicBaseURL {
+		if origin != "" && origin != s.Config.PublicBaseURL && !strings.EqualFold(origin, requestOrigin(r)) {
 			writeError(w, 403, "csrf_rejected", "request origin is not allowed")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
 }

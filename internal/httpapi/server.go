@@ -119,6 +119,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/accounts/{id}/refresh", s.adminRefreshAccount)
 		r.Post("/accounts/{id}/generation-permission", s.adminCheckGenerationPermission)
 		r.Post("/accounts/{id}/pricing-sync", s.adminSyncAccountPricing)
+		r.Post("/accounts/{id}/cost-quote", s.adminAccountCostQuote)
 		r.Post("/accounts/{id}/session-refresh", s.adminEnqueueSessionRefresh)
 		r.Put("/accounts/{id}/cookie-json", s.adminImportAccountCookieJSON)
 		r.Put("/accounts/{id}/session", s.adminImportAccountSession)
